@@ -132,18 +132,33 @@ def request_password_reset(identifier: str):
     # Resend cooldown: if a live (unexpired) code was issued within the
     # cooldown window, do not churn it and do not send another email.
     # Uniform response, so this reveals nothing about the account.
-    recent = fetch_one(
+    #
+    # Attempt budget is carried forward on re-issue: a fresh code never
+    # resets the 5-attempt limit while the previous code is still live.
+    # Otherwise requests after the cooldown would grant unlimited fresh
+    # guessing windows against the unexpired OTP.
+    existing = fetch_one(
         """
-        SELECT 1 FROM password_reset_otps
+        SELECT attempts,
+               expires_at > NOW() AS live,
+               sent_at > NOW() - make_interval(secs => %s) AS within_cooldown
+        FROM password_reset_otps
         WHERE user_id = %s
-          AND expires_at > NOW()
-          AND sent_at > NOW() - make_interval(secs => %s)
         LIMIT 1
         """,
-        (user["user_id"], RESET_RESEND_COOLDOWN_SECONDS),
+        (RESET_RESEND_COOLDOWN_SECONDS, user["user_id"]),
     )
-    if recent:
-        return True, UNIFORM_RESET_MESSAGE, None
+    attempts_carry = 0
+    if existing:
+        if existing.get("within_cooldown"):
+            # Live code issued within cooldown: keep it, no new email.
+            return True, UNIFORM_RESET_MESSAGE, None
+        if existing.get("live"):
+            attempts_carry = int(existing.get("attempts") or 0)
+            if attempts_carry >= OTP_MAX_ATTEMPTS:
+                # Budget burned: no new code until the current one expires.
+                return True, UNIFORM_RESET_MESSAGE, None
+        # Expired code (or no live code): fresh attempt budget.
 
     code = f"{secrets.randbelow(1_000_000):06d}"
     code_hash = _otp_hash(user["user_id"], code)
@@ -154,14 +169,14 @@ def request_password_reset(identifier: str):
             cur.execute(
                 """
                 INSERT INTO password_reset_otps (user_id, code_hash, expires_at, attempts, sent_at)
-                VALUES (%s, %s, NOW() + INTERVAL '15 minutes', 0, NOW())
+                VALUES (%s, %s, NOW() + INTERVAL '15 minutes', %s, NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
                     code_hash = EXCLUDED.code_hash,
                     expires_at = EXCLUDED.expires_at,
-                    attempts = 0,
+                    attempts = EXCLUDED.attempts,
                     sent_at = NOW()
                 """,
-                (user["user_id"], code_hash),
+                (user["user_id"], code_hash, attempts_carry),
             )
         conn.commit()
     except Exception:
@@ -239,7 +254,7 @@ def verify_and_reset_password(user_id: int, code: str, new_password: str):
 
             if row["attempts"] >= OTP_MAX_ATTEMPTS:
                 conn.rollback()
-                return False, "Too many incorrect attempts. Please request a new reset code."
+                return False, "Too many incorrect attempts. Please wait for the current code to expire, then request a new one."
 
             cur.execute("SELECT NOW() AS now")
             now = cur.fetchone()["now"]
