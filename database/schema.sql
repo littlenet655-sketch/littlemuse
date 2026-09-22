@@ -434,7 +434,7 @@ CREATE TABLE IF NOT EXISTS user_device_tokens (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ DEFAULT NOW(),
   revoked_at TIMESTAMPTZ,
-  CONSTRAINT uq_user_device_token UNIQUE(user_id, push_token)
+  CONSTRAINT uq_push_token_owner UNIQUE(push_token)
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_device_tokens_active ON user_device_tokens(user_id) WHERE revoked_at IS NULL;
