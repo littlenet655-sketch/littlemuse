@@ -7,7 +7,15 @@ __pycache__/
 .venv/
 venv/
 uploads/
-/models/
+/models/*
+!/models/littlenet_core_safety_v2.pth
+!/models/littlenet_weapons_violence_v3.pth
+!/models/littlenet_text_safety
+/models/littlenet_text_safety/*
+!/models/littlenet_text_safety/config.json
+!/models/littlenet_text_safety/tokenizer.json
+!/models/littlenet_text_safety/tokenizer_config.json
+!/models/littlenet_text_safety/model.safetensors
 model_cache/
 *.log
 .DS_Store
