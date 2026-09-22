@@ -38,6 +38,7 @@ image = (
         "ultralytics>=8.3,<9",
         "opencv-python-headless==4.11.0.86",
         "scenedetect-headless>=0.7,<0.8",
+        "rapidocr-onnxruntime>=1.4,<2",
         "Flask==3.1.3",
         "python-dotenv==1.2.2",
         "Pillow==12.3.0",
@@ -65,6 +66,7 @@ image = (
             # 541MB littlenet_text_safety/ directory into littlenet-model-cache.
             "LITTLENET_TRAINED_TEXT_PATH": "/cache/models/littlenet_text_safety",
             "LITTLENET_ENABLE_TRAINED_TEXT": "1",
+            "LITTLENET_ENABLE_OCR": "1",
             "HF_HOME": "/cache/huggingface",
             "HF_HUB_CACHE": "/cache/huggingface/hub",
             "TORCH_HOME": "/cache/torch",
