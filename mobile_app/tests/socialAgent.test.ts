@@ -8,6 +8,8 @@ import { setUnauthorizedHandler } from '../src/api/client';
 import {
   addComment,
   blockUser,
+  deleteOwnPost,
+  deleteOwnStory,
   fetchBlockedUsers,
   fetchComments,
   fetchConnectionRequests,
@@ -216,7 +218,20 @@ describe('chat contract', () => {
     stubFetch();
     nextPayload = { ok: true, conversations: [] };
     await fetchConversations('tok');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/messages');
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/messages?limit=20&offset=0');
+  });
+});
+
+describe('safe delete contract', () => {
+  it('deletes only through authenticated server-owned post/story endpoints', async () => {
+    stubFetch();
+    nextPayload = { ok: true };
+    await deleteOwnPost('tok', 41);
+    await deleteOwnStory('tok', 42);
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/posts/41');
+    assert.equal(seen[0]?.init.method, 'DELETE');
+    assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v2/kids/stories/42');
+    assert.equal(seen[1]?.init.method, 'DELETE');
   });
 });
 
