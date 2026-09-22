@@ -20,7 +20,7 @@ Team: ATHMIYA D, PRAGNA G SHENOY, ROHINI L GOWDA and SANGEETHA M. Project guide:
 - video frame sampling; video audio is stripped before persistence because active speech/audio moderation is outside the locked build
 - compulsory age-banded quiz gate, Parent Controls, screen time and quiet hours
 - private R2 media authorization and PostgreSQL audit/history
-- Android WebView source and automated live-backed APK release workflow
+- React Native / Expo Android client and automated live-backed APK release workflow
 - CI security/source gates and clean submission ZIP packaging
 
 ## Live deployment status — do not overclaim
@@ -59,4 +59,4 @@ Do not call the build fully live until all of these are true:
 - public `/healthz` and `/readyz` pass
 - Playwright live smoke passes
 - `LittleNet-live-verified-apk` is produced
-- APK is installed on a real Android device and camera/upload flows are tested
+- APK is installed on a real Android device and login/upload/media flows are tested
