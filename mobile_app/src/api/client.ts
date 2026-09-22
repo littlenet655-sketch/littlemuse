@@ -62,8 +62,8 @@ export const routes = {
   parentFollowAction: '/api/mobile/v1/parent/follow-requests/action',
   parentNotifications: '/api/mobile/v1/parent/notifications',
   parentActivity: (childId: number) => `/api/mobile/v1/parent/activity/${childId}`,
-  /** Read-only per-child watch aggregates served by parent/api.py (session-gated). */
-  parentViewingInsights: (childId: number) => `/api/parent/child/${childId}/viewing-insights`,
+  /** Read-only per-child watch aggregates through the bearer-authenticated mobile alias. */
+  parentViewingInsights: (childId: number) => `/api/mobile/v1/parent/child/${childId}/viewing-insights`,
   parentResetChildPassword: (childId: number) => `/api/mobile/v1/parent/child/${childId}/reset-password`,
   parentChild: (childId: number) => `/api/mobile/v1/parent/child/${childId}`,
   adminDashboard: '/api/mobile/v1/admin/dashboard',
