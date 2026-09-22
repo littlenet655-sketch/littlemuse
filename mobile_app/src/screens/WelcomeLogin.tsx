@@ -37,9 +37,9 @@ const MODES: {
   },
 ];
 
-// Admin sign-in stays available through the API, but it is not a peer login
-// choice for parents and children: only kids/parent appear as mode pills.
-const PILL_MODES = MODES.filter((m) => m.value !== 'admin');
+// The role selected on the entry screen stays visible on the login screen so
+// the user always knows which authorization boundary they are entering.
+const PILL_MODES = MODES;
 
 export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
   return (
