@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addComment, blockUser, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { addComment, blockUser, deletePost, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
@@ -31,6 +31,32 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const [sharing, setSharing] = useState<number | null>(null);
   const nav = navigation as unknown as { goBack: () => void };
   const reasons = ['Unsafe or unkind', 'Personal information', 'Something else'];
+  const ownPost = Boolean(session?.user.user_id && post?.child_id === session.user.user_id);
+
+  function confirmDelete() {
+    if (!session || !post || !ownPost || busy) return;
+    Alert.alert(
+      'Delete this post?',
+      'It will be removed from Feed, Reels, profiles, saved items, comments, and private media storage.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            void deletePost(session.token, postId)
+              .then(async () => {
+                await invalidateSocialCaches([postId]);
+                nav.goBack();
+              })
+              .catch(setError)
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
+  }
 
   async function load() {
     if (!session || !postId) return;
@@ -55,6 +81,7 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
           body="We couldn't open this post because it is missing its details. Go back and choose it again."
         />
         <Button label="Back" variant="secondary" onPress={() => nav.goBack()} />
+        {ownPost ? <Button label={busy ? "Deleting…" : "Delete post"} variant="secondary" onPress={confirmDelete} disabled={busy} /> : null}
       </Screen>
     );
   }
