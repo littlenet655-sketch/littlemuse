@@ -66,6 +66,7 @@ export const routes = {
   parentFollowAction: '/api/mobile/v1/parent/follow-requests/action',
   parentNotifications: '/api/mobile/v1/parent/notifications',
   parentActivity: (childId: number) => `/api/mobile/v1/parent/activity/${childId}`,
+  parentInsights: (childId: number) => `/api/mobile/v1/parent/insights/${childId}`,
   parentResetChildFace: (childId: number) => `/api/mobile/v1/parent/child/${childId}/reset-face`,
   parentResetChildPassword: (childId: number) => `/api/mobile/v1/parent/child/${childId}/reset-password`,
   parentEnrollChildFace: (childId: number) => `/api/mobile/v1/parent/children/${childId}/face/enroll`,
