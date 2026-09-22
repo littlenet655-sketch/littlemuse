@@ -1,6 +1,6 @@
 from datetime import datetime,time
 import json
-from database.connection import fetch_one,fetch_all,execute
+from database.connection import fetch_one,fetch_all,execute,get_db_connection
 
 
 def _log_session(row,end_at):
@@ -15,7 +15,48 @@ def _finalize_open(child_id):
 
 
 def start_session(child_id):
-    _finalize_open(child_id);return execute('INSERT INTO child_usage_sessions(child_id) VALUES(%s) RETURNING usage_session_id,session_key,started_at',(child_id,),returning=True)
+    """Atomically replace any open usage session with exactly one new session.
+
+    A transaction-scoped advisory lock prevents simultaneous logins from both
+    observing "no open session" and creating two live sessions that would
+    double-count screen time.
+    """
+    conn=get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842102, int(child_id)))
+            cur.execute(
+                "SELECT * FROM child_usage_sessions WHERE child_id=%s AND ended_at IS NULL FOR UPDATE",
+                (child_id,),
+            )
+            rows=cur.fetchall()
+            for row in rows:
+                cur.execute("SELECT NOW() AS now")
+                now=cur.fetchone()['now']
+                end_at=row['last_seen_at'] or row['started_at']
+                if end_at > now:
+                    end_at=now
+                mins=max(0,int((end_at-row['started_at']).total_seconds()/60))
+                cur.execute(
+                    "UPDATE child_usage_sessions SET ended_at=%s WHERE usage_session_id=%s",
+                    (end_at,row['usage_session_id']),
+                )
+                cur.execute(
+                    "INSERT INTO child_usage_logs(child_id,usage_date,login_time,logout_time,duration_minutes) VALUES(%s,%s,%s,%s,%s)",
+                    (row['child_id'],row['started_at'].date(),row['started_at'],end_at,mins),
+                )
+            cur.execute(
+                "INSERT INTO child_usage_sessions(child_id) VALUES(%s) RETURNING usage_session_id,session_key,started_at",
+                (child_id,),
+            )
+            created=cur.fetchone()
+        conn.commit()
+        return created
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def heartbeat(session_key):
