@@ -158,7 +158,13 @@ def notify(user_id,kind,message,url=None,actor=None):
 
 def parent_notify(child_id,kind,message,url=None):
     parents=fetch_all('''SELECT DISTINCT pcm.parent_id,u.email,u.full_name FROM parent_child_map pcm
-        JOIN users u ON u.user_id=pcm.parent_id WHERE pcm.child_id=%s AND pcm.parent_id IS NOT NULL''',(child_id,))
+        JOIN users u ON u.user_id=pcm.parent_id
+        WHERE pcm.child_id=%s
+          AND pcm.parent_id IS NOT NULL
+          AND pcm.approved=TRUE
+          AND pcm.approval_status='APPROVED'
+          AND u.role='PARENT'
+          AND u.account_status='ACTIVE' ''',(child_id,))
     for parent in parents:
         execute('''INSERT INTO parent_notifications(parent_id,child_id,notification_type,notification_message,target_url)
           VALUES(%s,%s,%s,%s,%s)''',(parent['parent_id'],child_id,kind,message,url))
