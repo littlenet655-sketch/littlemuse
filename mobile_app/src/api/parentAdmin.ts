@@ -21,6 +21,26 @@ export interface TimeLimit {
   updated_at?: string;
 }
 
+export interface ViewingSurfaceInsights {
+  views: number;
+  watched_ms?: number;
+  watched_minutes: number;
+  completed: number;
+  completion_rate: number;
+  replays: number;
+  liked: number;
+  saved: number;
+}
+
+export interface ParentViewingInsights {
+  days: number;
+  total_views: number;
+  watched_minutes: number;
+  feed: ViewingSurfaceInsights;
+  reels: ViewingSurfaceInsights;
+  top_categories: Array<{ category: string; views: number; watched_minutes: number }>;
+}
+
 export interface ParentChild {
   user_id: number;
   username: string;
@@ -36,6 +56,7 @@ export interface ParentChild {
   presence?: { online?: boolean; last_seen_at?: string | null };
   behavior?: { score?: number; level?: string; trend?: string; reasons?: string[] };
   quiz_7d: { attempted: number; correct: number; accuracy: number };
+  viewing_7d: ParentViewingInsights;
 }
 
 export interface FollowRequest {
