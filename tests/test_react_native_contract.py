@@ -45,6 +45,7 @@ def test_native_social_stitch_routes_are_registered_once():
     stitch=text("mobile/stitch_api.py")
     assert "from mobile.stitch_api import register_mobile_stitch_api" in auth_api
     assert "register_mobile_stitch_api(api_bp)" in auth_api
+    assert "_littlenet_stitch_registered" in stitch
     assert "/api/mobile/v1/kids/saved" in stitch
     assert "/api/mobile/v1/kids/profiles/<int:target_id>" in stitch
     assert "/api/mobile/v1/kids/profiles/<int:target_id>/actions" in stitch
