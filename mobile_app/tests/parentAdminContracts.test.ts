@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
@@ -224,6 +225,17 @@ describe('parent dashboard and controls contracts', () => {
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/child/7');
     assert.equal(method(), 'DELETE');
     assert.equal(result.message, 'child_unlinked');
+  });
+});
+
+describe('parent insight and private review UI contracts', () => {
+  it('renders aggregate viewing insights and reveal-gated private video review', () => {
+    const source = readFileSync('src/screens/parent/ParentScreens.tsx', 'utf8');
+    assert.ok(source.includes('VIEWING INSIGHTS · 7 DAYS'));
+    assert.ok(source.includes('child.viewing_7d?.reels?.completion_rate'));
+    assert.ok(source.includes('Sensitive private preview'));
+    assert.ok(source.includes('ReviewVideo'));
+    assert.ok(source.includes("headers: { Authorization: `Bearer ${token}` }"));
   });
 });
 
