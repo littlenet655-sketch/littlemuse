@@ -86,25 +86,6 @@ def register_mobile_stitch_api(bp):
     # canonical mobile API so registering it cannot create duplicate Flask
     # URL rules.
 
-    @bp.route('/api/mobile/v1/kids/friends')
-    @_require_mobile('CHILD')
-    def mobile_kids_friends():
-        blocked = _gate()
-        if blocked:
-            return blocked
-        uid = int(g.mobile_user['user_id'])
-        rows = fetch_all(
-            """SELECT u.user_id,u.full_name,u.username,cp.profile_picture
-               FROM followers f
-               JOIN users u ON u.user_id=CASE WHEN f.child_id=%s THEN f.following_child_id ELSE f.child_id END
-               LEFT JOIN child_profiles cp ON cp.child_id=u.user_id
-               WHERE f.approved=TRUE AND f.approval_stage='ACTIVE'
-                 AND (f.child_id=%s OR f.following_child_id=%s)
-               ORDER BY u.full_name,u.user_id""",
-            (uid, uid, uid),
-        )
-        return jsonify(ok=True, friends=[_profile_json(row) for row in rows])
-
     @bp.route('/api/mobile/v1/kids/chat/<int:peer_id>/share', methods=['POST'])
     @csrf.exempt
     @limiter.limit('30 per minute')
