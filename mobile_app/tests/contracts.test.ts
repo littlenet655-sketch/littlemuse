@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
 import { ApiError, productionApiUrlProblem, setUnauthorizedHandler } from '../src/api/client';
-import { answerQuiz, createChild, enrollChildFace, faceLogin, fetchQuiz, registerParent, requestPasswordReset, resendParentEmail, resetPassword, verifyParentEmail } from '../src/api/auth';
+import { answerQuiz, createChild, fetchQuiz, registerParent, requestPasswordReset, resendParentEmail, resetPassword, verifyParentEmail } from '../src/api/auth';
 import { routes } from '../src/api/client';
 
 interface SeenRequest {
@@ -88,38 +88,11 @@ describe('parent OTP contracts', () => {
   it('creates a child with the verified-parent contract fields', async () => {
     stubFetch();
     nextStatus = 201;
-    nextPayload = { ok: true, child_id: 9, next_steps: ['child_face_enrollment', 'age_quiz'] };
+    nextPayload = { ok: true, child_id: 9, next_steps: ['age_quiz'] };
     const created = await createChild('tok', { username: 'kid_rio', full_name: 'Kid Rio', age: 10, password: 'childpass1' });
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/children');
     assert.equal(created.child_id, 9);
     assert.equal((seen[0]?.init.headers as Headers).get('Authorization'), 'Bearer tok');
-  });
-});
-
-describe('child face enrollment and login contracts', () => {
-  it('enrolls with a fresh live photo and logs in face-first per attempt', async () => {
-    stubFetch();
-    nextStatus = 200;
-    nextPayload = { ok: true, biometric_key: 'b', quiz_required: true };
-    await enrollChildFace('child-tok', 'live1');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/face/enroll');
-    assert.deepEqual(bodyJson(), { photo_b64: 'live1' });
-
-    nextPayload = { ok: true, token: 't2', auth_method: 'FACE', user: {} };
-    await faceLogin('kid_rio', 'kids', 'live2', 'ch_1', 'nonce_1', 'BLINK');
-    assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v1/auth/face-login');
-    assert.deepEqual(bodyJson(1), { identifier: 'kid_rio', mode: 'kids', photo_b64: 'live2', challenge_id: 'ch_1', nonce: 'nonce_1', action_completed: 'BLINK' });
-  });
-
-  it('maps face-login failures to one uniform message without clearing the gate', async () => {
-    stubFetch();
-    nextStatus = 401;
-    nextPayload = { error: 'face_login_failed' };
-    const err = await faceLogin('kid_rio', 'kids', 'live3', 'ch_2', 'nonce_2', 'TURN_LEFT').catch((error: unknown) => error);
-    assert.ok(err instanceof ApiError);
-    assert.equal((err as ApiError).gate, null);
-    // Anti-enumeration: every face-login failure shows the same message.
-    assert.match((err as ApiError).message, /did not match/i);
   });
 });
 

@@ -77,7 +77,7 @@ Below is the exhaustive specification of every planned feature, component, safet
   - Motion challenge guidance (Blink, Turn Left, Smile) or active anti-spoofing analysis.
   - Instant server-side verification (`POST /api/mobile/v1/auth/parent-liveness`).
 - **Safety & Guardrails**:
-  - DeepFace / FaceNet embedding verification to prevent printed photo or screen playback spoofing.
+  - ~~DeepFace / FaceNet embedding verification~~ — REMOVED 2026-09-22: all face/biometric verification deleted by product decision; child password login + parent email OTP instead.
   - Guarantees child cannot impersonate a parent to self-approve permissions.
 - **Visual Enhancement Target**:
   - Pulsing animated scan ring around the camera viewport, high-contrast instruction pill with icon states (Scanning -> Success).

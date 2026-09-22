@@ -47,6 +47,11 @@ jobs:
           cache: npm
           cache-dependency-path: mobile_app/package-lock.json
       - run: npm ci
+      - name: npm audit (moderate and above, informational)
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+      - name: npm audit gate (fails on high/critical)
+        run: npm audit --audit-level=high
       - run: npm run typecheck
       - run: npm test
       - run: npm run export:android

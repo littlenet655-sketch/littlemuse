@@ -27,17 +27,6 @@ class IdentityVerificationProvider(ABC):
         """
         pass
 
-    @abstractmethod
-    def verify_face_match(
-        self,
-        selfie_image_bytes: bytes,
-        document_portrait_bytes: Optional[bytes] = None
-    ) -> Dict[str, Any]:
-        """
-        Matches the live selfie against the identity document's photo portrait.
-        """
-        pass
-
 
 class MockAadhaarVerificationProvider(IdentityVerificationProvider):
     """
@@ -113,29 +102,9 @@ class MockAadhaarVerificationProvider(IdentityVerificationProvider):
             "document_type": document_type or "AADHAAR_MOCK"
         }
 
-    def verify_face_match(
-        self,
-        selfie_image_bytes: bytes,
-        document_portrait_bytes: Optional[bytes] = None
-    ) -> Dict[str, Any]:
-        # NOTE: the dead verify_liveness mock was removed from this module.
-        # Keep the basic payload sanity check inline so this mock stays
-        # self-consistent.
-        if not selfie_image_bytes or len(selfie_image_bytes) < 100:
-            return {
-                "success": False,
-                "face_match_status": "FAILED",
-                "confidence": 0.0,
-                "error_message": "No live camera selfie detected or image payload is empty."
-            }
-
-        # In Sandbox Mock mode, compare valid selfie with document portrait
-        return {
-            "success": True,
-            "face_match_status": "MATCHED",
-            "confidence": 0.95,
-            "match_verdict": "MATCH_CONFIRMED"
-        }
+    # Face matching was removed from this module (2026-09-22): all
+    # face/biometric verification was deleted from LittleNet by product
+    # decision.
 
 
 # Default provider instance

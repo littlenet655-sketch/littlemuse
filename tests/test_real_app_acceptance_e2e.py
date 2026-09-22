@@ -47,7 +47,6 @@ class RealAppAcceptanceE2ETest(unittest.TestCase):
                 returning=True,
             )
             execute("INSERT INTO child_profiles(child_id, full_name, age) VALUES(%s, 'Child A', 10) ON CONFLICT DO NOTHING", (a_row["user_id"],))
-            execute("INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512') ON CONFLICT DO NOTHING", (a_row["user_id"], json.dumps([0.05]*512)))
             execute("INSERT INTO child_quiz_progress(child_id, quiz_required) VALUES(%s, FALSE) ON CONFLICT DO NOTHING", (a_row["user_id"],))
             execute("INSERT INTO parent_child_map(parent_id, child_id, parent_name, parent_email, approved, approval_status) VALUES(%s, %s, 'Parent P', 'parent_p@test.com', TRUE, 'APPROVED') ON CONFLICT DO NOTHING", (p_row["user_id"], a_row["user_id"]))
             execute("INSERT INTO parent_control_settings(child_id, parent_id, allow_messaging) VALUES(%s, %s, TRUE) ON CONFLICT DO NOTHING", (a_row["user_id"], p_row["user_id"]))
@@ -60,7 +59,6 @@ class RealAppAcceptanceE2ETest(unittest.TestCase):
                 returning=True,
             )
             execute("INSERT INTO child_profiles(child_id, full_name, age) VALUES(%s, 'Child B', 10) ON CONFLICT DO NOTHING", (b_row["user_id"],))
-            execute("INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512') ON CONFLICT DO NOTHING", (b_row["user_id"], json.dumps([0.05]*512)))
             execute("INSERT INTO child_quiz_progress(child_id, quiz_required) VALUES(%s, FALSE) ON CONFLICT DO NOTHING", (b_row["user_id"],))
             execute("INSERT INTO parent_child_map(parent_id, child_id, parent_name, parent_email, approved, approval_status) VALUES(%s, %s, 'Parent P', 'parent_p@test.com', TRUE, 'APPROVED') ON CONFLICT DO NOTHING", (p_row["user_id"], b_row["user_id"]))
             execute("INSERT INTO parent_control_settings(child_id, parent_id, allow_messaging) VALUES(%s, %s, TRUE) ON CONFLICT DO NOTHING", (b_row["user_id"], p_row["user_id"]))

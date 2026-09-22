@@ -280,22 +280,6 @@ def create_app():
             except Exception:
                 app.logger.exception('R2 object cleanup failed after successful media deletion')
 
-        if request.method=='POST' and request.path.rstrip('/')=='/parent/create-child' and session.get('role')=='PARENT' and response.status_code<400:
-            try:
-                parent=fetch_one('SELECT full_name,email FROM users WHERE user_id=%s AND role=\'PARENT\'',(session['user_id'],))
-                mapping=fetch_one('''SELECT pcm.map_id,pcm.child_id,pcm.approval_token,pcm.approval_status,u.full_name AS child_name,u.username,u.age
-                    FROM parent_child_map pcm JOIN users u ON u.user_id=pcm.child_id
-                    WHERE pcm.parent_id=%s AND pcm.approved=FALSE
-                    ORDER BY pcm.created_at DESC LIMIT 1''',(session['user_id'],))
-                if parent and mapping and mapping.get('approval_status')=='PENDING_EMAIL_CONFIRMATION':
-                    token=mapping['approval_token']
-                    execute("UPDATE parent_child_map SET verification_token=%s,approval_status='PENDING_PARENT_VERIFICATION' WHERE map_id=%s",(token,mapping['map_id']))
-                    from mailg.send_email import send_email
-                    verify_url=f"{Config.BASE_URL.rstrip('/')}/verify-parent/{token}/"
-                    send_email(parent['email'],f"LittleNet: Verify yourself to activate {mapping['child_name']}",f"""<h2>Complete guardian camera verification</h2><p>You created the Kids Mode account for <strong>{mapping['child_name']}</strong> (@{mapping['username']}, age {mapping['age']}).</p><p>Before this child can log in, complete live camera liveness and adult guardian verification.</p><p><a href='{verify_url}' style='display:inline-block;padding:12px 22px;background:#0095F6;color:#fff;text-decoration:none;border-radius:10px;font-weight:700'>Open camera verification</a></p>""")
-            except Exception:
-                app.logger.exception('Could not transition new child to guardian camera verification')
-
         if request.path.startswith('/static/'):
             response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
         elif request.path.startswith('/uploads/'):

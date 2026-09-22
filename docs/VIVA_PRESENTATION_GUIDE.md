@@ -6,7 +6,7 @@
 
 ## 1. One-line explanation
 
-> LittleNet is a supervised child-focused social and learning platform where server-side moderation, approved relationships, Parent Mode controls, Face Login/liveness, and Admin/Moderator review work together to reduce unsafe content and interactions.
+> LittleNet is a supervised child-focused social and learning platform where server-side moderation, approved relationships, Parent Mode controls, and Admin/Moderator review work together to reduce unsafe content and interactions.
 
 ## 2. Screen → route → implementation map
 
@@ -21,7 +21,7 @@
 | Parent dashboard | `/parent/dashboard/` | `parent/routes.py` | Usage, presence, controls, safety and learning summaries |
 | Parent safety review | `/parent/safety/` | `parent/routes.py`, `safety/moderation_service.py` | Explicit review of `REVIEW` decisions |
 | Screen time | Parent time-limit/control routes | `services/usage.py` | Server-side usage sessions and lock state |
-| Face Login/liveness | face-login/verification flows | `safety/face_service.py`, auth routes, MediaPipe assets | Face/liveness evidence before protected activation/login behavior |
+| Child login | password login | auth routes, `auth/service.py` | Password login plus the compulsory onboarding quiz before Kids Mode |
 | Learning/quizzes | `/learning/` and quiz routes | `quiz/` | Age-group quizzes/challenges and learning features |
 | Admin/Moderator | `/admin/`, `/admin/moderation/` | `admin/routes.py` | Reports, moderation events, forced block and audit logs |
 | Android app | `mobile_app/` | React Native + Expo + TypeScript | Native role-aware UI using the same HTTPS Flask backend |
@@ -89,9 +89,9 @@ Explain that parent access requires an ACTIVE parent account plus an approved pa
 2. Explain that LittleNet checks the relationship even when a conversation already exists.
 3. If you have prepared the demo data, revoke/block the relationship and show that the old conversation cannot be reused for continued access.
 
-### Step 5 — Face/liveness + Admin + APK (about 1 minute)
+### Step 5 — Admin + APK (about 1 minute)
 
-- Explain that guardian/adult verification requires exactly one face and positive liveness evidence.
+- Explain that parent identity is verified by email OTP ownership, and Parent Mode is gated by Android device auth.
 - Show the Admin/Moderator screen with moderation/audit evidence.
 - Show the Android APK and explain that it was built from the same source and points to the HTTPS backend.
 
@@ -141,9 +141,9 @@ Sensitive child access uses a canonical ownership check that requires an approve
 
 The backend stores usage sessions and calculates current daily usage. Missing/stale sessions are recreated before the lock decision. Time is accumulated in seconds before conversion to display minutes so repeated short sessions are not lost. Daily limits and quiet hours are enforced server-side.
 
-### Q11. What is special about the face/liveness hardening?
+### Q11. How is identity verified without face?
 
-The system no longer treats image dimensions or missing face metadata as proof. Adult/guardian verification requires exactly one face and explicit positive liveness evidence. Age-boundary logic also avoids rounding 17.x into an adult result.
+Parents are verified by email OTP ownership plus an 18+ date-of-birth declaration and explicit guardian consent; Parent Mode on the device is additionally gated by Android system authentication (biometric/PIN). Children log in with a password, and a compulsory age quiz gates Kids Mode.
 
 ### Q12. Why Flask + PostgreSQL?
 

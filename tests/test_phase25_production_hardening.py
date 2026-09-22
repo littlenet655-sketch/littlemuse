@@ -62,13 +62,12 @@ def _ensure_child(child_id: int, username: str) -> None:
         (child_id,),
     )
     execute(
-        """INSERT INTO child_profiles(child_id, parent_id, full_name, age, face_enrollment_skipped)
-           VALUES(%s, 9900, %s, 10, FALSE)
+        """INSERT INTO child_profiles(child_id, parent_id, full_name, age)
+           VALUES(%s, 9900, %s, 10)
            ON CONFLICT (child_id) DO UPDATE SET
              parent_id=EXCLUDED.parent_id,
              full_name=EXCLUDED.full_name,
-             age=EXCLUDED.age,
-             face_enrollment_skipped=FALSE""",
+             age=EXCLUDED.age""",
         (child_id, f"{username} Name"),
     )
     execute(
@@ -80,11 +79,6 @@ def _ensure_child(child_id: int, username: str) -> None:
         """INSERT INTO parent_control_settings(child_id, parent_id, allow_posting, allow_reels)
            VALUES(%s, 9900, TRUE, TRUE) ON CONFLICT (child_id) DO UPDATE SET allow_posting=TRUE, allow_reels=TRUE""",
         (child_id,),
-    )
-    execute(
-        """INSERT INTO face_profiles(child_id, embedding, model_name)
-           VALUES(%s, %s::jsonb, 'Facenet512') ON CONFLICT DO NOTHING""",
-        (child_id, json.dumps([0.05] * 512)),
     )
     execute(
         "INSERT INTO child_quiz_progress(child_id, quiz_required) VALUES(%s, FALSE) ON CONFLICT DO NOTHING",

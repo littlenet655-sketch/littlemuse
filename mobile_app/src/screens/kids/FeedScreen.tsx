@@ -180,12 +180,14 @@ const FeedRow = memo(function FeedRow({
   tab,
   nav,
   onNotInterestedItem,
+  onDeletedItem,
 }: {
   item: FeedItem;
   videoActive: boolean;
   tab: FeedTab;
   nav: { navigate: (r: string, p: object) => void };
   onNotInterestedItem: (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => void;
+  onDeletedItem: (item: FeedItem) => void;
 }) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
@@ -195,6 +197,7 @@ const FeedRow = memo(function FeedRow({
       onOpen={post ? () => nav.navigate('PostDetail', post) : undefined}
       onProfile={profile ? () => nav.navigate('OtherProfile', profile) : undefined}
       onNotInterested={tab === 'Friends' ? undefined : () => onNotInterestedItem(item.source_type, item.source_id)}
+      onDeleted={() => onDeletedItem(item)}
       inlineVideoPlayback
       videoActive={videoActive}
     />
@@ -202,7 +205,8 @@ const FeedRow = memo(function FeedRow({
 }, (prev, next) =>
   prev.item === next.item &&
   prev.videoActive === next.videoActive &&
-  prev.tab === next.tab,
+  prev.tab === next.tab &&
+  prev.onDeletedItem === next.onDeletedItem,
 );
 
 export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
@@ -232,6 +236,16 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     setTab(next);
   }, []);
   const onOpenStories = useCallback(() => nav.navigate('Stories', {}), [nav]);
+  // A deleted post vanishes from the local list immediately (server already
+  // confirmed the soft-delete; cache invalidation happens in the card).
+  const deletedItem = useCallback((item: FeedItem) => {
+    const key = feedKey(item);
+    setHiddenKeys((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+  }, []);
 
   // Memoized so FlatList doesn't get a new data array (forcing a full re-diff)
   // on every parent render — e.g. every viewability tick.
@@ -285,9 +299,10 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         tab={tab}
         nav={nav}
         onNotInterestedItem={notInterested}
+        onDeletedItem={deletedItem}
       />
     );
-  }, [focused, foreground, activeVideoKey, tab, nav, notInterested]);
+  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
 
   if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;

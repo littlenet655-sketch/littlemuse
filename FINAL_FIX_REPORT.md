@@ -41,9 +41,9 @@ The child's "Skip for Now" button (`POST /api/mobile/v1/kids/face/skip`) uncondi
 `POST /api/mobile/v1/auth/face-login` returned **404 `reason="not_enrolled"`** when the account existed without enrollment vs 401 otherwise — an unauthenticated oracle.
 
 - `mobile/api.py`: every failure now returns uniform `401 {"error":"face_login_failed"}` with no `reason`.
-- `auth/routes.py` (web face login): one generic failure message instead of per-reason text.
+- `auth/routes.py` (web face login, REMOVED 2026-09-22): one generic failure message instead of per-reason text.
 - `mobile_app/src/api/errors.ts`: removed the dead per-reason branch (matches the pre-existing uniform message in `ChildFace.tsx::faceLoginFailureMessage`).
-- Tests updated: `tests/test_agent_a_state_machine_and_face.py` (uniform-401 assertions), `mobile_app/tests/errors.test.ts`, `mobile_app/tests/contracts.test.ts`.
+- Tests updated: `tests/test_agent_a_state_machine_and_face.py` (uniform-401 assertions), `mobile_app/tests/errors.test.ts`, `mobile_app/tests/contracts.test.ts`. (2026-09-22: the face endpoints and all face tests were removed entirely.)
 
 ### B3. Retired stale synchronous upload route (integration review finding)
 

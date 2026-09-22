@@ -43,7 +43,7 @@ Pre-deploy checklist for the fully-fixed tree. Nothing below has been executed a
 - [ ] Unverified parent cannot be activated (web admin 403, bearer admin 403).
 - [ ] Legacy v1 sync upload returns 410; all uploads go through v2 quarantine.
 - [ ] REVIEW chat messages never reach the receiver (run `test_message_review_visibility.py` E2E against a disposable DB host).
-- [ ] Face-login failures are uniform 401 (no enumeration oracle).
+- [ ] Child password-login failures return one generic, non-enumerating message (face login removed 2026-09-22).
 - [ ] Child PII redacted before any AI call.
 
 ## 7. Do NOT do

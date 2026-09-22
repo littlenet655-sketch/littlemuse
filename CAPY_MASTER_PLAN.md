@@ -20,7 +20,7 @@ Current final architecture:
 4. NEVER delete working backend features just to simplify the mobile app.
 5. NEVER reintroduce Flutter, WebView wrappers, duplicate Android roots, QStash, or legacy mobile source.
 6. Preserve existing APIs where practical. Add missing mobile API contracts instead of bypassing backend rules.
-7. Keep child-safety gates fail-closed: face enrollment, onboarding quiz, parent controls, quiet hours, moderation, approved-only interaction.
+7. Keep child-safety gates fail-closed: onboarding quiz, parent controls, quiet hours, moderation, approved-only interaction.
 8. Keep GPU usage bounded: no automatic model warm-up; no health/readiness path may wake T4 by default.
 9. All changes require tests and must keep `python tools/audit_all.py` passing.
 10. Do not claim a feature is complete unless its real mobile flow is implemented and tested end-to-end.
@@ -28,14 +28,14 @@ Current final architecture:
 ## Known current state
 - Backend is substantially implemented.
 - `mobile_app/` is still only a React Native foundation/connectivity shell and needs the real app screens/navigation/state.
-- Mobile API backend already contains a large number of auth/social/quiz/face/parent/admin routes.
+- Mobile API backend already contains a large number of auth/social/quiz/parent/admin routes.
 - Existing source audits currently pass.
 - Modal AI scale-to-zero and model cache are already configured; do not modify unless required by a failing contract.
 
 ## Completion definition
 A fresh user must be able to complete this full path:
 
-Parent signup -> email OTP -> guardian verification -> create child -> child face enrollment -> child login -> onboarding quiz -> Kids feed -> stories/reels/discover -> profile -> create image/video post -> moderation -> processing status -> post appears in own profile and eligible feeds -> likes/comments/save/follow -> chat -> recurring quiz -> parent controls/review/screen-time -> admin review.
+Parent signup -> email OTP (device auth gates Parent Mode) -> create child -> child password login -> onboarding quiz -> Kids feed -> stories/reels/discover -> profile -> create image/video post -> moderation -> processing status -> post appears in own profile and eligible feeds -> likes/comments/save/follow -> chat -> recurring quiz -> parent controls/review/screen-time -> admin review.
 
 The app is not complete until this path works from React Native against the real backend contract.
 
@@ -66,7 +66,6 @@ Implement mobile screens and API bindings for:
 - Parent registration.
 - Email OTP request/verify/resend.
 - Login/password reset.
-- Guardian liveness/adult verification camera flow.
 - Child account creation.
 - Parent dashboard entry after successful setup.
 
@@ -76,19 +75,17 @@ Acceptance:
 - guardian verification fails safely when unavailable/invalid.
 - child cannot become usable until required verification is complete.
 
-# Workstream 3 — Child authentication and face enrollment
+# Workstream 3 — Child authentication
 
 Implement:
-- Child face enrollment UI.
-- Face-first login UI.
-- fallback behavior only where backend policy permits.
-- camera permission UX.
-- clear liveness/face mismatch errors.
+- Child password login UI.
+- failed-login and locked-account handling.
+- credential entry and password visibility UX.
+- clear login-error messaging.
 
 Acceptance:
-- face enrollment creates a valid backend face profile.
-- spoof/non-single-face conditions do not authenticate.
 - successful login creates working mobile auth/session state.
+- wrong credentials fail with a generic, non-enumerating error.
 
 # Workstream 4 — Quiz system
 

@@ -18,7 +18,7 @@ No parent control or safety decision is trusted from the client. Flask remains a
 
 ### Parent
 
-1. Registration requires email OTP and guardian liveness/adult verification.
+1. Registration requires email OTP; Android device auth (biometric/PIN) gates Parent Mode.
 2. Parent routes require an ACTIVE Parent role and an approved parent-child mapping.
 3. Dashboard summaries expose only owned children.
 4. Controls, screen time, follow approvals, activity, and notifications are persisted by the backend.

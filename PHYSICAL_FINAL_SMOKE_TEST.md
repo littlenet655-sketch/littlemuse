@@ -31,10 +31,9 @@ system BiometricPrompt UI, and the *real* camera / ML Kit face pipeline.
 ### 5. Cancel → action blocked
 - [ ] Trigger a sensitive action, **cancel** the system prompt → the action does not execute; no error crash; Parent Mode stays closed (or shows the cancelled state).
 
-### 6. Child face enrollment/login with the real front camera
-- [ ] Enroll a child's face using the real front camera → succeeds.
-- [ ] Child login with the real front camera → succeeds.
-- [ ] (If exercised) BLINK / TURN_LEFT / TURN_RIGHT challenges respond to real head movement.
+### 6. Child password login
+- [ ] Child logs in with their password → succeeds.
+- [ ] Wrong credentials fail with one generic, non-enumerating message.
 
 ## What this checklist deliberately does NOT repeat
 - 5-minute window expiry timing, logout/session invalidation, no-lock message

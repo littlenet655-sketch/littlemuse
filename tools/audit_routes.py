@@ -2,7 +2,7 @@ from pathlib import Path
 import ast,sys
 root=Path(__file__).parents[1];errors=[];routes=[]
 public_prefixes={
-    'auth/routes.py':{'mode_select','login','register_page','verify_parent','parent_approve_child','approve_child','register_parent','register_parent_direct_page','face_login','admin_login','logout','switch_mode'},
+    'auth/routes.py':{'mode_select','login','register_page','verify_parent','parent_approve_child','approve_child','register_parent','register_parent_direct_page','admin_login','logout','switch_mode'},
     'auth/api.py':{'api_login'},
 }
 route_files=sorted(p for p in (set(root.rglob('routes.py'))|set(root.rglob('api.py'))) if not any(part in ('.venv', 'venv', 'node_modules', '.git') for part in p.parts))

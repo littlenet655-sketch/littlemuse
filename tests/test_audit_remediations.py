@@ -21,48 +21,6 @@ def test_cleartext_traffic_disabled_in_app_json():
     assert app_json["expo"]["android"]["usesCleartextTraffic"] is False, "usesCleartextTraffic must be false for production safety"
 
 
-def test_child_face_enroll_rejects_re_enrollment(monkeypatch):
-    app = _make_app()
-    user = {"user_id": 101, "role": "CHILD", "account_status": "ACTIVE", "full_name": "Test Child"}
-    token = _issue_token(user)
-
-    monkeypatch.setattr("mobile.api.fetch_one", lambda query, params=(): user if "FROM users" in query else None)
-    monkeypatch.setattr("mobile.api.has_face_profile", lambda uid: True)
-
-    with app.test_client() as client:
-        resp = client.post(
-            "/api/mobile/v1/kids/face/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"photo": "test"},
-        )
-        assert resp.status_code == 409
-        data = resp.get_json()
-        assert data["error"] == "face_already_enrolled"
-
-
-def test_parent_reset_child_face_endpoint(monkeypatch):
-    app = _make_app()
-    parent = {"user_id": 50, "role": "PARENT", "account_status": "ACTIVE", "full_name": "Parent"}
-    token = _issue_token(parent)
-
-    cleared = []
-    monkeypatch.setattr("mobile.api.fetch_one", lambda query, params=(): parent if "FROM users" in query else None)
-    monkeypatch.setattr("mobile.api.owns", lambda pid, cid: True)
-    monkeypatch.setattr("mobile.api.clear_child_face", lambda cid: cleared.append(cid))
-    monkeypatch.setattr("mobile.api.log", lambda *args, **kwargs: None)
-    monkeypatch.setattr("mobile.api.notify", lambda *args, **kwargs: None)
-
-    with app.test_client() as client:
-        resp = client.post(
-            "/api/mobile/v1/parent/child/101/reset-face",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["ok"] is True
-        assert 101 in cleared
-
-
 def test_mobile_logout_revokes_token(monkeypatch):
     app = _make_app()
     user = {"user_id": 101, "role": "CHILD", "account_status": "ACTIVE", "full_name": "Child"}
@@ -206,7 +164,7 @@ def test_session_version_invalidation(monkeypatch):
         )
         assert resp.status_code == 200
 
-    # User's session_version in database is incremented (e.g. on password reset or face reset)
+    # User's session_version in database is incremented (e.g. on password reset)
     user_updated = dict(user, session_version=2)
     monkeypatch.setattr("mobile.api.fetch_one", lambda query, params=(): user_updated if "FROM users" in query else None)
 
@@ -251,48 +209,18 @@ def test_impression_batch_does_not_count_rejected_session_items(monkeypatch):
         assert resp.get_json()["recorded"] == 0
 
 
-def test_face_login_requires_challenge_and_nonce(monkeypatch):
+def test_removed_face_login_endpoint_is_gone(monkeypatch):
+    """Face login was removed 2026-09-22: the endpoint must not exist."""
     app = _make_app()
     user = {"user_id": 101, "role": "CHILD", "account_status": "ACTIVE", "username": "kid_neo", "email": "kid@example.com"}
     monkeypatch.setattr("mobile.api.fetch_one", lambda query, params=(): user if "FROM users" in query else None)
 
     with app.test_client() as client:
-        # Missing challenge_id & nonce
         resp = client.post(
             "/api/mobile/v1/auth/face-login",
             json={"identifier": "kid_neo", "mode": "kids"},
         )
-        assert resp.status_code == 400
-        assert resp.get_json()["error"] == "face_auth_challenge_required"
-
-
-def test_face_login_rejects_used_challenge(monkeypatch):
-    app = _make_app()
-    user = {"user_id": 101, "role": "CHILD", "account_status": "ACTIVE", "username": "kid_neo", "email": "kid@example.com"}
-    used_challenge = {
-        "challenge_id": 99,
-        "user_id": 101,
-        "nonce": "abc123nonce",
-        "action": "BLINK",
-        "used_at": "2026-09-20 00:00:00",
-    }
-
-    def mock_fetch(query, params=()):
-        if "FROM users" in query:
-            return user
-        if "FROM face_auth_challenges" in query:
-            return used_challenge
-        return None
-
-    monkeypatch.setattr("mobile.api.fetch_one", mock_fetch)
-
-    with app.test_client() as client:
-        resp = client.post(
-            "/api/mobile/v1/auth/face-login",
-            json={"identifier": "kid_neo", "mode": "kids", "challenge_id": "99", "nonce": "abc123nonce", "action_completed": "BLINK"},
-        )
-        assert resp.status_code == 403
-        assert resp.get_json()["error"] == "challenge_already_used_replay_detected"
+        assert resp.status_code == 404
 
 
 def test_story_view_checks_visibility(monkeypatch):

@@ -10,15 +10,15 @@
 
 ## Parent onboarding
 
-- [ ] Parent registers → email OTP → liveness + adult verification → ACTIVE.
+- [ ] Parent registers → email OTP → ACTIVE (Parent Mode additionally gated by Android device auth).
 - [ ] Unfinished parent login returns the resume gate (`parent_verification_required`), not access.
 - [ ] Parent creates a child; child appears in Parent Mode dashboard.
 
-## Child onboarding (face gates)
+## Child onboarding
 
-- [ ] Child face enrollment via live camera (blink liveness) succeeds.
-- [ ] **Deferral flow (new in this tree):** child taps "Skip for Now" → sees parent-approval message; parent approves in Parent Mode → child taps skip again → enters Kids Mode. Then parent declines on another child → skip stays blocked.
-- [ ] Face login works; wrong face / unenrolled identifier shows one generic failure message.
+- [ ] Child logs in with their password.
+- [ ] Wrong credentials show one generic, non-enumerating failure message.
+- [ ] Compulsory age quiz gates Kids Mode entry.
 
 ## Posting pipeline (v2)
 

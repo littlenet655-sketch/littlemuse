@@ -37,8 +37,9 @@ threshold until a small synthetic test passes.
 6. Detoxify multilingual is limited to the languages documented by that model.
    Deterministic grooming, sexual-solicitation, abuse and PII rules add useful
    fail-safe coverage, but no ruleset is immune to adversarial language.
-7. DeepFace returns apparent age, not legal age. The former exact `>=18` gate was
-   unsafe at the decision boundary.
+7. (2026-09-22 note: the DeepFace/face-age path was removed entirely by product
+   decision; it is no longer part of the moderation or verification stack. The
+   former exact `>=18` gate was unsafe at the decision boundary.)
 8. Modal is configured to scale to zero. The report's exact 25–40 second claim
    is not demonstrated by repository telemetry. Cold-start risk is real, but it
    must be measured rather than asserted.
@@ -60,11 +61,9 @@ threshold until a small synthetic test passes.
 
 ### Guardian age uncertainty
 
-- Face liveness remains mandatory.
-- Automatic face-age approval now defaults to an estimated age of 25, configurable
-  by `GUARDIAN_FACE_AUTO_APPROVE_AGE` but never below 18.
-- Estimates from 18 through 24 return `age_estimate_ambiguous` and request manual
-  review instead of claiming the person is a child.
+- (2026-09-22 note: guardian face liveness and face-age approval were removed
+  entirely by product decision. The remaining guardian assurance is email-OTP
+  ownership plus an 18+ date-of-birth declaration and explicit consent.)
 - Generative vision age fallback is disabled by default and requires the explicit
   `LITTLENET_ENABLE_GENERATIVE_AGE_FALLBACK=1` opt-in.
 - This is still not identity or legal-age proof. Production onboarding should add
@@ -81,7 +80,7 @@ threshold until a small synthetic test passes.
 ## Test evidence
 
 The focused moderation suite covers model thresholds, fail-closed behavior,
-scene/uniform budget behavior, guardian liveness and age outcomes, the opt-in
+scene/uniform budget behavior, the opt-in
 fallback, temporal coverage, and text-evasion examples. Current focused result:
 38 passed.
 

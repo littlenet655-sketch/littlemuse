@@ -14,7 +14,7 @@ Status describes verification, not completion. PARTIAL means change responsibili
 | `child/` | Child social/search and face flows | 19 |
 | `parent/` | Guardian ownership, controls and review | 22 |
 | `admin/` | Privileged moderation and auditing | 8 |
-| `safety/` | Inference, liveness and policy | 18 |
+| `safety/` | Inference and policy | 18 |
 | `services/` | Shared media, controls, storage, ranking and usage | 28 |
 | `database/` | PostgreSQL connections/schema/upgrades | 8 |
 | `db/migrations/` | Ordered migration chain | 14 |
@@ -187,7 +187,7 @@ Status describes verification, not completion. PARTIAL means change responsibili
 - **Why it changed:** Wire feedback, publication refresh, exact eligible discovery and quiz bank contracts into existing bearer routes.
 - **Current responsibility:** Wire feedback, publication refresh, exact eligible discovery and quiz bank contracts into existing bearer routes; exact source is the pinned baseline file.
 - **Related tests:** tests/test_content_search.py; tests/test_react_native_contract.py.
-- **Runtime dependencies:** __future__; base64; json; os; random; secrets; tempfile; uuid; pathlib; datetime; decimal; functools; urllib.parse; flask; itsdangerous; werkzeug.datastructures; auth.child_provisioning; auth.parent_email_otp; auth.password_reset; auth.service; child.service; childMessage.service; config; database.connection; extensions; parent.service; quiz.service; safety.face_service; safety.moderation_service; safety.pii_service; safety.policy; services.behavior; services.recommendation_signals; services.controls; services.curated_feed; services.social; child.search_routes; services.audit; services.usage; services.media_delivery; services.tag_service; hashlib; hmac; services; services.job_queue; services.media_processor; services.publication_lifecycle; services.object_storage; services.ai; services.media_persistence; logging; safety.visual_service; services.media_sanitizer.
+- **Runtime dependencies:** __future__; base64; json; os; random; secrets; tempfile; uuid; pathlib; datetime; decimal; functools; urllib.parse; flask; itsdangerous; werkzeug.datastructures; auth.child_provisioning; auth.parent_email_otp; auth.password_reset; auth.service; child.service; childMessage.service; config; database.connection; extensions; parent.service; quiz.service; safety.moderation_service; safety.pii_service; safety.policy; services.behavior; services.recommendation_signals; services.controls; services.curated_feed; services.social; child.search_routes; services.audit; services.usage; services.media_delivery; services.tag_service; hashlib; hmac; services; services.job_queue; services.media_processor; services.publication_lifecycle; services.object_storage; services.ai; services.media_persistence; logging; safety.visual_service; services.media_sanitizer.
 - **Security/safety impact:** Child privacy, eligibility, moderation or privileged server behavior must remain authoritative.
 - **Status:** PARTIAL.
 
@@ -231,7 +231,7 @@ Status describes verification, not completion. PARTIAL means change responsibili
 - **Domain:** Mobile UI/API/navigation
 - **Why it changed:** Add v2 recommendation-actions route to shared API contract.
 - **Current responsibility:** Add v2 recommendation-actions route to shared API contract; exact source is the pinned baseline file.
-- **Related tests:** tests/test_agent_a_disposable_postgres.py; tests/test_agent_a_state_machine_and_face.py; tests/test_agent_c_notifications_read.py; tests/test_agent_d_parent_admin.py; tests/test_college_submission_critical_regressions.py; tests/test_echo_attack_prevention.py; tests/test_final_hardening.py; tests/test_k2_ai_safety.py; tests/test_master_release_features.py; tests/test_me_onboarding_gates.py; tests/test_modules_11_15_contract_cleanup.py; tests/test_parent_child_face_enrollment_contract.py; tests/test_phase25_production_hardening.py; tests/test_phase2_upload_and_tags.py; tests/test_r2_media_delivery.py; tests/test_react_native_contract.py; tests/test_real_app_acceptance_e2e.py; tests/test_real_postgres_role_smoke.py; tests/test_story_music_e2e.py; tests/test_video_audio_stripping.py; mobile_app/tests/agentC.test.ts; mobile_app/tests/agentC2.test.ts; mobile_app/tests/cancellation.test.ts; mobile_app/tests/contracts.test.ts; mobile_app/tests/controller.test.ts; mobile_app/tests/onboarding.test.ts.
+- **Related tests:** tests/test_agent_a_disposable_postgres.py; tests/test_agent_a_state_machine_and_face.py; tests/test_agent_c_notifications_read.py; tests/test_agent_d_parent_admin.py; tests/test_college_submission_critical_regressions.py; tests/test_echo_attack_prevention.py; tests/test_final_hardening.py; tests/test_k2_ai_safety.py; tests/test_master_release_features.py; tests/test_me_onboarding_gates.py; tests/test_modules_11_15_contract_cleanup.py; tests/test_phase25_production_hardening.py; tests/test_phase2_upload_and_tags.py; tests/test_r2_media_delivery.py; tests/test_react_native_contract.py; tests/test_real_app_acceptance_e2e.py; tests/test_real_postgres_role_smoke.py; tests/test_story_music_e2e.py; tests/test_video_audio_stripping.py; mobile_app/tests/agentC.test.ts; mobile_app/tests/agentC2.test.ts; mobile_app/tests/cancellation.test.ts; mobile_app/tests/contracts.test.ts; mobile_app/tests/controller.test.ts; mobile_app/tests/onboarding.test.ts.
 - **Runtime dependencies:** ./errors.
 - **Security/safety impact:** Presentation/accessibility and real API state; cannot grant server access.
 - **Status:** PARTIAL.
@@ -691,7 +691,7 @@ Status describes verification, not completion. PARTIAL means change responsibili
 - **Why it changed:** Extend regression coverage for final hardening.
 - **Current responsibility:** Extend regression coverage for final hardening; exact source is the pinned baseline file.
 - **Related tests:** tests/test_final_hardening.py.
-- **Runtime dependencies:** os; tempfile; urllib.error; unittest.mock; pathlib; PIL; pytest; safety.face_service; mailg.send_email; app; auth.parent_email_otp.
+- **Runtime dependencies:** os; tempfile; urllib.error; unittest.mock; pathlib; PIL; pytest; mailg.send_email; app; auth.parent_email_otp.
 - **Security/safety impact:** Evidence integrity, dependency reproducibility or regression detection; no direct authorization grant.
 - **Status:** UNVERIFIED.
 

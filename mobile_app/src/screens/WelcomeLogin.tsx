@@ -11,6 +11,18 @@ import { colors, radius, spacing, type } from '../ui/tokens';
 
 type FeatherIconName = keyof typeof Feather.glyphMap;
 
+/**
+ * The welcome role cards pre-select the Login screen's mode. Login takes no
+ * route params (navigation types are frozen), so the selection rides on this
+ * module-scoped override that LoginScreen consumes once on mount.
+ */
+let pendingLoginMode: LoginMode | null = null;
+
+/** Role-entry card → which login mode the Login screen opens with. */
+export function setLoginModeOverride(mode: LoginMode): void {
+  pendingLoginMode = mode;
+}
+
 const MODES: {
   label: string;
   icon: FeatherIconName;
@@ -41,6 +53,48 @@ const MODES: {
 // choice for parents and children: only kids/parent appear as mode pills.
 const PILL_MODES = MODES.filter((m) => m.value !== 'admin');
 
+const ROLES: {
+  key: 'child' | 'parent' | 'moderator';
+  title: string;
+  body: string;
+  action: string;
+  icon: FeatherIconName;
+  iconBg: string;
+  iconColor: string;
+  loginMode: LoginMode;
+}[] = [
+  {
+    key: 'child',
+    title: 'Child',
+    body: 'A safe, AI-guided social world for children',
+    action: 'Log in as a child',
+    icon: 'smile',
+    iconBg: '#EFF6FF',
+    iconColor: '#0095F6',
+    loginMode: 'kids',
+  },
+  {
+    key: 'parent',
+    title: 'Parent',
+    body: 'Supervision, screen-time & safety controls',
+    action: 'Log in as a parent',
+    icon: 'user-check',
+    iconBg: '#F0FDF4',
+    iconColor: '#059669',
+    loginMode: 'parent',
+  },
+  {
+    key: 'moderator',
+    title: 'Moderator',
+    body: 'Safety moderator & platform admin sign-in',
+    action: 'Log in as a moderator',
+    icon: 'shield',
+    iconBg: '#FEF2F2',
+    iconColor: '#DC2626',
+    loginMode: 'admin',
+  },
+];
+
 export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
   return (
     <Screen hasNativeHeader={false}>
@@ -56,11 +110,36 @@ export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
           <Text style={styles.wordmark}>LittleNet</Text>
           <Text style={styles.heroTitle}>A kinder place to learn and share.</Text>
           <Text style={styles.heroBody}>Parents verify first. Kids explore, create, and connect with safety built in.</Text>
+          <Text style={styles.roleKicker}>Who is signing in?</Text>
         </View>
-        <View style={styles.authActions}>
-          <Button label="Log in" onPress={() => navigation.navigate('Login')} />
-          <Button label="Parent sign-up" variant="secondary" onPress={() => navigation.navigate('ParentRegister')} />
-          <Button label="Kids face login" variant="secondary" onPress={() => navigation.navigate('FaceLogin')} />
+        <View style={styles.roleCards} accessibilityRole="radiogroup">
+          {ROLES.map((role) => (
+            <Pressable
+              key={role.key}
+              accessibilityRole="button"
+              accessibilityLabel={role.action}
+              onPress={() => {
+                setLoginModeOverride(role.loginMode);
+                navigation.navigate('Login');
+              }}
+              style={styles.roleCard}
+            >
+              <View style={[styles.roleIcon, { backgroundColor: role.iconBg }]}>
+                <Feather name={role.icon} size={26} color={role.iconColor} />
+              </View>
+              <View style={styles.roleText}>
+                <Text style={styles.roleTitle}>{role.title}</Text>
+                <Text style={styles.roleBody}>{role.body}</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.muted} />
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.parentSignup}>
+          <Text style={styles.signupMuted}>New to LittleNet?</Text>
+          <Pressable onPress={() => navigation.navigate('ParentRegister')} hitSlop={12} style={styles.linkHit}>
+            <Text style={styles.signupLinkText}>Parent sign-up →</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </Screen>
@@ -69,7 +148,12 @@ export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
 
 export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const { signIn } = useAuth();
-  const [mode, setMode] = useState<LoginMode>('kids');
+  // The welcome role cards pre-select the mode; consumed once, then cleared.
+  const [mode, setMode] = useState<LoginMode>(() => {
+    const override = pendingLoginMode;
+    pendingLoginMode = null;
+    return override ?? 'kids';
+  });
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -204,25 +288,6 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
 
           <Button label={busy ? 'Logging in…' : 'Log In'} onPress={submit} loading={busy} disabled={busy} />
 
-          {mode === 'kids' ? (
-            <>
-              <View style={styles.orDivider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>OR</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate('FaceLogin')}
-                style={styles.faceLoginPill}
-              >
-                <Feather name="camera" size={18} color="#0095F6" />
-                <Text style={styles.faceLoginText}>Kids Face ID Login</Text>
-              </Pressable>
-            </>
-          ) : null}
-
           <View style={styles.authLinksContainer}>
             <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={12} style={styles.linkHit}>
               <Text style={styles.forgotPwdLink}>Forgot your password?</Text>
@@ -295,7 +360,47 @@ const styles = StyleSheet.create({
   wordmark: { color: colors.ink, fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   heroTitle: { color: colors.ink, fontSize: type.hero, lineHeight: 30, fontWeight: '800', textAlign: 'center', marginTop: spacing.md },
   heroBody: { color: colors.muted, fontSize: type.body, lineHeight: 21, textAlign: 'center', marginTop: spacing.sm, maxWidth: 310 },
-  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 12 },
+  roleKicker: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    marginTop: spacing.lg,
+  },
+  roleCards: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 10 },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  roleIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleText: { flex: 1 },
+  roleTitle: { color: colors.ink, fontSize: 17, fontWeight: '800' },
+  roleBody: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  parentSignup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.lg,
+  },
   modePillContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
@@ -333,39 +438,6 @@ const styles = StyleSheet.create({
   },
   pwdToggle: {
     fontSize: 12,
-    fontWeight: '700',
-    color: colors.brand,
-  },
-  orDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: spacing.md,
-    gap: spacing.sm,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E7EB',
-  },
-  dividerText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.muted,
-    letterSpacing: 1,
-  },
-  faceLoginPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 12,
-    paddingVertical: 12,
-  },
-  faceLoginText: {
-    fontSize: 14,
     fontWeight: '700',
     color: colors.brand,
   },

@@ -1,7 +1,7 @@
 """Standalone LittleNet heavy AI inference service.
 
-The locked LittleNet scope supports TEXT, IMAGE and VIDEO moderation plus face
-verification. Standalone audio/voice moderation is intentionally not exposed.
+The locked LittleNet scope supports TEXT, IMAGE and VIDEO moderation.
+Standalone audio/voice moderation is intentionally not exposed.
 """
 import json
 import math
@@ -11,12 +11,6 @@ import hmac
 from pathlib import Path
 
 os.environ["LITTLENET_AI_SERVER"] = "1"
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-try:
-    import tensorflow as tf
-    tf.config.set_visible_devices([], 'GPU')
-except Exception:
-    pass
 
 from flask import Flask, jsonify, request
 
@@ -128,66 +122,6 @@ def rank_endpoint():
     except Exception:
         app.logger.exception("semantic ranking failed")
         return jsonify({"ok":False,"error":"ranking_unavailable"}),503
-
-
-@app.post("/ai/face/embedding")
-def face_embedding_endpoint():
-    if not authorized(): return deny()
-    path = None
-    try:
-        path = save_upload()
-        from safety.face_service import _embedding
-        emb = _embedding(path)
-        return jsonify({"ok": True, "embedding": emb})
-    except Exception as exc:
-        reason = "liveness_failed" if any(k in str(exc).lower() for k in ("liveness", "spoof", "real")) else "face_error"
-        return jsonify({"ok": False, "reason": reason}), 422
-    finally:
-        if path:
-            try: os.unlink(path)
-            except OSError: pass
-
-
-@app.post("/ai/face/verify")
-def face_verify_endpoint():
-    if not authorized(): return deny()
-    path = None
-    try:
-        reference = [float(x) for x in json.loads(request.form["reference"])]
-        path = save_upload()
-        from safety.face_service import _embedding
-        test = _embedding(path)
-        dot = sum(a*b for a,b in zip(reference,test))
-        nr = math.sqrt(sum(a*a for a in reference)); nt = math.sqrt(sum(b*b for b in test))
-        dist = 1-(dot/(nr*nt+1e-9)); matched = dist < 0.35
-        return jsonify({"ok": True, "matched": matched, "distance": dist})
-    except Exception as exc:
-        reason = "liveness_failed" if any(k in str(exc).lower() for k in ("liveness", "spoof", "real")) else "face_error"
-        return jsonify({"ok": False, "reason": reason}), 422
-    finally:
-        if path:
-            try: os.unlink(path)
-            except OSError: pass
-
-
-@app.post("/ai/face/adult")
-def face_adult_endpoint():
-    if not authorized(): return deny()
-    path = None
-    try:
-        path = save_upload()
-        from safety.face_service import verify_adult_face
-        result = verify_adult_face(path)
-        return jsonify({"ok": True, "result": _sanitize(result)})
-    except Exception as exc:
-        reason = "liveness_failed" if any(k in str(exc).lower() for k in ("liveness", "spoof", "real")) else "adult_face_error"
-        return jsonify({"ok": False, "reason": reason}), 422
-    finally:
-        if path:
-            try: os.unlink(path)
-            except OSError: pass
-
-
 
 
 # Background media processing is dispatched by the web app through Modal

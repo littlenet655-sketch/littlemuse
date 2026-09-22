@@ -1,7 +1,7 @@
 """Cost-guarded direct client for LittleNet's CPU image moderation function.
 
 Production image uploads use a Modal CPU function by default. This keeps the T4
-reserved for workloads that actually need it (for example video/face paths).
+reserved for workloads that actually need it (for example video moderation paths).
 """
 from __future__ import annotations
 

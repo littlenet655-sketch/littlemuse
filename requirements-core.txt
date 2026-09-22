@@ -15,3 +15,12 @@ gunicorn==23.0.0
 requests==2.33.0
 boto3==1.40.17
 PyJWT[crypto]==2.13.0
+
+# OCR backend for burned-in text screening (safety/visual_service.py).
+# rapidocr-onnxruntime is the module's preferred backend (tried first; the
+# 1.4.x __call__ tuple-of-rows API matches _rapidocr_reader). Chosen over
+# easyocr (pulls torch into the web image) and pytesseract (needs the
+# tesseract-ocr system binary). Enables LITTLENET_ENABLE_OCR's default-on
+# path on CI, the web Docker image, and anywhere requirements-core.txt is
+# installed.
+rapidocr-onnxruntime==1.4.4

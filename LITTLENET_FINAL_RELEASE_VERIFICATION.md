@@ -6,7 +6,7 @@
 
 ## 1. Scope lock
 
-LittleNet is a child-safe social and learning platform implemented with Flask, PostgreSQL, HTML/CSS/JavaScript, AI-assisted safety checks, Face Login/liveness, Parent Mode, Admin/Moderator Mode, and an Android WebView wrapper.
+LittleNet is a child-safe social and learning platform implemented with Flask, PostgreSQL, HTML/CSS/JavaScript, AI-assisted safety checks, Parent Mode, Admin/Moderator Mode, and an Android WebView wrapper.
 
 The current college build intentionally uses this moderation scope:
 
@@ -34,7 +34,7 @@ The `main` CI run for commit `304f35052e033726b00e9b7e229141b42d32fd6c` complete
 - dynamic SQL audit: **PASS**
 - JavaScript syntax checks: **PASS**
 - Android XML/source check: **PASS**
-- MediaPipe liveness asset integrity: **PASS**
+- MediaPipe liveness asset integrity: **N/A** (face/liveness path removed 2026-09-22)
 - Python security scan: **PASS**
 - Gitleaks secret scan: **PASS**
 
@@ -112,17 +112,12 @@ Current hardening verifies that:
 - the daily limit and strict-mode decision are evaluated server-side
 - quiet-hours enforcement is server-side
 
-## 8. Face Login and parent liveness
+## 8. Identity verification (2026-09-22: face removed by product decision)
 
-Current safety rules require positive evidence rather than inference from image dimensions.
-
-Verified behavior:
-
-- exactly one face is required for guardian/adult verification
-- explicit positive liveness evidence is required
-- missing/empty liveness evidence fails closed
-- age values are evaluated without rounding a 17.x estimate into an adult result
-- child Face Login/liveness source and pinned MediaPipe assets pass CI integrity checks
+All face/biometric artifacts were removed from LittleNet. Parents are verified by
+email OTP ownership plus an 18+ date-of-birth declaration and explicit guardian
+consent, and Parent Mode is additionally gated by Android system authentication.
+Children log in with a password, and a compulsory age quiz gates Kids Mode.
 
 ## 9. Social and learning features in scope
 
@@ -197,7 +192,7 @@ For the final demonstration, use deterministic, pre-checked examples:
 5. approved child-to-child messaging
 6. revoke/block relationship -> old conversation can no longer be used
 7. screen-time/quiet-hours enforcement
-8. Face Login/liveness flow
+8. Child password login + onboarding quiz flow
 9. Admin/Moderator review/audit view
 10. Android APK loading the same LittleNet backend
 

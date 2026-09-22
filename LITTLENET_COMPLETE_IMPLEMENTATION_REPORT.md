@@ -7,7 +7,7 @@
 
 ## 1. Project purpose
 
-LittleNet is designed as a supervised social and learning environment for children. It combines familiar social features with server-side safety rules, parental controls, moderation decisions, learning activities, Face Login/liveness, and an Admin/Moderator console.
+LittleNet is designed as a supervised social and learning environment for children. It combines familiar social features with server-side safety rules, parental controls, moderation decisions, learning activities, password login, and an Admin/Moderator console.
 
 The current implementation is intentionally focused on the college-project scope rather than production-scale social-network infrastructure.
 
@@ -48,8 +48,8 @@ Implemented account protections include:
 - parent registration/email verification flow
 - parent-first child management/approval
 - approved parent-child mapping
-- child Face Login/liveness flow
-- guardian/adult liveness checks for sensitive activation flows
+- child password login
+- email-OTP parent verification (device auth gates Parent Mode)
 - live account-status validation on protected routes
 
 A parent must have an ACTIVE account and an approved mapping to access protected child information through the canonical ownership check.
@@ -146,17 +146,12 @@ Parent Mode provides:
 
 Screen-time enforcement is server-side. Missing usage sessions are recreated before the lock decision, and elapsed seconds are accumulated before conversion into displayed minutes.
 
-## 9. Face Login and liveness
+## 9. Identity verification (2026-09-22: face removed by product decision)
 
-The face/liveness flow has been hardened so image dimensions alone cannot act as proof.
-
-Current requirements include:
-
-- exactly one detected face for adult verification
-- explicit positive liveness evidence
-- fail-closed behavior when liveness is missing
-- age boundary checked without rounding a 17.x estimate to 18
-- pinned MediaPipe liveness assets verified by CI integrity hashes
+All face/biometric artifacts were removed from LittleNet. Parents are verified by
+email OTP ownership plus an 18+ date-of-birth declaration and explicit guardian
+consent, and Parent Mode is additionally gated by Android system authentication.
+Children log in with a password, and a compulsory age quiz gates Kids Mode.
 
 ## 10. Learning features
 
@@ -253,6 +248,6 @@ The workflow failed at credential verification before any deployment command ran
 
 ## 17. Final college-project status
 
-LittleNet now has a coherent college-submission implementation with working social features, parental supervision, moderation policy, role authorization, Face Login/liveness, learning features, database persistence, Admin/Moderator controls, automated tests, security audits and a current-commit Android APK.
+LittleNet now has a coherent college-submission implementation with working social features, parental supervision, moderation policy, role authorization, password login, learning features, database persistence, Admin/Moderator controls, automated tests, security audits and a current-commit Android APK.
 
 For final submission, the remaining external release step is to configure the Modal GitHub Actions credentials and obtain a fully green live-deployment evidence run. The academic report/PPT should use the same locked scope described here and should not present speech transcription as an active feature.

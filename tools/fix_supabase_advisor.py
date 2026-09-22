@@ -15,7 +15,7 @@ def fix_supabase_advisor():
         "child_conversations", "child_interests", "child_messages", "child_profiles",
         "child_quiz_attempts", "child_quiz_progress", "child_skills", "child_time_limits",
         "child_usage_logs", "child_usage_sessions", "comments", "deleted_posts",
-        "face_login_attempts", "face_profiles", "followers", "learning_challenge_attempts",
+        "followers", "learning_challenge_attempts",
         "learning_challenges", "likes", "login_activity", "moderation_events",
         "moderation_reviews", "muted_users", "notifications", "parent_child_map",
         "parent_control_settings", "parent_notifications", "parent_quiz_settings",

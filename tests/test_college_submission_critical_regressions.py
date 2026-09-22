@@ -83,17 +83,6 @@ def test_messages_recheck_current_relationship(monkeypatch):
     assert service.messages(99,10)==[]
 
 
-def _install_fake_deepface(monkeypatch, faces, age):
-    class FakeDeepFace:
-        @staticmethod
-        def extract_faces(**kwargs):return faces
-        @staticmethod
-        def analyze(**kwargs):return [{'age':age}]
-        @staticmethod
-        def represent(**kwargs):return [{'embedding':[0.01]*512}]
-    module=types.ModuleType('deepface')
-    module.DeepFace=FakeDeepFace
-    monkeypatch.setitem(sys.modules,'deepface',module)
 
 
 def test_mobile_parent_liveness_route_removed():
@@ -129,58 +118,6 @@ def test_mobile_parent_no_face_enrollment_on_activation():
     assert 'face_profiles' not in block
     assert "'LocalBiometricV1'" not in block
     assert "'[]'::jsonb" not in block
-
-
-def test_guardian_adult_result_reuses_same_verified_selfie_for_embedding(monkeypatch):
-    import safety.remote_client as remote
-    from safety.face_service import verify_adult_face
-
-    monkeypatch.setattr(remote,'enabled',lambda:False)
-    monkeypatch.delenv('GEMINI_API_KEY',raising=False)
-    monkeypatch.delenv('GOOGLE_API_KEY',raising=False)
-    _install_fake_deepface(monkeypatch,[{'is_real':True}],30)
-    result=verify_adult_face('synthetic.jpg')
-    assert result['is_adult'] is True
-    assert len(result['embedding']) == 512
-
-
-def test_guardian_empty_face_evidence_cannot_pass(monkeypatch):
-    import safety.remote_client as remote
-    from safety.face_service import verify_adult_face
-
-    monkeypatch.setattr(remote,'enabled',lambda:False)
-    monkeypatch.delenv('GEMINI_API_KEY',raising=False)
-    monkeypatch.delenv('GOOGLE_API_KEY',raising=False)
-    _install_fake_deepface(monkeypatch,[],30)
-    result=verify_adult_face('synthetic.jpg')
-    assert result['is_adult'] is False
-    assert result['reason']=='single_face_required'
-
-
-def test_guardian_missing_liveness_flag_cannot_pass(monkeypatch):
-    import safety.remote_client as remote
-    from safety.face_service import verify_adult_face
-
-    monkeypatch.setattr(remote,'enabled',lambda:False)
-    monkeypatch.delenv('GEMINI_API_KEY',raising=False)
-    monkeypatch.delenv('GOOGLE_API_KEY',raising=False)
-    _install_fake_deepface(monkeypatch,[{}],30)
-    result=verify_adult_face('synthetic.jpg')
-    assert result['is_adult'] is False
-    assert result['reason']=='liveness_failed'
-
-
-def test_guardian_age_boundary_uses_raw_age_not_rounding(monkeypatch):
-    import safety.remote_client as remote
-    from safety.face_service import verify_adult_face
-
-    monkeypatch.setattr(remote,'enabled',lambda:False)
-    monkeypatch.delenv('GEMINI_API_KEY',raising=False)
-    monkeypatch.delenv('GOOGLE_API_KEY',raising=False)
-    _install_fake_deepface(monkeypatch,[{'is_real':True}],17.6)
-    result=verify_adult_face('synthetic.jpg')
-    assert result['is_adult'] is False
-    assert result['reason']=='under_age'
 
 
 def test_short_usage_segments_are_aggregated_before_rounding(monkeypatch):

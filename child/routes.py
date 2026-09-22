@@ -97,9 +97,7 @@ def child_settings():
         lim = fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s', (session.get('user_id'),))
         daily_limit = lim['daily_limit_minutes'] if lim else 60
     except Exception:daily_limit = 60
-    try:has_face = bool(fetch_one('SELECT 1 FROM face_profiles WHERE child_id=%s', (session.get('user_id'),)))
-    except Exception:has_face = False
-    return render_template('child_settings.html', profile=prof, used_minutes=used, daily_limit=daily_limit, has_face=has_face)
+    return render_template('child_settings.html', profile=prof, used_minutes=used, daily_limit=daily_limit)
 
 @child_bp.route('/child/view-profile/<int:user_id>/')
 @child_required

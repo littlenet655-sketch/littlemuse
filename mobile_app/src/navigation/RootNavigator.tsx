@@ -3,7 +3,6 @@ import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../auth/AuthProvider';
-import { FaceEnrollScreen, FaceLoginScreen } from '../screens/ChildFace';
 import { KidsTabsHost } from '../screens/kids/KidsTabsHost';
 import { FeedScreen } from '../screens/kids/FeedScreen';
 import { StoriesScreen } from '../screens/kids/StoriesScreen';
@@ -73,7 +72,6 @@ function AuthNavigator() {
       <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ headerTitle: '' }} />
       <AuthStack.Screen name="ParentRegister" component={ParentRegisterScreen} options={{ headerTitle: '' }} />
       <AuthStack.Screen name="OtpVerify" component={OtpVerifyScreen} options={{ headerTitle: '' }} />
-      <AuthStack.Screen name="FaceLogin" component={FaceLoginScreen} options={{ headerTitle: '' }} />
     </AuthStack.Navigator>
   );
 }
@@ -135,7 +133,6 @@ function ChildNavigator() {
 
   return (
     <ChildStack.Navigator initialRouteName={initialRoute} screenOptions={cleanStackOptions}>
-      <ChildStack.Screen name="FaceEnroll" component={withGateSync(FaceEnrollScreen)} options={{ title: 'Face setup' }} />
       <ChildStack.Screen name="Quiz" component={withGateSync(QuizScreen)} options={{ title: 'Safety quiz' }} />
       <ChildStack.Screen name="KidsTabs" component={withGateSync(KidsTabsHost)} options={{ headerShown: false }} />
       <ChildStack.Screen name="FeedTab" component={withGateSync(FeedScreen)} options={{ title: 'Home' }} />
@@ -206,7 +203,7 @@ function AdminNavigator() {
 
 /**
  * Role-aware cold-start routing: unauthenticated -> AuthStack, CHILD ->
- * ChildStack (reactively forced to face/quiz only while a gate is active),
+ * ChildStack (reactively forced to quiz only while a gate is active),
  * PARENT -> ParentStack, ADMIN -> AdminStack.
  */
 export function RootNavigator() {

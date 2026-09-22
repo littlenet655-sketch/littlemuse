@@ -1,9 +1,9 @@
-"""End-to-end contract: parent auth on web is email-OTP-based (no face/liveness).
+"""End-to-end contract: auth is email-OTP/password-based (no face/liveness).
 
-Parent face verification was removed by explicit product decision: the web
-``/face-login/?mode=parent`` page, the ``/verify-parent-liveness/`` route, the
-parent liveness template and its MediaPipe JS are all gone. Child Face ID
-login (``mode=kids``) is untouched and must keep working.
+All face/biometric verification was removed by explicit product decision on
+2026-09-22: the web ``/face-login/`` pages and routes, the mobile face
+endpoints, ``safety/face_service.py``, the face tables, and the parent
+liveness template/MediaPipe JS are all gone. Children log in with passwords.
 """
 from pathlib import Path
 
@@ -38,35 +38,23 @@ def test_parent_liveness_assets_are_removed():
     service = (ROOT / 'auth/service.py').read_text(encoding='utf-8')
     assert 'verify_adult_face' not in service
 
-    # The shared face_service keeps verify_adult_face for non-parent AI
-    # consumers (e.g. ai_server 18+ moderation); it just has no parent caller.
-    face_service = (ROOT / 'safety/face_service.py').read_text(encoding='utf-8')
-    assert 'def verify_adult_face' in face_service
+    # The shared face_service module is deleted entirely (2026-09-22).
+    assert not (ROOT / 'safety/face_service.py').exists()
 
 
-def test_parent_face_id_login_is_removed_child_face_login_kept():
+def test_face_login_is_fully_removed():
     routes = (ROOT / 'auth/routes.py').read_text(encoding='utf-8')
     login = (ROOT / 'auth/templates/login.html').read_text(encoding='utf-8')
-    face_login = (ROOT / 'auth/templates/face_login.html').read_text(encoding='utf-8')
 
-    # Parent Face ID login is gone: the route redirects parent mode to
-    # password login, and no template offers it.
-    assert "if mode == 'parent':" in routes
-    assert "return redirect('/login/?mode=parent')" in routes
-    assert "role = 'PARENT' if mode == 'parent' else 'CHILD'" not in routes
-    assert 'Parent Face ID Login' not in login
-    assert 'Parent Face ID Login' not in face_login
-    assert "face_mode=='parent'" not in face_login
-    assert 'Parent Email or Username' not in face_login
-    assert '/face-login/?mode=parent' not in login
-
-    # Child Face ID login is kept: kids link on the kids login page, kids
-    # template copy, and the CHILD-role query in the route.
-    assert '/face-login/?mode=kids' in login
-    assert 'Face ID Login' in login
-    assert "role='CHILD'" in routes
-    assert 'Child Email or Username' in face_login
-    assert 'Live Face ID Login' in face_login
+    # The face login templates are deleted.
+    assert not (ROOT / 'auth/templates/face_login.html').exists()
+    assert not (ROOT / 'auth/templates/face_enroll.html').exists()
+    # No face routes or links remain.
+    assert 'face-login' not in routes
+    assert 'face_login' not in routes
+    assert 'face-enroll' not in routes
+    assert 'Face ID' not in login
+    assert 'face_login' not in login
 
 
 def test_parent_activation_is_email_otp_only():
@@ -88,10 +76,10 @@ def test_live_deploy_tracks_auth_changes():
     for required_path in (
         "- 'auth/**'",
         "- 'mailg/**'",
-        "- 'safety/face_service.py'",
     ):
         assert required_path in workflow
-    # The deleted parent-liveness JS must not be an active tracked deploy path
-    # (only a stale commented-out line may remain).
+    # The deleted face_service.py and parent-liveness JS must not be active
+    # tracked deploy paths anymore (only stale commented-out lines may remain).
     active_lines = [ln for ln in workflow.splitlines() if not ln.strip().startswith('#')]
+    assert not any('face_service' in ln for ln in active_lines)
     assert not any('parent_liveness_mediapipe' in ln for ln in active_lines)

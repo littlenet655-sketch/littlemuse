@@ -7,10 +7,8 @@ export interface CapturedPhoto {
   base64: string;
   width: number;
   height: number;
-  /** Temporary native URI used only for the on-device ML Kit precheck. */
+  /** Temporary native URI for the captured frame. */
   uri?: string;
-  /** Set to true when live on-device challenge (e.g. eye blink) is verified in real-time. */
-  livenessVerified?: boolean;
 }
 
 export interface CameraDeps {

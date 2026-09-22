@@ -1,7 +1,7 @@
 """Modal deployment for LittleNet's Flask/Jinja web application.
 
 PostgreSQL remains external (Neon/etc.). Private media is stored in R2. Heavy
-AI stays in littlenet-ai and is invoked only for real moderation/face work.
+AI stays in littlenet-ai and is invoked only for real moderation work.
 """
 from pathlib import Path
 import hashlib
@@ -202,7 +202,7 @@ def process_media_job_background(post_id: int, child_id: int, object_key: str, k
 
     The worker downloads/sanitizes media and updates Neon/R2. Ordinary images
     are delegated to the scale-to-zero CPU moderation function. GPU inference is
-    reserved for workloads that still require it (for example video/face paths).
+    reserved for workloads that still require it (for example video paths).
     """
     os.chdir("/root/littlenet")
     from services.media_processor import process_media_job

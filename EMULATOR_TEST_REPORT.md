@@ -44,7 +44,13 @@ New: `mobile_app/tests/sensitiveActionGating.test.ts`
 ### 2b. Gate logic — PASS (pre-existing suites, re-run)
 - `parentAuthGate.test.ts`, `parentDeviceAuth.test.ts`, `parentModeGate.test.ts` (11 component tests): all pass, covering system-auth success, device-credential success, cancel/failure blocked, exact no-lock message, background/foreground re-auth, session invalidation, direct-navigation blocking.
 
-### 2c. Child face (architecture untouched) — 43/43 PASS
+### 2c. Child face (removed 2026-09-22 — historical result below)
+
+> 2026-09-22 note: all face artifacts were removed from LittleNet by product
+> decision. The 43/43 PASS result below is historical, recorded when the face
+> path still existed.
+
+### 2c (historical). Child face — 43/43 PASS
 - `cameraRuntime`, `faceQuality`, `livenessStateMachine`, `flows`, `controller`: 43 tests pass, 0 fail.
 - No child-face source file was modified by this harness.
 

@@ -393,8 +393,6 @@ def _child_session(monkeypatch, cr):
     def fake_fetch_one(sql, params=None):
         if "account_status" in sql:
             return {"role": "CHILD", "account_status": "ACTIVE"}
-        if "face_profiles" in sql:
-            return {"1": 1}
         return None
 
     monkeypatch.setattr(cr, "fetch_one", fake_fetch_one)

@@ -66,14 +66,6 @@ def role_required(role):
                     if scan_pii((data.get('caption') or '').strip()).get('detected'):
                         return jsonify(ok=False,error='Personal contact information cannot be shared in story captions.'),400
 
-                face_exempt=request.path in {'/face/enroll/','/api/usage/heartbeat/'}
-                if not face_exempt:
-                    face=fetch_one('SELECT 1 FROM face_profiles WHERE child_id=%s LIMIT 1',(uid,))
-                    if not face:
-                        if request.path.startswith('/api/'):
-                            return jsonify(error='face_enrollment_required',next='/face/enroll/'),428
-                        return redirect('/face/enroll/')
-
             if role=='PARENT':
                 if request.path.rstrip('/')=='/parent/quick-approve-child':
                     return ('Legacy quick approval is disabled. Complete guardian verification.',410)

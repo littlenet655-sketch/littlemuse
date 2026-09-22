@@ -1,7 +1,6 @@
 from unittest.mock import patch
 
 from safety.chat_context import contextual_chat_risk
-from safety.face_service import _face_match_threshold
 from safety.policy import decide, policy_metadata
 from safety.text_service import _normalized_text, check_text
 
@@ -38,15 +37,6 @@ def test_multi_turn_grooming_requires_distinct_cue_families():
         "That sounds fun",
     )
     assert benign["suspicious"] is False
-
-
-def test_face_threshold_defaults_and_cannot_be_weakened(monkeypatch):
-    monkeypatch.delenv("LITTLENET_FACE_MATCH_MAX_DISTANCE", raising=False)
-    assert _face_match_threshold() == 0.35
-    monkeypatch.setenv("LITTLENET_FACE_MATCH_MAX_DISTANCE", "0.50")
-    assert _face_match_threshold() == 0.35
-    monkeypatch.setenv("LITTLENET_FACE_MATCH_MAX_DISTANCE", "0.30")
-    assert _face_match_threshold() == 0.30
 
 
 def test_policy_provenance_is_versioned():

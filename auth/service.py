@@ -240,9 +240,9 @@ def process_parent_verification(token, form_data):
         cur.execute(
             """INSERT INTO parent_verifications(
                    parent_user_id, child_id, verification_provider, verification_status,
-                   liveness_status, face_match_status, document_type, masked_id,
+                   document_type, masked_id,
                    consent_given, consent_timestamp, verified_at)
-               VALUES(%s, %s, 'EMAIL_OTP', 'VERIFIED', 'NOT_APPLICABLE', 'NOT_APPLICABLE',
+               VALUES(%s, %s, 'EMAIL_OTP', 'VERIFIED',
                       'GUARDIAN_DECLARATION', %s, TRUE, NOW(), NOW())""",
             (parent_id, child_id, masked),
         )
@@ -544,8 +544,9 @@ def parent_verification_complete(parent_user_id):
        verified email OTP is now the complete parent identity verification —
        the live selfie/liveness step was removed by explicit product decision).
 
-    Security-bar note: prong 2 previously also required face/liveness
-    evidence (``face_profiles`` row or ``PARENT_LIVENESS_VERIFIED`` audit).
+    Security-bar note: prong 2 previously also required a face/liveness
+    check at parent registration; that entire mechanism was removed by
+    explicit product decision (all child and parent face artifacts removed).
     The remaining assurance for a parent is a server-validated 18+
     date-of-birth declaration, email ownership via a hashed / expiring /
     attempt-limited OTP, explicit guardian consent, and a password. The admin
@@ -631,7 +632,7 @@ def create_child_by_parent(parent_id, form):
         age = int(form.get('age') or 10)
     except (TypeError, ValueError):
         age = 10
-    if not 4 <= age <= 18:
+    if not 6 <= age <= 16:
         age = 10
     password = form.get('password', '')
     if len(password) < 8:

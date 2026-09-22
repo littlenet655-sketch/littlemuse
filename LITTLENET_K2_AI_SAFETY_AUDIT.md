@@ -5,7 +5,7 @@
 - **Current Completion Estimate**: Overall system completion is approximately **74%**. The core web application, PostgreSQL schema, Flask authentication, parent controls, feed ingestion, and client UI are functional and verified with 128 automated contract tests. However, AI intelligence, adaptive learning, and child-safety reasoning are either rule-based, static, or reliant on ad-hoc API scripts.
 - **Strongest Existing Areas**:
   1. **Deterministic Platform Policy & Content Safety**: Multi-tier pipeline in `safety/policy.py` and `safety/moderation_service.py` enforcing strict thresholding (`STANDARD`, `STRICT`, `VERY_STRICT`), hard-blocking adult content, and recording events in `moderation_events`.
-  2. **Computer Vision & Media Screening**: `safety/visual_service.py` integrates local PyTorch/HuggingFace models (OpenAI CLIP zero-shot ViT-B/32, NudeNet detector, Falconsai NSFW, DeepFace Facenet512 anti-spoofing).
+  2. **Computer Vision & Media Screening**: `safety/visual_service.py` integrates local PyTorch/HuggingFace models (OpenAI CLIP zero-shot ViT-B/32, NudeNet detector, Falconsai NSFW).
   3. **Parental Authority & Oversight**: Full relational model in `parent/service.py` and `database/schema.sql` enabling time limits, bedtime locks, mandatory quiz intervals, category whitelisting/blacklisting, and granular child-to-child connection approvals.
   4. **Pre-Delivery Chat Interception**: In `childMessage/routes.py` (`send_text`), messages flagged as `BLOCK` return HTTP 400 and are never persisted or delivered to the peer; messages flagged as `REVIEW` are stored with `moderation_status='REVIEW'` and visible only to the sender until approved by a parent.
 - **Weakest Areas**:
@@ -36,7 +36,7 @@
 - **Frontend / Client**: Server-rendered Jinja2 templates (74 templates audited and passing) styled with custom CSS, vanilla JavaScript, and mobile-first PWA wrappers.
 - **Mobile Container**: Capacitor / Android APK build workflow configured (`.github/workflows/build-littlenet-apk.yml`, `android/` directory).
 - **AI/ML Runtime**: Dual-mode architecture:
-  - Mode A: In-process CPU/CUDA models via PyTorch, Transformers, DeepFace, OpenCV.
+  - Mode A: In-process CPU/CUDA models via PyTorch, Transformers, OpenCV.
   - Mode B: Remote AI Microservice via HTTP client (`safety/remote_client.py` targeting `ai_server.py` on port 8001 or Modal serverless endpoint).
 
 ### Execution Flow Diagram
@@ -64,7 +64,7 @@
 [Deterministic Policy]                 [AI Screening Engines]
 - safety/policy.py                     - safety/text_service.py (Detoxify)
 - Keyword sets (Adult, Bully)          - safety/visual_service.py (CLIP, NudeNet)
-- Category & Threshold logic           - safety/face_service.py (DeepFace)
+- Category & Threshold logic           - safety/policy.py
 - Fail-closed error handling           - safety/audio_service.py (STUB/MOCK)
                                        - Optional Remote: ai_server.py
 ```
@@ -307,9 +307,11 @@ Because K2-Horizon is a text-focused LLM, the following platform capabilities **
 3. **Video Frame Extraction & Dynamic Screening**:
    - *Requirement*: Sampling keyframes across 60-second reels at 1-second intervals.
    - *Architecture*: Keep `ffmpeg` frame extraction pipeline feeding into visual screening.
-4. **Biometric Face Verification & Liveness**:
-   - *Requirement*: Extracting 512-dimensional facial embeddings, detecting anti-spoofing/screen replays, and verifying parent adulthood.
-   - *Architecture*: Keep `DeepFace` (`Facenet512` backend + OpenCV anti-spoofing).
+4. **Biometric Face Verification & Liveness** (REMOVED 2026-09-22): This audit
+   section is obsolete. Face/biometric verification was removed from LittleNet by
+   product decision; `safety/face_service.py` and all face tables/endpoints were deleted.
+   Identity verification is now email-OTP ownership for parents and password login for
+   children.
 5. **Bridge between Vision and K2**:
    - When K2 needs to reason about visual posts, visual models (or an OCR extractor like Tesseract / EasyOCR) must first extract structured visual descriptions and on-screen text, which are then passed as text metadata into K2.
 
@@ -341,7 +343,7 @@ Because K2-Horizon is a text-focused LLM, the following platform capabilities **
                              - NudeNet / Falconsai                    - Strict JSON Enforcer
                              - CLIP ViT-B/32                          - Prompt Delimiters
                              - Whisper (Audio ASR)                    - Token Budget Manager
-                             - DeepFace (Liveness)                    - Redis Response Cache
+                             - Redis Response Cache
                                                                       - Circuit Breaker
 ```
 

@@ -5,9 +5,9 @@ Baseline: `f48aafa1bce0fb1344dfc8aec57f70770d8dfc0b`, 2026-09-15. Initial source
 ## Required end-to-end paths
 
 ```text
-Parent register → Resend OTP → verify email → native camera → ML Kit quality → server adult/liveness → ACTIVE → dashboard
-Parent → create child → native capture → ML Kit → server liveness/Facenet512 enrollment → quiz → Kids
-Kids login → account selection → native capture → ML Kit → server anti-spoof/match → authoritative quiz gate → destination
+Parent register → Resend OTP → verify email → ACTIVE → Android device auth (biometric/PIN) gates Parent Mode → dashboard
+Parent → create child → required age quiz → Kids
+Kids login → password → authoritative quiz gate → destination
 Session restore → secure token → /me → authoritative role/gates → navigation → bounded Kids prefetch
 Kids hydration → home/stories + Feed page 1 + Reels page 1 + Explore + profile + notifications
 Feed/Reels/Explore/search → eligibility before ranking → authorized media → actions/signals → refresh
@@ -31,19 +31,19 @@ Routes below are extracted from actual Flask decorators. Endpoint existence esta
 | `/api/mobile/v1/health` | `mobile_health` | `mobile/api.py:648` |
 | `/api/mobile/v1/auth/login` | `mobile_login` | `mobile/api.py:654` |
 | `/api/mobile/v1/auth/logout` | `mobile_logout` | `mobile/api.py:677` |
-| `/api/mobile/v1/auth/face-login` | `mobile_face_login` | `mobile/api.py:689` |
-| `/api/mobile/v1/auth/face/challenge` | `mobile_face_challenge` | `mobile/api.py:718` |
-| `/api/mobile/v1/auth/face/verify-challenge` | `mobile_face_verify_challenge` | `mobile/api.py:763` |
+| ~~`/api/mobile/v1/auth/face-login`~~ | ~~`mobile_face_login`~~ (REMOVED 2026-09-22) | —
+| ~~`/api/mobile/v1/auth/face/challenge`~~ | ~~`mobile_face_challenge`~~ (REMOVED 2026-09-22) | —
+| ~~`/api/mobile/v1/auth/face/verify-challenge`~~ | ~~`mobile_face_verify_challenge`~~ (REMOVED 2026-09-22) | —
 | `/api/mobile/v1/music/curated` | `mobile_curated_music` | `mobile/api.py:834` |
 | `/api/mobile/v1/auth/parent/register` | `mobile_parent_register` | `mobile/api.py:844` |
 | `/api/mobile/v1/auth/parent/verify-email` | `mobile_parent_verify_email` | `mobile/api.py:861` |
 | `/api/mobile/v1/auth/parent/resend-email` | `mobile_parent_resend_email` | `mobile/api.py:874` |
 | `/api/mobile/v1/auth/forgot-password` | `mobile_forgot_password` | `mobile/api.py:885` |
 | `/api/mobile/v1/auth/reset-password` | `mobile_reset_password` | `mobile/api.py:902` |
-| `/api/mobile/v1/auth/parent/verify-liveness` | `mobile_parent_verify_liveness` | `mobile/api.py:919` |
+| ~~`/api/mobile/v1/auth/parent/verify-liveness`~~ | `mobile_parent_verify_liveness` (REMOVED) | — |
 | `/api/mobile/v1/me` | `mobile_me` | `mobile/api.py:978` |
 | `/api/mobile/v1/media` | `mobile_media` | `mobile/api.py:986` |
-| `/api/mobile/v1/kids/face/enroll` | `mobile_child_face_enroll` | `mobile/api.py:1013` |
+| ~~`/api/mobile/v1/kids/face/enroll`~~ | `mobile_child_face_enroll` (REMOVED) | — |
 | `/api/mobile/v1/kids/home` | `mobile_kids_home` | `mobile/api.py:1044` |
 | `/api/mobile/v1/kids/reels` | `mobile_kids_reels` | `mobile/api.py:1064` |
 | `/api/mobile/v1/kids/discover` | `mobile_kids_discover` | `mobile/api.py:1078` |
@@ -83,6 +83,7 @@ Routes below are extracted from actual Flask decorators. Endpoint existence esta
 | `/api/mobile/v1/parent/controls/<int:child_id>` | `mobile_parent_controls` | `mobile/api.py:2394` |
 | `/api/mobile/v1/parent/child/<int:child_id>` | `mobile_parent_unlink_child` | `mobile/api.py:2442` |
 | `/api/mobile/v1/parent/child/<int:child_id>/reset-password` | `mobile_parent_reset_child_password` | `mobile/api.py:2453` |
+| `/api/mobile/v1/parent/child/<int:child_id>/viewing-insights` | `mobile_parent_child_viewing_insights` | Bearer-parent alias of the web viewing-insights route; `owns()` gate, read-only aggregation via `parent.api.child_viewing_insights` |
 | `/api/mobile/v1/parent/time-limit/<int:child_id>` | `mobile_parent_time_limit` | `mobile/api.py:2466` |
 | `/api/mobile/v1/parent/safety` | `mobile_parent_safety` | `mobile/api.py:2485` |
 | `/api/mobile/v1/parent/safety/<int:event_id>` | `mobile_parent_review` | `mobile/api.py:2531` |
@@ -133,9 +134,9 @@ Extracted without importing Flask or executing SQL. Tables are literal SQL refer
 | mobile_health | No direct SQL; follow delegates |  | PostgreSQL; transitive service dependencies pending trace | health response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_login | No direct SQL; follow delegates | _issue_pending_parent, _mobile_login_response, login_user | PostgreSQL; transitive service dependencies pending trace | login response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_logout | No direct SQL; follow delegates | _require_mobile, close_session | PostgreSQL; transitive service dependencies pending trace | logout response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
-| mobile_face_login | users | _mobile_login_response, _save_request_image, fetch_one, verify | PostgreSQL; Modal face services | face login response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
-| mobile_face_challenge | face_auth_challenges, users | execute, fetch_one, timedelta | PostgreSQL; Modal face services | face challenge response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
-| mobile_face_verify_challenge | face_auth_challenges, face_profiles, users | _mobile_login_response, execute, fetch_one | PostgreSQL; Modal face services | face verify challenge response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
+| ~~mobile_face_login~~ (REMOVED 2026-09-22) | — | — | — | — | — | — | —
+| ~~mobile_face_challenge~~ (REMOVED 2026-09-22) | — | — | — | — | — | — | —
+| ~~mobile_face_verify_challenge~~ (REMOVED 2026-09-22) | — | — | — | — | — | — | —
 | mobile_curated_music | curated_music | _clean, fetch_all | PostgreSQL; transitive service dependencies pending trace | curated music response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_parent_register | No direct SQL; follow delegates | _issue_pending_parent, begin_parent_registration | PostgreSQL; Resend where email sent | parent register response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_parent_verify_email | No direct SQL; follow delegates | _issue_pending_parent, _load_pending_parent, verify_parent_email_otp | PostgreSQL; Resend where email sent | parent verify email response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
@@ -145,7 +146,7 @@ Extracted without importing Flask or executing SQL. Tables are literal SQL refer
 | ~~mobile_parent_verify_liveness~~ (REMOVED) | SET, face_profiles, parent_email_otps, users | _load_pending_parent, _mobile_login_response, _save_request_image, enroll, execute, fetch_one, verify_adult_face | PostgreSQL; Modal face services | REMOVED — parent liveness verification deleted; parent identity is email-OTP-only | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_me | No direct SQL; follow delegates | _clean, _mobile_user_payload, _onboarding_state, _require_mobile | PostgreSQL; transitive service dependencies pending trace | me response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_media | No direct SQL; follow delegates | _media_allowed, _require_mobile, redirect, send_from_directory, signed_download_url | PostgreSQL; private R2/Modal as operation requires | media response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
-| mobile_child_face_enroll | face_profiles | _require_mobile, _save_request_image, enroll, execute, needs_onboarding_quiz | PostgreSQL; Modal face services | child face enroll response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
+| ~~mobile_child_face_enroll~~ (REMOVED 2026-09-22 — face artifacts fully removed) | — | — | — | REMOVED — child face enrollment deleted; password login is the only child auth | Denial/error without granting access or publishing unsafe bytes | Ledger domain suites | Unverified |
 | mobile_kids_home | No direct SQL; follow delegates | _asset_url, _child_gate, _clean, _post_json, _profile_json, _require_mobile, active_stories, controls_for_child, create_child_profile, get_child_profile, get_random_children, minutes_today, profile_exists, visible_posts | PostgreSQL; transitive service dependencies pending trace | kids home response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_kids_reels | No direct SQL; follow delegates | _child_gate, _post_json, _require_mobile, visible_posts | PostgreSQL; transitive service dependencies pending trace | kids reels response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |
 | mobile_kids_discover | No direct SQL; follow delegates | _asset_url, _child_gate, _clean, _post_json, _require_mobile, discoverable_children, is_follow_pending, is_following, scan_pii, visible_posts | PostgreSQL; transitive service dependencies pending trace | kids discover response per master spec | Denial/error without granting access or publishing unsafe bytes; runtime cases pending | Ledger domain suites; per-route execution unverified | Unverified; guardian capture user-reported failure |

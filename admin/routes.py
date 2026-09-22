@@ -32,7 +32,6 @@ def _stats():
         'open_reviews': (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE decision='REVIEW' AND status='OPEN'") or {'n':0})['n'],
         'blocked_7d': (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE decision='BLOCK' AND created_at>NOW()-INTERVAL '7 days'") or {'n':0})['n'],
         'adult_blocks_7d': (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE decision='BLOCK' AND adult_score>=40 AND created_at>NOW()-INTERVAL '7 days'") or {'n':0})['n'],
-        'failed_face_7d': (fetch_one("SELECT COUNT(*) n FROM face_login_attempts WHERE success=FALSE AND created_at>NOW()-INTERVAL '7 days'") or {'n':0})['n'],
     }
 
 

@@ -27,11 +27,11 @@ function loginResponse(role: 'CHILD' | 'PARENT' | 'ADMIN', quizRequired = false)
 describe('auth restoration and logout', () => {
   it('persists and restores a session across a cold start', async () => {
     const storage = memoryBackend();
-    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { face_required: false, quiz_required: true } });
+    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { quiz_required: true } });
     const restored = await restoreSession(storage);
     assert.equal(restored?.token, 'token-123');
     assert.equal(restored?.user.username, 'kid_rio');
-    assert.deepEqual(restored?.onboarding, { face_required: false, quiz_required: true });
+    assert.deepEqual(restored?.onboarding, { quiz_required: true });
   });
 
   it('rejects corrupt cached users instead of crashing', async () => {
@@ -41,7 +41,7 @@ describe('auth restoration and logout', () => {
 
   it('rejects corrupt cached gates and fails closed', async () => {
     const storage = memoryBackend();
-    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { face_required: false, quiz_required: false } });
+    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { quiz_required: false } });
     storage.data['littlenet.auth.onboarding'] = '{broken';
     const restored = await restoreSession(storage);
     assert.equal(restored?.onboarding, null);
@@ -49,7 +49,7 @@ describe('auth restoration and logout', () => {
 
   it('logout clears tokens, user, gates, and quiz destinations', async () => {
     const storage = memoryBackend();
-    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { face_required: true, quiz_required: true } });
+    await persistSession(storage, { ...loginResponse('CHILD'), onboarding: { quiz_required: true } });
     await savePendingDestination(storage, 'KidsHome');
     await clearSession(storage);
     assert.equal(await restoreSession(storage), null);
@@ -78,21 +78,20 @@ describe('role-aware cold-start routing', () => {
     assert.equal(decideInitialRoute(admin), 'admin');
   });
 
-  it('holds children at the face gate first, then quiz, then home', async () => {
+  it('holds children at the quiz gate, then home', async () => {
     const storage = memoryBackend();
     const session = await persistSession(storage, loginResponse('CHILD', true));
-    assert.equal(decideInitialRoute(session, { face_required: true, quiz_required: true }), 'child_face');
-    assert.equal(decideInitialRoute(session, { face_required: false, quiz_required: true }), 'child_quiz');
-    assert.equal(decideInitialRoute(session, { face_required: false, quiz_required: false }), 'child');
+    assert.equal(decideInitialRoute(session, { quiz_required: true }), 'child_quiz');
+    assert.equal(decideInitialRoute(session, { quiz_required: false }), 'child');
   });
 
-  it('unknown child onboarding fails closed to child_face regardless of cached quiz flag', async () => {
+  it('unknown child onboarding fails closed to child_quiz regardless of cached quiz flag', async () => {
     const storage = memoryBackend();
     const staleQuiz = await persistSession(storage, loginResponse('CHILD', true));
-    assert.equal(decideInitialRoute(staleQuiz, null), 'child_face');
-    assert.equal(decideInitialRoute(staleQuiz, undefined), 'child_face');
+    assert.equal(decideInitialRoute(staleQuiz, null), 'child_quiz');
+    assert.equal(decideInitialRoute(staleQuiz, undefined), 'child_quiz');
     const staleClear = await persistSession(storage, loginResponse('CHILD', false));
-    assert.equal(decideInitialRoute(staleClear, null), 'child_face');
-    assert.equal(decideInitialRoute(staleClear, undefined), 'child_face');
+    assert.equal(decideInitialRoute(staleClear, null), 'child_quiz');
+    assert.equal(decideInitialRoute(staleClear, undefined), 'child_quiz');
   });
 });

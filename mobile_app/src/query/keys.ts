@@ -25,6 +25,7 @@ export const parentKeys = {
   safety: ['parent', 'safety'],
   follows: ['parent', 'follows'],
   activity: (childId: number) => ['parent', 'activity', childId],
+  insights: (childId: number) => ['parent', 'insights', childId],
   notifications: ['parent', 'notifications'],
 } as const;
 

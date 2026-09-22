@@ -779,7 +779,7 @@ That becomes increasingly important if several AI agents or developers start edi
 
 # What I would actually implement, in order
 
-1. **Do not add big new features before Monday.** Complete the exact device path in your PDF: fresh APK → real OTP → guardian face → child creation/enrollment → child face login → Feed/Reels → safe image → safe Reel → second child sees it → REVIEW/BLOCK stays hidden. The report itself says that is the "only path that must work." 
+1. **Do not add big new features before Monday.** Complete the exact device path in your PDF: fresh APK → real OTP → child creation → child password login → onboarding quiz → Feed/Reels → safe image → safe Reel → second child sees it → REVIEW/BLOCK stays hidden. The report itself says that is the "only path that must work." 
 2. **Stabilize media playback:** fix signed-URL TTL inconsistency, signed-URL refresh, Reel background/foreground recovery and physical playback testing.
 3. **Upgrade video architecture:** R2 quarantine stays; ALLOWED videos move to managed adaptive HLS streaming with private/tokenized playback.
 4. **Connect Reel analytics to the recommendation system:** impressions, watch ratio, completion, replay, skip, save/share/follow/not-interested/report.

@@ -132,9 +132,6 @@ const SRC = join(__dirname, '..', '..', 'src');
 const SENSITIVE_APIS = [
   'createChild',
   'resetChildPassword',
-  'resetChildFace',
-  'enrollChildFaceByParent',
-  'approveFaceDeferral',
   'unlinkChild',
   'resolveParentReview',
   'updateTimeLimit',
@@ -228,7 +225,7 @@ function isGateDominated(src: string, callLineIdx: number, callCol: number): boo
 describe('sensitive action gating — static audit', () => {
   it('every sensitive parent API call site is dominated by ensureParentAuthForAction()', () => {
     const sites = findCallSites();
-    assert.ok(sites.length >= 12, `expected >= 12 sensitive call sites, found ${sites.length}`);
+    assert.ok(sites.length >= 11, `expected >= 11 sensitive call sites, found ${sites.length}`);
     const ungated = sites.filter((s) => {
       const src = readFileSync(join(SRC, s.file), 'utf8');
       return !isGateDominated(src, s.line - 1, s.col);

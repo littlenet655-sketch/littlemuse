@@ -11,4 +11,4 @@ Implemented:
 - child post/story R2 cleanup after successful DB deletion
 - regression coverage for signing, TTL clamp, exact delete key, no-store caching, authorization-before-signing, and deletion hooks
 
-Not included in this step: friendship approval, discovery privacy, quiz persistence, blink/liveness redesign, Android cleanup, or deployment credential work.
+Not included in this step: friendship approval, discovery privacy, quiz persistence, blink/liveness redesign (superseded: face artifacts removed 2026-09-22), Android cleanup, or deployment credential work.

@@ -35,7 +35,7 @@ const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'];
  * via a tampered pending-destination value.
  */
 const KNOWN_QUIZ_DESTINATIONS: ReadonlySet<keyof ChildStackParamList> = new Set([
-  'FaceEnroll', 'Quiz', 'KidsTabs', 'FeedTab', 'DiscoverTab', 'CreateTab', 'ReelsTab',
+  'Quiz', 'KidsTabs', 'FeedTab', 'DiscoverTab', 'CreateTab', 'ReelsTab',
   'ProfileTab', 'Stories', 'NotificationsTab', 'Conversations',
   'NewMessage', 'SavedContent', 'EditProfile', 'Connections',
   'SafetyCentre', 'ReportHistory',

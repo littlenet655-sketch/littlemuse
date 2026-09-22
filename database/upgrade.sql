@@ -79,8 +79,6 @@ CREATE TABLE IF NOT EXISTS parent_verifications (
     child_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
     verification_provider VARCHAR(64) DEFAULT 'MOCK_CIVIC_ID',
     verification_status VARCHAR(64) DEFAULT 'PENDING',
-    liveness_status VARCHAR(64),
-    face_match_status VARCHAR(64),
     document_type VARCHAR(64),
     masked_id VARCHAR(64),
     consent_given BOOLEAN DEFAULT FALSE,
@@ -152,7 +150,6 @@ ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS pronunciation_hint VARCHAR(100);
 ALTER TABLE child_profiles ADD COLUMN IF NOT EXISTS grade_level VARCHAR(30) DEFAULT 'Grade 4';
 ALTER TABLE child_profiles ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(20) DEFAULT 'en';
 ALTER TABLE child_profiles ADD COLUMN IF NOT EXISTS learning_languages TEXT[] DEFAULT ARRAY['kn', 'hi'];
-ALTER TABLE child_profiles ADD COLUMN IF NOT EXISTS face_enrollment_skipped BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS child_personalized_quiz_pool (
   pool_id SERIAL PRIMARY KEY,
@@ -233,18 +230,6 @@ CREATE INDEX IF NOT EXISTS idx_upload_sessions_child ON upload_sessions(child_id
 -- Master Final Release: Post Location, Replay Protection & Curated Music
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_name VARCHAR(120);
 
-CREATE TABLE IF NOT EXISTS face_auth_challenges (
-  challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-  nonce VARCHAR(64) NOT NULL UNIQUE,
-  action VARCHAR(32) NOT NULL DEFAULT 'BLINK',
-  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ,
-  session_context VARCHAR(128)
-);
-CREATE INDEX IF NOT EXISTS idx_face_auth_challenges_user ON face_auth_challenges(user_id, expires_at);
-CREATE INDEX IF NOT EXISTS idx_face_auth_challenges_nonce ON face_auth_challenges(nonce);
 
 CREATE TABLE IF NOT EXISTS curated_music (
   music_id SERIAL PRIMARY KEY,
@@ -266,7 +251,6 @@ VALUES
   ('Space Adventure', 'AstroSound', 'Sci-Fi', 'https://cdn.pixabay.com/download/audio/2021/08/04/audio_12b0c7443c.mp3?filename=space-adventure-6681.mp3', 35)
 ON CONFLICT DO NOTHING;
 
-ALTER TABLE face_profiles ADD COLUMN IF NOT EXISTS biometric_key VARCHAR(64);
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS story_music_id INTEGER REFERENCES curated_music(music_id) ON DELETE SET NULL;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS story_music_start INTEGER DEFAULT 0;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS story_music_duration INTEGER DEFAULT 30;

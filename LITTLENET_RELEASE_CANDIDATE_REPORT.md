@@ -25,7 +25,7 @@ The merged baseline has passed:
 - dynamic SQL audit
 - Python dependency/application security checks
 - Gitleaks secret scan
-- MediaPipe liveness asset integrity
+- (MediaPipe liveness asset check retired: face path removed 2026-09-22)
 - Android APK compilation and package verification
 - submission ZIP packaging
 
@@ -68,8 +68,6 @@ The final submission branch corrected reproduced issues including:
 3. contextual chat review not being recorded as the final decision
 4. contextual safety being skipped when the optional provider was unavailable
 5. old conversations being reusable after relationship revocation
-6. guardian verification accepting insufficient liveness evidence
-7. 17.x age estimates being rounded into adult eligibility
 8. short usage sessions losing time through per-session minute rounding
 9. stale/missing server usage sessions weakening screen-time checks
 10. inconsistent private parent-media authorization
@@ -106,16 +104,12 @@ Current server-side behavior includes:
 
 Elapsed usage is accumulated in seconds before display-minute conversion so repeated short sessions do not disappear.
 
-## 7. Face/liveness verification
+## 7. Identity verification (2026-09-22: face removed)
 
-Current guardian/face hardening requires:
-
-- one face, not zero/multiple
-- explicit positive liveness evidence
-- fail-closed behavior when liveness is missing
-- unrounded age-boundary evaluation
-
-CI also verifies pinned MediaPipe liveness assets by integrity hash.
+All face/biometric artifacts were removed from LittleNet. Parents are verified by
+email OTP ownership plus an 18+ date-of-birth declaration and explicit guardian
+consent, and Parent Mode is additionally gated by Android system authentication.
+Children log in with a password, and a compulsory age quiz gates Kids Mode.
 
 ## 8. Current live-deployment blocker
 
@@ -159,7 +153,7 @@ Recommended deterministic sequence:
 - demonstrate parent controls, screen time and quiet hours
 - show approved messaging
 - show relationship revocation preventing further chat use
-- show Face Login/liveness
+- show child password login + onboarding quiz gate
 - show Admin/Moderator audit/moderation view
 - run/install the current CI-built Android APK
 

@@ -21,9 +21,9 @@ Backend: `https://netlittle2--littlenet-web-web.modal.run`
 | 3 | Parent signup form validation | BLOCKED | `device/03_parent_signup.log` | Requires an installed APK and Android UI interaction. |
 | 4 | Parent OTP email delivery | BLOCKED | `device/04_parent_otp_delivery.log` | Current live API/Resend evidence is recorded separately in `FINAL_E2E_MATRIX.md`; the APK journey was not run. |
 | 5 | Parent OTP entry and verification | BLOCKED | `device/05_parent_otp_verify.log` | Requires an installed APK and a completed OTP delivery journey. |
-| 6 | Guardian liveness/adult verification | BLOCKED | `device/06_guardian_liveness.log` | Requires verified OTP, installed APK, and a physical camera or emulator camera. |
+| 6 | ~~Guardian liveness/adult verification~~ | REMOVED 2026-09-22 | — | Face/liveness verification removed by product decision; parent identity is email-OTP-only, Parent Mode is gated by Android device auth. |
 | 7 | Child enrollment by verified parent | BLOCKED | `device/07_child_enrollment.log` | Requires completed parent verification in the installed app. |
-| 8 | Child face-first login | BLOCKED | `device/08_child_face_login.log` | Requires enrolled face data and a physical camera or emulator camera. |
+| 8 | Child password login | BLOCKED | `device/08_child_password_login.log` | Requires a created child account and password. |
 | 9 | Mandatory onboarding quiz | BLOCKED | `device/09_onboarding_quiz.log` | Requires child login in the installed app. |
 | 10 | Kids feed shows approved content | BLOCKED | `device/10_feed.log` | Requires child login and device-rendered feed evidence. |
 | 11 | Stories viewer and progress | BLOCKED | `device/11_stories.log` | Requires child login and an Android run. |

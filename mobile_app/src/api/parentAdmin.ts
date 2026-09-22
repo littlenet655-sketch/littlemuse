@@ -178,44 +178,27 @@ export function fetchParentActivity(token: string, childId: number): Promise<{ o
   return apiRequest(routes.parentActivity(childId), {}, token);
 }
 
+/** Read-only per-child viewing insights: watch totals (7d/30d), per-category
+    breakdown, and top reels. Served by parent/api.py; the server enforces the
+    parent-owns-child gate. */
+export interface ViewingInsights {
+  success: boolean;
+  child_id: number;
+  windows: {
+    '7d': { views: number; watch_seconds: number };
+    '30d': { views: number; watch_seconds: number };
+  };
+  by_category: { category: string; views: number; watch_seconds: number }[];
+  top_reels: { kind: string; id: number; title: string; category: string; views: number; watch_seconds: number }[];
+}
+
+export function fetchViewingInsights(token: string, childId: number): Promise<ViewingInsights> {
+  return apiRequest(routes.parentViewingInsights(childId), {}, token);
+}
+
 /** Parent sets a new password for their linked child (backend enforces 8+ chars). */
 export function resetChildPassword(token: string, childId: number, newPassword: string): Promise<{ ok: boolean; message: string }> {
   return apiRequest(routes.parentResetChildPassword(childId), { method: 'POST', body: JSON.stringify({ new_password: newPassword }) }, token);
-}
-
-/** Parent clears the child's enrolled face profile; the child's sessions are revoked server-side. */
-export function resetChildFace(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
-  return apiRequest(routes.parentResetChildFace(childId), { method: 'POST' }, token);
-}
-
-/**
- * Parent-side child face enrollment with a fresh live camera photo (base64 JSON).
- * Allows 60s for serverless AI cold start. Completes the child's face gate so
- * "Skip for Now" on the child device can fall back to parent approval here.
- */
-export function enrollChildFaceByParent(token: string, childId: number, photoB64: string): Promise<{ ok: boolean; child_id: number; face_enrolled: boolean; quiz_required: boolean }> {
-  return apiRequest(
-    routes.parentEnrollChildFace(childId),
-    { method: 'POST', body: JSON.stringify({ photo_b64: photoB64 }), timeoutMs: 60000 },
-    token,
-  );
-}
-
-/** Parent approves/rejects a child's face-enrollment skip request.
-
-Until the parent records a decision here, the child's "Skip for Now" button
-stays a dead end (403 parent_approval_required). Approving sets
-face_enrollment_skipped server-side so the onboarding gate passes. */
-export function approveFaceDeferral(
-  token: string,
-  childId: number,
-  action: 'approve' | 'reject',
-): Promise<{ ok: boolean; child_id: number; face_enrollment_skipped: boolean }> {
-  return apiRequest(
-    routes.parentFaceDeferral(childId),
-    { method: 'POST', body: JSON.stringify({ action }) },
-    token,
-  );
 }
 
 /** Parent unlinks a child: mapping deleted and child account deactivated server-side. */

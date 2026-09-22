@@ -221,17 +221,6 @@ def _mk_review_decision(monkeypatch):
     monkeypatch.setattr(ai_mod, "get_ai_client", lambda: stub)
 
 
-def _ensure_face_enrolled(uid):
-    """child_required gates every child route on a face_profiles row."""
-    from database.connection import execute
-    execute(
-        """INSERT INTO face_profiles(child_id, embedding)
-           VALUES (%s, (SELECT jsonb_agg(0.0) FROM generate_series(1,512)))
-           ON CONFLICT (child_id) DO NOTHING""",
-        (uid,),
-    )
-
-
 def _ensure_pair(sender, receiver):
     from database.connection import execute
     execute(
@@ -261,8 +250,13 @@ def test_review_message_lifecycle_end_to_end(monkeypatch, live_db):
     assert me and other, "lifecycle test needs two active CHILD fixtures"
     s, r = me["user_id"], other["user_id"]
     _ensure_pair(s, r)
-    _ensure_face_enrolled(s)
-    _ensure_face_enrolled(r)
+    from database.connection import execute as _exec
+    for _uid in (s, r):
+        _exec(
+            "INSERT INTO child_quiz_progress(child_id, quiz_required) VALUES(%s, FALSE) "
+            "ON CONFLICT (child_id) DO UPDATE SET quiz_required=FALSE",
+            (_uid,),
+        )
 
     tag = f"lifecycle-{os.getpid()}"
     _mk_review_decision(monkeypatch)

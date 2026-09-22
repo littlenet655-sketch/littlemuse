@@ -27,13 +27,13 @@ Targeted security/feature batch (88 passed, same 2 guard errors):
 - `test_ai_chat_pii_egress.py`, `test_k2_ai_safety.py` — pass (PII redaction before AI)
 - `test_phase25_production_hardening.py` — pass (R2 quarantine, cross-user theft, idempotency, mock-put guards)
 - `test_modules_11_15_contract_cleanup.py` — pass incl. new v1→410 regression test (1 pre-existing DB-dependent failure `test_comments_moderation_filter` fails identically on pristine tree; needs live DB *and* passes in the full run above)
-- `test_parent_child_face_enrollment_contract.py` — pass
+- `test_parent_child_face_enrollment_contract.py` — pass (historical; the face system and this test file were removed 2026-09-22)
 - `test_story_music_e2e.py::test_story_music_full_lifecycle` — **passes against the live disposable DB** via the v2 pipeline
 
 ## Mobile (`mobile_app/`)
 
 - `npm run typecheck` (`tsc --noEmit`) — **clean**
-- `npm test` (jest, 38 suites) — **173/173 passed** (includes 2 updated tests for the uniform face-login message)
+- `npm test` (jest, 38 suites) — **173/173 passed** (historical; face login and its tests were removed entirely 2026-09-22)
 - `npx expo install --check` — dependencies up to date
 - `npm run export:android` — **succeeded** (`dist/` exported, AppEntry HBC 3.1MB, metadata.json)
 - Expo prebuild (`npx expo prebuild --platform android`, JDK 17, `ANDROID_HOME=/opt/android-sdk`) — **succeeded**, fresh `android/` native project generated with `gradlew`

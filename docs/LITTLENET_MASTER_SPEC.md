@@ -57,10 +57,8 @@ Welcome
 → adult guardian declaration
 → Resend OTP
 → 6-digit OTP verification
-→ native guardian camera
-→ local face-quality validation
-→ server liveness/adult verification
 → ACTIVE Parent
+→ Android device auth (biometric/PIN) gates Parent Mode
 → Parent dashboard
 
 OTP:
@@ -131,27 +129,19 @@ Expected:
 Parent
 → Create child
 → child profile
-→ child face enrollment
-→ local face-quality check
-→ server liveness
-→ Facenet512 embedding enrollment
-→ required quiz
+→ required age quiz
 → Kids Mode
 
 Later login:
 
 Choose Kids
 → username/account selection where required
-→ native face capture
-→ local face precheck
-→ server anti-spoof
-→ Facenet512 embedding match
+→ child password login
 → quiz gate if required
 → Kids Mode
 
-Facenet512/server identity remains authoritative.
-
-ML Kit is capture quality only.
+(2026-09-22: face capture / anti-spoof / Facenet512 steps removed by product
+decision. Child password login is the only child auth method.)
 
 ## E. QUIZ PIPELINE
 

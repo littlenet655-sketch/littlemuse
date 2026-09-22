@@ -49,8 +49,8 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
             return;
           }
           if (shouldRefreshOnboardingForGate(err, onboardingRef.current)) {
-            // 428 face/quiz gate: pull authoritative gates from /me so the
-            // child is routed to FaceEnroll/Quiz instead of staying stuck.
+            // 428 quiz gate: pull authoritative gates from /me so the
+            // child is routed to Quiz instead of staying stuck.
             try {
               await refreshMeRef.current();
             } catch {

@@ -15,5 +15,5 @@ export function quizLoadStatus(itemCount: number): QuizLoadStatus {
 
 export function shouldProceedAfterRefresh(onboarding: OnboardingState | null | undefined): boolean {
   if (!onboarding) return false;
-  return !onboarding.face_required && !onboarding.quiz_required;
+  return !onboarding.quiz_required;
 }

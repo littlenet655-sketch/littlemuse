@@ -1,8 +1,8 @@
 """Verified-parent child provisioning for the locked LittleNet onboarding flow.
 
-Sequence: verified ACTIVE parent -> validated child age -> child account -> mandatory
-face enrollment -> mandatory age-matched onboarding quiz. The latter two gates are
-enforced by auth/api.py before the child can reach normal Kids Mode screens.
+Sequence: verified ACTIVE parent -> validated child age -> child account ->
+mandatory age-matched onboarding quiz. The quiz gate is enforced by
+auth/api.py before the child can reach normal Kids Mode screens.
 """
 import uuid
 
@@ -41,8 +41,8 @@ def create_child_for_verified_parent(parent_id, form):
         age = int(form.get('age'))
     except (TypeError, ValueError):
         raise ValueError('Enter the child age.')
-    if not 4 <= age <= 18:
-        raise ValueError('Child age must be between 4 and 18.')
+    if not 6 <= age <= 16:
+        raise ValueError('Child age must be between 6 and 16.')
 
     password = form.get('password') or ''
     if len(password) < 8:
@@ -131,7 +131,7 @@ def create_child_for_verified_parent(parent_id, form):
         cur.execute(
             """INSERT INTO activity_logs(child_id,activity_type,activity_data)
                VALUES(%s,'ACCOUNT_CREATED_BY_PARENT',%s::jsonb)""",
-            (child_id, '{"verified_parent":true,"face_enrollment_required":true,"onboarding_quiz_required":true}'),
+            (child_id, '{"verified_parent":true,"onboarding_quiz_required":true}'),
         )
         conn.commit()
     except Exception as exc:

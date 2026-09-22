@@ -73,7 +73,9 @@ def local_ai_env(monkeypatch):
     """Force the local inference tier: no Modal CPU tier, no remote AI."""
     monkeypatch.setenv("LITTLENET_AI_SERVER", "1")
     monkeypatch.delenv("AI_SERVICE_URL", raising=False)
-    monkeypatch.delenv("LITTLENET_ENABLE_OCR", raising=False)
+    # OCR is on by default; keep it off in this file so the deterministic
+    # ALLOW/REVIEW assertions below don't trip on ocr_unavailable.
+    monkeypatch.setenv("LITTLENET_ENABLE_OCR", "0")
     monkeypatch.delenv("LITTLENET_ENABLE_TEXT_CLASSIFIER", raising=False)
     return monkeypatch
 

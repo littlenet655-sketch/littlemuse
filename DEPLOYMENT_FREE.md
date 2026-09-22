@@ -6,7 +6,7 @@
 > low-RAM Railway demo layout only.
 
 LittleNet supports a split runtime so the social web application does not need to
-load PyTorch, TensorFlow, YOLO and DeepFace in the same 512 MB process.
+load PyTorch, TensorFlow and YOLO in the same 512 MB process.
 
 ## Recommended college-demo layout
 

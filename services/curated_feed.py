@@ -34,7 +34,7 @@ def _child_real_age(child_id: int) -> int:
         age = u.get("age")
     try:
         val = int(age)
-        if 4 <= val <= 18:
+        if 6 <= val <= 16:
             return val
     except (TypeError, ValueError):
         pass

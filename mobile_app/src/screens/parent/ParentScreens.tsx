@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useVideoPlayer } from 'expo-video';
 import { Feather } from '@expo/vector-icons';
 import {
-  approveFaceDeferral,
-  enrollChildFaceByParent,
   extendChildScreenTime,
   fetchFollowRequests,
   fetchParentActivity,
@@ -12,8 +11,8 @@ import {
   fetchParentDashboard,
   fetchParentNotifications,
   fetchParentSafety,
+  fetchViewingInsights,
   markParentNotificationsRead,
-  resetChildFace,
   resetChildPassword,
   resetChildScreenTime,
   resolveFollowRequest,
@@ -25,10 +24,10 @@ import {
   type ParentControls,
   type ParentNotification,
   type ReviewPreview,
+  type ViewingInsights,
 } from '../../api/parentAdmin';
 import { useAuth } from '../../auth/AuthProvider';
-import { CameraCapture } from '../../camera/CameraCapture';
-import type { CapturedPhoto } from '../../camera/livePhoto';
+import { NativeVideoView } from '../../ui/nativeViews';
 import { ensureParentAuthForAction } from '../../components/ParentModeGate';
 import type { ParentScreenProps } from '../../navigation/types';
 import { useIsOnline } from '../../query/client';
@@ -443,6 +442,16 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           )}
         </View>
 
+        {/* VIEWING INSIGHTS SECTION — per-child read-only watch aggregates */}
+        {children.length ? (
+          <View style={styles.sectionWrap}>
+            <Text style={styles.sectionHeaderLabel}>VIEWING INSIGHTS</Text>
+            {children.map((child) => (
+              <ViewingInsightsCard key={child.user_id} token={session?.token} child={child} />
+            ))}
+          </View>
+        ) : null}
+
         {/* CONTROLS & SUPERVISION SECTION */}
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionHeaderLabel}>CONTROLS & SUPERVISION</Text>
@@ -506,6 +515,81 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
         </View>
       </RefreshingScroll>
     </Screen>
+  );
+}
+
+function formatWatchDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return '0m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/** Per-child read-only watch summary, rendered inside the parent dashboard.
+    Data comes from GET /api/parent/child/<id>/viewing-insights (server
+    aggregates content_impressions; the parent-owns-child gate is enforced
+    server-side). States: loading / error / empty / data. */
+function ViewingInsightsCard({ token, child }: { token?: string; child: ParentChild }) {
+  const insights = useQuery({
+    queryKey: parentKeys.insights(child.user_id),
+    queryFn: () => fetchViewingInsights(token as string, child.user_id),
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const data: ViewingInsights | undefined = insights.data;
+  const top = (data?.by_category ?? []).slice(0, 3);
+  const maxViews = top.reduce((m, c) => Math.max(m, c.views), 0) || 1;
+  const topReel = data?.top_reels?.[0];
+
+  return (
+    <Card style={styles.insightCard}>
+      <View style={styles.insightHeader}>
+        <Avatar uri={child.avatar_url} name={child.full_name ?? child.username} size={36} />
+        <View style={styles.flex}>
+          <Text style={styles.insightChildName}>{child.full_name ?? child.username}</Text>
+          <Text style={styles.muted}>Viewing insights</Text>
+        </View>
+        <Feather name="eye" size={16} color={colors.muted} />
+      </View>
+
+      {insights.isPending ? (
+        <ActivityIndicator size="small" color={colors.muted} style={styles.insightPad} />
+      ) : insights.isError || !data ? (
+        <Text style={[styles.muted, styles.insightPad]}>Watch insights unavailable right now.</Text>
+      ) : data.windows['30d'].views === 0 ? (
+        <Text style={[styles.muted, styles.insightPad]}>No watch activity recorded yet.</Text>
+      ) : (
+        <>
+          <View style={styles.insightStatRow}>
+            <View style={styles.insightStat}>
+              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['7d'].watch_seconds)}</Text>
+              <Text style={styles.muted}>This week</Text>
+            </View>
+            <View style={styles.insightStat}>
+              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['30d'].watch_seconds)}</Text>
+              <Text style={styles.muted}>Last 30 days</Text>
+            </View>
+          </View>
+          {top.map((c) => (
+            <View key={c.category} style={styles.insightBarRow}>
+              <Text style={styles.insightBarLabel} numberOfLines={1}>{c.category}</Text>
+              <View style={styles.insightBarTrack}>
+                <View style={[styles.insightBarFill, { width: `${Math.max(4, (c.views / maxViews) * 100)}%` }]} />
+              </View>
+              <Text style={styles.insightBarValue}>{c.views}</Text>
+            </View>
+          ))}
+          {topReel ? (
+            <Text style={styles.insightTopReel} numberOfLines={2}>
+              Most watched: {topReel.title} · {topReel.views} views
+            </Text>
+          ) : null}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -667,7 +751,7 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
   const childId = route.params.childId;
   const child = query.data?.children.find((item) => item.user_id === childId);
 
-  const [panel, setPanel] = useState<'password' | 'face' | 'faceskip' | null>(null);
+  const [panel, setPanel] = useState<'password' | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
@@ -696,83 +780,6 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
       setConfirmPassword('');
       setPanel(null);
       setAccountDone(result.message);
-      await refreshFamily();
-    } catch (err) {
-      setAccountError(errorText(err));
-    } finally {
-      setAccountBusy(false);
-    }
-  }
-
-  function confirmResetFace() {
-    Alert.alert(
-      'Reset Face Key?',
-      `${child?.full_name ?? 'Your child'} will be signed out on every device and must enroll their face again before Kids Mode opens. Continue?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Reset Face', style: 'destructive', onPress: () => void doResetFace() },
-      ],
-    );
-  }
-
-  async function doResetFace() {
-    // Sensitive action: require a fresh parent device authentication.
-    if (!(await ensureParentAuthForAction())) return;
-    setAccountBusy(true);
-    setAccountError('');
-    setAccountDone('');
-    try {
-      const result = await resetChildFace(session?.token ?? '', childId);
-      setPanel(null);
-      setAccountDone(result.message);
-      await refreshFamily();
-    } catch (err) {
-      setAccountError(errorText(err));
-    } finally {
-      setAccountBusy(false);
-    }
-  }
-
-  async function onEnrollCapture(photo: CapturedPhoto) {
-    if (!photo.base64) throw new Error('The camera did not return a photo. Please try again.');
-    // Sensitive action: require a fresh parent device authentication.
-    if (!(await ensureParentAuthForAction())) {
-      throw new Error('Parent authentication was cancelled.');
-    }
-    setAccountBusy(true);
-    setAccountError('');
-    setAccountDone('');
-    try {
-      const result = await enrollChildFaceByParent(session?.token ?? '', childId, photo.base64);
-      setPanel(null);
-      setAccountDone(
-        result.face_enrolled
-          ? 'Face key enrolled. The child can now sign in with face login and the face gate is clear.'
-          : 'Face enrollment saved.',
-      );
-      await refreshFamily();
-    } catch (err) {
-      setAccountError(errorText(err));
-      throw err;
-    } finally {
-      setAccountBusy(false);
-    }
-  }
-
-  async function decideFaceDeferral(action: 'approve' | 'reject') {
-    // Sensitive action: require a fresh parent device authentication.
-    if (!(await ensureParentAuthForAction())) return;
-    setAccountBusy(true);
-    setAccountError('');
-    setAccountDone('');
-    try {
-      const result = await approveFaceDeferral(session?.token ?? '', childId, action);
-      setPanel(null);
-      setAccountDone(
-        result.face_enrollment_skipped
-          ? 'Face skip approved. Your child can continue into Kids Mode without enrolling their face.'
-          : 'Face skip declined. Your child will need to enroll their face to continue.',
-      );
       await refreshFamily();
     } catch (err) {
       setAccountError(errorText(err));
@@ -1017,90 +1024,6 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
 
           <Pressable
             accessibilityRole="button"
-            style={styles.actionTileRow}
-            onPress={() => setPanel(panel === 'face' ? null : 'face')}
-          >
-            <View style={[styles.menuIconBadge, { backgroundColor: '#ECFDF5' }]}>
-              <Feather name="camera" size={20} color="#059669" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.menuTitle}>Enroll Child Face Key</Text>
-              <Text style={styles.muted}>Take a live photo to enroll or re-enroll face login</Text>
-            </View>
-            <Feather name={panel === 'face' ? 'chevron-down' : 'chevron-right'} size={18} color="#9CA3AF" />
-          </Pressable>
-          {panel === 'face' ? (
-            <View style={styles.accountPanel}>
-              <CameraCapture
-                label="Capture Child Face"
-                busyLabel="Enrolling Face…"
-                busy={accountBusy}
-                livenessAction="BLINK"
-                instruction="Good light, the child's face centered and looking at the camera, one face only. This enrolls their biometric login key."
-                onCapture={onEnrollCapture}
-              />
-            </View>
-          ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            style={styles.actionTileRow}
-            onPress={() => setPanel(panel === 'faceskip' ? null : 'faceskip')}
-          >
-            <View style={[styles.menuIconBadge, { backgroundColor: '#EFF6FF' }]}>
-              <Feather name="user-check" size={20} color="#2563EB" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.menuTitle}>Allow Face Skip</Text>
-              <Text style={styles.muted}>Approve or decline your child's request to skip face enrollment</Text>
-            </View>
-            <Feather name={panel === 'faceskip' ? 'chevron-down' : 'chevron-right'} size={18} color="#9CA3AF" />
-          </Pressable>
-          {panel === 'faceskip' ? (
-            <View style={styles.accountPanel}>
-              <Text style={styles.muted}>
-                If your child cannot enroll their face, approving lets them continue into Kids Mode without it.
-                They can enroll later from this screen.
-              </Text>
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    label={accountBusy ? 'Saving…' : 'Approve Skip'}
-                    loading={accountBusy}
-                    disabled={accountBusy}
-                    onPress={() => void decideFaceDeferral('approve')}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    label="Decline"
-                    variant="secondary"
-                    disabled={accountBusy}
-                    onPress={() => void decideFaceDeferral('reject')}
-                  />
-                </View>
-              </View>
-            </View>
-          ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            style={styles.actionTileRow}
-            onPress={confirmResetFace}
-            disabled={accountBusy}
-          >
-            <View style={[styles.menuIconBadge, { backgroundColor: '#FFFBEB' }]}>
-              <Feather name="refresh-ccw" size={20} color="#D97706" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.menuTitle}>Reset Face Key</Text>
-              <Text style={styles.muted}>Clear the enrolled face and sign the child out everywhere</Text>
-            </View>
-            <Feather name="chevron-right" size={18} color="#9CA3AF" />
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
             style={[styles.actionTileRow, { borderBottomWidth: 0 }]}
             onPress={confirmUnlink}
             disabled={accountBusy}
@@ -1203,9 +1126,149 @@ export function ParentSafetyScreen({ navigation }: ParentScreenProps<'ParentSafe
   );
 }
 
-function ReviewMedia({ preview, token }: { preview?: ReviewPreview | null; token: string }) {
-  const imageUrl = (preview?.media_type ?? '').toUpperCase() === 'IMAGE' ? preview?.media_url : preview?.poster_url;
-  if (imageUrl) return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
+/** Risk scores at or above this are shown blurred until the parent reveals them. */
+const HIGH_RISK_THRESHOLD = 0.7;
+
+/**
+ * Controlled quarantine video player (expo-video, the project's video
+ * component). No autoplay: playback starts only from the explicit play
+ * gesture, then native controls provide play/pause/seek.
+ */
+function ReviewVideo({ mediaUrl, posterUrl, token }: { mediaUrl: string; posterUrl?: string | null; token: string }) {
+  const player = useVideoPlayer(
+    { uri: mediaUrl, headers: { Authorization: `Bearer ${token}` } },
+    (instance) => {
+      instance.loop = false;
+    },
+  );
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status, error: playbackError }) => {
+      if (status === 'error') setError(playbackError?.message ?? 'This video could not play.');
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  // Never autoplay; pause on unmount so audio can't leak past navigation.
+  useEffect(() => () => player.pause(), [player]);
+
+  function start() {
+    setStarted(true);
+    setError(null);
+    try {
+      player.play();
+    } catch {
+      setError('This video could not play.');
+    }
+  }
+
+  return (
+    <View style={styles.reviewVideoShell}>
+      <NativeVideoView
+        player={player}
+        style={styles.reviewVideo}
+        contentFit="contain"
+        nativeControls={started}
+        onFirstFrameRender={() => setStarted(true)}
+      />
+      {!started ? (
+        <Pressable
+          style={styles.reviewVideoVeil}
+          onPress={start}
+          accessibilityRole="button"
+          accessibilityLabel="Play quarantined video"
+        >
+          {posterUrl ? (
+            <Image
+              source={{ uri: posterUrl, headers: { Authorization: `Bearer ${token}` } }}
+              style={styles.reviewVideoPoster}
+              resizeMode="cover"
+            />
+          ) : null}
+          <View style={styles.reviewVideoPlayBadge}>
+            <Feather name="play" size={28} color="#FFFFFF" />
+          </View>
+          <Text style={styles.reviewVideoHint}>Tap to play — stays paused until you do</Text>
+        </Pressable>
+      ) : null}
+      {error ? (
+        <View style={styles.reviewVideoError}>
+          <Text style={styles.reviewVideoErrorText}>{error}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** High-risk quarantined images render blurred until the parent explicitly reveals them (confirm step). */
+function ReviewImage({ imageUrl, token, riskScore }: { imageUrl: string; token: string; riskScore?: number | string | null }) {
+  const numeric = Number(riskScore);
+  const highRisk = Number.isFinite(numeric) && numeric >= HIGH_RISK_THRESHOLD;
+  const [revealed, setRevealed] = useState(false);
+  const blurred = highRisk && !revealed;
+
+  function requestReveal() {
+    if (!blurred) return;
+    Alert.alert(
+      'Reveal this image?',
+      'This image was quarantined as high risk. Reveal it only if you are comfortable viewing it.',
+      [
+        { text: 'Keep hidden', style: 'cancel' },
+        { text: 'Reveal', onPress: () => setRevealed(true) },
+      ],
+    );
+  }
+
+  return (
+    <View>
+      <Pressable
+        onPress={requestReveal}
+        disabled={!blurred}
+        accessibilityRole={blurred ? 'button' : undefined}
+        accessibilityLabel={blurred ? 'Reveal quarantined image' : 'Quarantined image'}
+      >
+        <Image
+          source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }}
+          resizeMode="cover"
+          style={styles.reviewImage}
+          blurRadius={blurred ? 28 : 0}
+        />
+        {blurred ? (
+          <View style={styles.blurVeil} pointerEvents="none">
+            <Feather name="eye-off" size={26} color="#FFFFFF" />
+            <Text style={styles.blurTitle}>Sensitive content hidden</Text>
+            <Text style={styles.blurBody}>High-risk image held in quarantine. Tap to review it.</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      {revealed && highRisk ? (
+        <Pressable
+          onPress={() => setRevealed(false)}
+          style={styles.rehide}
+          accessibilityRole="button"
+          accessibilityLabel="Hide image again"
+        >
+          <Feather name="eye-off" size={14} color={colors.muted} />
+          <Text style={styles.rehideText}>Hide again</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function ReviewMedia({ preview, token, riskScore }: { preview?: ReviewPreview | null; token: string; riskScore?: number | string | null }) {
+  const mediaType = (preview?.media_type ?? '').toUpperCase();
+  const imageUrl = mediaType === 'IMAGE' ? preview?.media_url : preview?.poster_url;
+  if (mediaType === 'VIDEO' && preview?.media_url) {
+    return <ReviewVideo mediaUrl={preview.media_url} posterUrl={preview?.poster_url} token={token} />;
+  }
+  if (imageUrl) {
+    if (mediaType === 'IMAGE') return <ReviewImage imageUrl={imageUrl} token={token} riskScore={riskScore} />;
+    // Video poster without playable media: unchanged thumbnail behavior.
+    return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
+  }
   if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
   return null;
 }
@@ -1243,7 +1306,7 @@ export function ParentReviewScreen({ navigation, route }: ParentScreenProps<'Par
           </View>
           <Text style={styles.reviewChildTitle}>{event.full_name ?? 'Your Child'}</Text>
 
-          <ReviewMedia preview={event.preview} token={session?.token ?? ''} />
+          <ReviewMedia preview={event.preview} token={session?.token ?? ''} riskScore={event.risk_score} />
 
           {event.preview?.caption ? (
             <View style={styles.quotedContentBox}>
@@ -2062,7 +2125,6 @@ export function ParentNotificationsScreen({ navigation }: ParentScreenProps<'Par
     if (value.includes('FOLLOW')) navigation.navigate('FollowRequests');
     else if (value.includes('SCREEN_TIME')) navigation.navigate('ScreenTime', { childId });
     else if (value.includes('CONTROL') || value === 'PROFILE_APPROVAL') navigation.navigate('ParentControls', { childId });
-    else if (value === 'FACE_RESET') navigation.navigate('ChildSummary', { childId });
     else if (value.includes('REVIEW') || value.includes('BLOCK') || value.includes('SAFETY') || value.includes('REPORT')) navigation.navigate('ParentSafety');
   }
 
@@ -2668,6 +2730,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   alertText: { color: colors.danger, fontWeight: '800', fontSize: 11 },
+  // Viewing insights cards (parent dashboard)
+  insightCard: { marginBottom: spacing.sm },
+  insightHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: spacing.sm },
+  insightChildName: { color: colors.ink, fontWeight: '800', fontSize: type.body },
+  insightPad: { paddingVertical: spacing.sm },
+  insightStatRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.sm },
+  insightStat: { flex: 1, backgroundColor: '#F8FAFC', borderRadius: radius.md, padding: spacing.sm },
+  insightStatValue: { color: colors.ink, fontWeight: '800', fontSize: 18 },
+  insightBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  insightBarLabel: { width: 110, color: colors.ink, fontSize: 13 },
+  insightBarTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: '#EDEFF3' },
+  insightBarFill: { height: 8, borderRadius: 4, backgroundColor: '#2563EB' },
+  insightBarValue: { width: 32, textAlign: 'right', color: colors.muted, fontSize: 13, fontWeight: '700' },
+  insightTopReel: { marginTop: spacing.sm, color: colors.ink, fontSize: 13 },
   safePill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2681,6 +2757,48 @@ const styles = StyleSheet.create({
   },
   safeText: { color: '#047857', fontWeight: '800', fontSize: 11 },
   reviewImage: { width: '100%', height: 280, borderRadius: 12, backgroundColor: colors.line, marginVertical: spacing.sm },
+  reviewVideoShell: {
+    width: '100%',
+    height: 280,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0F172A',
+    marginVertical: spacing.sm,
+  },
+  reviewVideo: { width: '100%', height: '100%' },
+  reviewVideoVeil: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  reviewVideoPoster: { ...StyleSheet.absoluteFill, width: '100%', height: '100%' },
+  reviewVideoPlayBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 4,
+  },
+  reviewVideoHint: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  reviewVideoError: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15,23,42,0.85)',
+    padding: spacing.md,
+  },
+  reviewVideoErrorText: { color: '#FCA5A5', fontWeight: '700', textAlign: 'center' },
+  blurVeil: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15,23,42,0.55)',
+    borderRadius: 12,
+    padding: spacing.md,
+  },
+  blurTitle: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+  blurBody: { color: 'rgba(255,255,255,0.85)', fontWeight: '600', fontSize: 12, textAlign: 'center' },
+  rehide: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 4 },
+  rehideText: { color: colors.muted, fontWeight: '700', fontSize: 13 },
   toggle: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', paddingVertical: spacing.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginHorizontal: spacing.md },
   chip: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: radius.pill, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: colors.surface },

@@ -12,7 +12,7 @@
  *
  * Also exports ensureParentAuthForAction(), the shared helper used to gate
  * individual sensitive parent mutations (child creation, screen-time
- * changes, safety controls, follow approvals, password/face resets,
+ * changes, safety controls, follow approvals, password resets,
  * unlink, security settings). When the window is still valid it resolves
  * immediately without re-prompting.
  */

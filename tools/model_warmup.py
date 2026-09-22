@@ -9,7 +9,7 @@ def check(name,fn):
         print(f'[FAIL] {name}: {type(e).__name__}: {e}');return False
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--face-image');ap.add_argument('--image');ap.add_argument('--audio');args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--image');ap.add_argument('--audio');args=ap.parse_args()
     results=[]
     results.append(check('Detoxify',lambda: __import__('detoxify').Detoxify('original')))
     results.append(check('NudeNet',lambda: __import__('nudenet').NudeDetector()))
@@ -21,11 +21,6 @@ def main():
         from transformers import pipeline
         pipeline('image-classification',model='Falconsai/nsfw_image_detection')
     results.append(check('Falconsai NSFW',nsfw))
-    def deepface():
-        from deepface import DeepFace
-        if args.face_image:DeepFace.extract_faces(img_path=args.face_image,anti_spoofing=True,enforce_detection=True)
-        else:DeepFace.build_model('Facenet512')
-    results.append(check('DeepFace / Facenet512',deepface))
     print(f'\nREADY {sum(results)}/{len(results)} models')
     raise SystemExit(0 if all(results) else 2)
 if __name__=='__main__':main()

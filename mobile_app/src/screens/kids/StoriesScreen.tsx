@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
+import { deleteStory } from '../../api/kidsSocial';
 import { fetchStoryViewers, type StoryViewer } from '../../api/kidsUpload';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
@@ -39,6 +40,9 @@ function expiresInLabel(createdAt?: string): string | null {
 
 /** Full-screen story viewer. Stories are already filtered by the server's public-safety rules. */
 export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+  // Loose navigate cast: CreateTab accepts an initialKind param at runtime
+  // (see CreateScreen), which types.ts deliberately leaves as undefined.
+  const nav = navigation as unknown as { navigate: (r: string, p?: object) => void };
   const { session } = useAuth();
   const { height } = useWindowDimensions();
   const focused = useIsFocused();
@@ -51,6 +55,8 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [imgError, setImgError] = useState(false);
   const [viewers, setViewers] = useState<StoryViewer[] | null>(null);
   const [viewersOpen, setViewersOpen] = useState(false);
+  const [storyDeleting, setStoryDeleting] = useState(false);
+  const [storyDeleteError, setStoryDeleteError] = useState('');
   const mounted = useRef(true);
   const lastLoadedAt = useRef(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -148,6 +154,34 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     }
   }
 
+  function confirmDeleteStory() {
+    Alert.alert(
+      'Delete this story?',
+      'It will be removed for everyone and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void doDeleteStory() },
+      ],
+    );
+  }
+
+  async function doDeleteStory() {
+    if (!session?.token || !current || storyDeleting) return;
+    const storyId = current.post_id;
+    setStoryDeleting(true);
+    setStoryDeleteError('');
+    try {
+      await deleteStory(session.token, storyId);
+      // Drop it locally; the existing index guard resets to 0 if the index
+      // falls off the end of the shortened list.
+      setStories((prev) => prev.filter((story) => story.post_id !== storyId));
+    } catch (err) {
+      setStoryDeleteError(err instanceof Error ? err.message : 'Could not delete this story. Try again.');
+    } finally {
+      setStoryDeleting(false);
+    }
+  }
+
   const advance = useCallback(() => {
     if (!current) return;
     markStoryComplete(current.post_id);
@@ -194,7 +228,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
   if (error) return <Screen><ErrorState message="Could not load stories." onRetry={() => void load()} /></Screen>;
-  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab')} /></Screen>;
+  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => nav.navigate('CreateTab', { initialKind: 'story' })} /></Screen>;
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
@@ -264,9 +298,21 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 <Text style={styles.viewersText}>{viewers.length}</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={() => navigation.navigate('CreateTab')} style={styles.create}>
+            <Pressable onPress={() => nav.navigate('CreateTab', { initialKind: 'story' })} style={styles.create}>
               <Text style={styles.createText}>＋ Story</Text>
             </Pressable>
+            {isOwnStory ? (
+              <Pressable
+                onPress={confirmDeleteStory}
+                disabled={storyDeleting}
+                style={[styles.close, storyDeleting && styles.deleting]}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this story"
+                hitSlop={8}
+              >
+                <Feather name="trash-2" size={16} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => navigation.goBack()}
               style={styles.close}
@@ -357,6 +403,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <Button label={paused ? 'Resume' : 'Pause'} variant="secondary" onPress={() => setPaused((value) => !value)} />
           <Button label={index === stories.length - 1 ? 'Restart' : 'Next'} onPress={() => (index === stories.length - 1 ? setIndex(0) : next())} />
         </View>
+        {storyDeleteError ? <Text style={styles.deleteError}>{storyDeleteError}</Text> : null}
       </View>
     </Screen>
   );
@@ -380,6 +427,8 @@ const styles = StyleSheet.create({
   create: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   createText: { color: colors.surface, fontWeight: '800', fontSize: 13 },
   close: { padding: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
+  deleting: { opacity: 0.5 },
+  deleteError: { color: '#FCA5A5', fontWeight: '700', fontSize: 13, textAlign: 'center', paddingHorizontal: spacing.md },
   media: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   image: { width: '100%', height: '100%' },
   missing: { color: colors.surface, fontWeight: '700' },

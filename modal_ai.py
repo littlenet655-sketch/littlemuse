@@ -3,7 +3,7 @@
 Deploy from the project root with:
     modal deploy modal_ai.py
 
-Locked scope: text/image/video moderation plus guardian/child face verification.
+Locked scope: text/image/video moderation.
 Standalone audio, voice and story-music moderation are intentionally excluded.
 """
 from pathlib import Path
@@ -31,12 +31,19 @@ image = (
         "torchvision>=0.17,<0.23",
         "transformers>=5.0",  # v5 verified end-to-end with littlenet_text_safety
         "detoxify==0.5.2",
+        # Declared dep of detoxify==0.5.2 (sentencepiece>=0.1.94); its
+        # multilingual toxicity model's tokenizer. Keep in sync with
+        # requirements-text.txt.
+        "sentencepiece==0.2.2",
         "nudenet>=3.4,<4",
-        "deepface>=0.0.93,<0.1",
-        "tensorflow>=2.16,<2.19",
-        "tf-keras>=2.16,<2.19",
         "ultralytics>=8.3,<9",
-        "opencv-python-headless==4.11.0.86",
+        # Non-headless: libgl1 is apt-installed above, and rapidocr-onnxruntime
+        # declares opencv-python (not headless) — one cv2 provider avoids a
+        # site-packages collision between the two distributions.
+        "opencv-python==4.11.0.86",
+        # OCR backend for safety/visual_service.py (default-on, fail-closed).
+        # Keep in sync with requirements-core.txt.
+        "rapidocr-onnxruntime==1.4.4",
         "scenedetect-headless>=0.7,<0.8",
         "Flask==3.1.3",
         "python-dotenv==1.2.2",
@@ -68,7 +75,6 @@ image = (
             "HF_HOME": "/cache/huggingface",
             "HF_HUB_CACHE": "/cache/huggingface/hub",
             "TORCH_HOME": "/cache/torch",
-            "DEEPFACE_HOME": "/cache/deepface",
             "LITTLENET_DETOXIFY_MODEL": "multilingual",
             # Scene-aware sampling protects short scene changes. The bounded
             # uniform fallback prevents long reels from multiplying GPU work.
@@ -141,12 +147,6 @@ def _secret_fingerprint(value: str | None) -> dict[str, object]:
 def ai_web():
     os.chdir("/root/littlenet")
     Path("/cache/models").mkdir(parents=True, exist_ok=True)
-    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-    try:
-        import tensorflow as tf
-        tf.config.set_visible_devices([], 'GPU')
-    except Exception:
-        pass
     from ai_server import app as flask_ai_app
     return flask_ai_app
 
@@ -363,35 +363,6 @@ def ai_secret_preflight():
 
 @app.function(
     image=image,
-    cpu=2.0,
-    memory=4096,
-    secrets=[ai_secret],
-    volumes={"/cache": model_cache},
-    timeout=900,
-    min_containers=0,
-    max_containers=1,
-)
-def prepare_face_cache():
-    """Prepare FaceNet512 on CPU so model caching does not consume GPU credit."""
-    os.chdir("/root/littlenet")
-    Path("/cache/models").mkdir(parents=True, exist_ok=True)
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-    os.environ["LITTLENET_DEVICE"] = "cpu"
-    import importlib
-
-    # DeepFace's public `from deepface import DeepFace` import can resolve the
-    # DeepFace submodule even when it is not a direct package attribute. Import
-    # the submodule explicitly so this helper works across supported versions.
-    deepface_module = importlib.import_module("deepface.DeepFace")
-    model = deepface_module.build_model("Facenet512")
-    if model is None:
-        raise RuntimeError("Facenet512 model did not initialize")
-    model_cache.commit()
-    return {"ok": True, "model": "Facenet512", "device": "cpu", "cached": True}
-
-
-@app.function(
-    image=image,
     gpu="T4",
     cpu=4.0,
     memory=8192,
@@ -460,14 +431,6 @@ def warm_models():
         return {"dangerous_labels": list(matched)}
     run("yolo_oiv7", yolo)
 
-    def face():
-        deepface_module = importlib.import_module("deepface.DeepFace")
-        model = deepface_module.build_model("Facenet512")
-        if model is None:
-            raise RuntimeError("Facenet512 model did not initialize")
-        return {"loaded": True}
-    run("deepface_facenet512", face)
-
     def scene_detect():
         scenedetect = importlib.import_module("scenedetect")
         detectors = importlib.import_module("scenedetect.detectors")
@@ -490,7 +453,6 @@ def warm_models():
 @app.local_entrypoint()
 def main(
     confirm_gpu_warmup: bool = False,
-    prepare_face_cache_only: bool = False,
     trained_image_preflight_only: bool = False,
     trained_text_preflight_only: bool = False,
     secret_preflight: bool = False,
@@ -499,10 +461,6 @@ def main(
     if secret_preflight:
         report = ai_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
-        return
-    if prepare_face_cache_only:
-        report = prepare_face_cache.remote()
-        print(f"OK   face-cache: {report}")
         return
     if trained_image_preflight_only:
         report = trained_image_preflight.remote()
@@ -518,7 +476,6 @@ def main(
         return
     if not confirm_gpu_warmup:
         print("GPU warmup skipped. This command is intentionally cost-guarded.")
-        print("Cheap face-cache preparation: modal run modal_ai.py --prepare-face-cache-only")
         print("CPU trained-image check: modal run modal_ai.py --trained-image-preflight-only")
         print("Full GPU validation only when intentional: modal run modal_ai.py --confirm-gpu-warmup")
         return

@@ -4,11 +4,12 @@ Covers: OCR text routed through the shared check_text + PII policy, PII
 contact in burned-in text hard-blocking via policy.decide, deterministic text
 flags propagating, visual evidence never weakened, OCR failures degrading to
 partial safety evidence (REVIEW at most), the stage being a no-op when the
-flag is off, and graceful degradation when no OCR backend is installed.
+flag is explicitly disabled, and fail-closed behavior when no OCR backend is
+installed.
 
-A synthetic PIL fixture stands in for a real OCR engine (no OCR dependency is
-installed in this environment); extraction itself is monkeypatched while the
-policy routing under test is real.
+A synthetic PIL fixture stands in for a real OCR engine (the real
+rapidocr-onnxruntime backend is stubbed out via monkeypatch); extraction
+itself is monkeypatched while the policy routing under test is real.
 """
 import os
 
@@ -136,12 +137,13 @@ def test_check_image_ocr_failure_degrades_to_review_at_most(tmp_path, monkeypatc
     assert decide(signals).action != "ALLOW"
 
 
-def test_check_image_skips_ocr_when_flag_off(tmp_path, monkeypatch):
+def test_check_image_skips_ocr_when_explicitly_disabled(tmp_path, monkeypatch):
     _neutral_models(monkeypatch)
-    monkeypatch.delenv("LITTLENET_ENABLE_OCR", raising=False)
+    # OCR is ON by default; only an explicit opt-out skips the stage.
+    monkeypatch.setenv("LITTLENET_ENABLE_OCR", "0")
 
     def _must_not_run(_path):
-        raise AssertionError("OCR stage must not run when the flag is off")
+        raise AssertionError("OCR stage must not run when explicitly disabled")
 
     monkeypatch.setattr(visual_service, "_ocr_extract_text", _must_not_run)
     path = _make_text_image(str(tmp_path / "plain.png"), BENIGN_TEXT)
@@ -165,10 +167,27 @@ def test_check_image_explicit_ocr_false_overrides_env(tmp_path, monkeypatch):
 
 # --- graceful degradation ---------------------------------------------------
 
-def test_no_ocr_backend_installed_degrades_gracefully(monkeypatch, capsys):
-    monkeypatch.setattr(visual_service, "_OCR_BACKEND_MISSING", False, raising=False)
+def _force_no_ocr_backend(monkeypatch):
+    """Simulate a runtime with no importable OCR backend.
+
+    Deterministic even when an OCR package (e.g. rapidocr-onnxruntime) is
+    installed in the test environment: the reader factories are stubbed to
+    raise ImportError exactly as a missing package would.
+    """
+    def _missing():
+        raise ImportError("No module named 'rapidocr_onnxruntime'")
+
+    monkeypatch.setattr(visual_service, "_rapidocr_reader", _missing)
+    monkeypatch.setattr(visual_service, "_easyocr_reader", _missing)
+    monkeypatch.setattr(visual_service, "_pytesseract_reader", _missing)
     monkeypatch.setattr(visual_service, "_OCR_READER", None, raising=False)
+    monkeypatch.setattr(visual_service, "_OCR_BACKEND_NAME", None, raising=False)
+    monkeypatch.setattr(visual_service, "_OCR_BACKEND_MISSING", False, raising=False)
     monkeypatch.setattr(visual_service, "_OCR_UNAVAILABLE_LOGGED", False, raising=False)
+
+
+def test_no_ocr_backend_installed_fails_closed(monkeypatch, capsys):
+    _force_no_ocr_backend(monkeypatch)
     with pytest.raises(_OCRUnavailable):
         _load_ocr_backend()
     text, error = _ocr_extract_text("/nonexistent.png")
@@ -184,8 +203,7 @@ def test_check_image_records_ocr_unavailable_as_partial_evidence(
     tmp_path, monkeypatch
 ):
     _neutral_models(monkeypatch)
-    monkeypatch.setattr(visual_service, "_OCR_BACKEND_MISSING", False, raising=False)
-    monkeypatch.setattr(visual_service, "_OCR_READER", None, raising=False)
+    _force_no_ocr_backend(monkeypatch)
     monkeypatch.setattr(visual_service, "_OCR_UNAVAILABLE_LOGGED", True, raising=False)
     path = _make_text_image(str(tmp_path / "plain.png"), BENIGN_TEXT)
     signals = check_image(path, ocr=True)

@@ -140,3 +140,23 @@ export function fetchBlockedUsers(token: string): Promise<{ ok: boolean; blocked
 export function fetchMutedUsers(token: string): Promise<{ ok: boolean; muted_users: BlockedUserItem[] }> {
   return get(routes.mutedUsers, token);
 }
+
+async function del<T>(path: string, token: string): Promise<T> {
+  return apiRequest<T>(path, { method: 'DELETE' }, token);
+}
+
+/**
+ * Soft-delete the viewer's own post. Server enforces ownership (403 for
+ * other children's posts) and scrubs likes/comments/saves/media.
+ */
+export function deletePost(token: string, postId: number): Promise<{ ok: boolean }> {
+  return del(routes.deletePost(postId), token);
+}
+
+/**
+ * Soft-delete the viewer's own story. Server enforces ownership and the
+ * story-only row check.
+ */
+export function deleteStory(token: string, storyId: number): Promise<{ ok: boolean }> {
+  return del(routes.deleteStory(storyId), token);
+}

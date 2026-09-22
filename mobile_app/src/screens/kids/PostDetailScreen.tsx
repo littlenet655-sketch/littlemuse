@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addComment, blockUser, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { addComment, blockUser, deletePost, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { invalidateSocialCaches } from '../../query/keys';
 import { Avatar } from '../../ui/social';
-import { Button, Card, EmptyState, Field, GateNotice, LoadingState, Notice, Screen } from '../../ui/components';
+import { Button, Card, EmptyState, Field, GateNotice, LoadingState, Notice, Screen, errorText } from '../../ui/components';
 import { colors } from '../../ui/tokens';
 
 export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDetail'>) {
@@ -23,6 +23,8 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const [safetyOpen, setSafetyOpen] = useState(false);
   const [safetyBusy, setSafetyBusy] = useState(false);
   const [safetyError, setSafetyError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [hidden, setHidden] = useState(false);
   const [reason, setReason] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
@@ -128,6 +130,35 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
+  const isOwnPost = session?.user?.user_id != null && post?.child_id === session.user.user_id;
+
+  function confirmDeletePost() {
+    Alert.alert(
+      'Delete this post?',
+      'It will be removed for everyone and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void doDeletePost() },
+      ],
+    );
+  }
+
+  async function doDeletePost() {
+    if (!session || !post || deleteBusy) return;
+    const postId = post.post_id;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await deletePost(session.token, postId);
+      await invalidateSocialCaches([postId]);
+      nav.goBack();
+    } catch (err) {
+      setDeleteError(errorText(err));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   async function openShare() {
     if (!session) return;
     setShareError('');
@@ -162,6 +193,15 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
             <Button label="Share" variant="secondary" onPress={() => void openShare()} />
           </View>
           <Button label="Safety actions" variant="secondary" onPress={() => { setSafetyOpen((value) => !value); setSafetyError(''); }} />
+          {isOwnPost ? (
+            <Button
+              label={deleteBusy ? 'Deleting…' : 'Delete this post'}
+              variant="secondary"
+              disabled={deleteBusy}
+              onPress={confirmDeletePost}
+            />
+          ) : null}
+          {deleteError ? <Notice message={deleteError} /> : null}
         </Card>
         {safetyOpen ? <Card>
           <Text style={styles.safetyTitle}>What would you like to do?</Text>

@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import type { AuthScreenProps } from '../navigation/types';
 import { Button, Card, Field, Notice, Screen, StepIndicator, errorText } from '../ui/components';
 import { colors, radius, spacing, type } from '../ui/tokens';
+import { OTP_LENGTH, applyOtpBackspace, applyOtpInput, cellsFromCode } from './otpCells';
 
 export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegister'>) {
   const [username, setUsername] = useState('');
@@ -292,7 +293,12 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
 export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
   const { signIn } = useAuth();
   const { pendingToken, devCode } = route.params;
-  const [otp, setOtp] = useState(devCode || '');
+  // Six individual cells (auto-advance, backspace moves back, paste/autofill
+  // distributes digits). The joined string is the submittable code.
+  const [cells, setCells] = useState<string[]>(() => cellsFromCode(devCode));
+  const otp = cells.join('');
+  const [focusedCell, setFocusedCell] = useState(0);
+  const cellRefs = useRef<Array<TextInput | null>>([]);
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
@@ -353,6 +359,29 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
     };
   }, [devCode, pendingToken]);
 
+  function focusCell(index: number) {
+    const clamped = Math.max(0, Math.min(OTP_LENGTH - 1, index));
+    setFocusedCell(clamped);
+    cellRefs.current[clamped]?.focus();
+  }
+
+  function handleCellChange(index: number, text: string) {
+    const { cells: next, focus } = applyOtpInput(cells, index, text);
+    setCells(next);
+    if (focus !== index) focusCell(focus);
+    else setFocusedCell(index);
+  }
+
+  function handleCellKeyPress(index: number, key: string) {
+    // Backspace on an already-empty cell moves back and clears the previous
+    // cell; backspace on a filled cell is handled by onChangeText.
+    if (key === 'Backspace' && cells[index] === '' && index > 0) {
+      const { cells: next, focus } = applyOtpBackspace(cells, index);
+      setCells(next);
+      focusCell(focus);
+    }
+  }
+
   async function submit() {
     if (verifyBusyRef.current || resendBusyRef.current) return;
     verifyBusyRef.current = true;
@@ -389,7 +418,7 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
       try {
         const response = await resendParentEmail(pendingToken);
         if (__DEV__ && response.dev_code) {
-          setOtp(response.dev_code);
+          setCells(cellsFromCode(response.dev_code));
           setInfo(`Verification code: ${response.dev_code} (expires in 10 minutes)`);
         } else {
           setInfo(response.ok ? 'A fresh code is on its way. It expires in 10 minutes.' : (response.error ?? 'Resend failed. Try again.'));
@@ -460,26 +489,38 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
 
             <View style={styles.otpFieldWrap}>
               <Text style={styles.otpLabel}>6-DIGIT VERIFICATION CODE</Text>
-              <TextInput
-                value={otp}
-                onChangeText={setOtp}
-                keyboardType="number-pad"
-                maxLength={6}
-                placeholder="000000"
-                placeholderTextColor="#9CA3AF"
-                autoFocus
-                selectTextOnFocus
-                selectionColor={colors.brand}
-                textContentType="oneTimeCode"
-                autoComplete="sms-otp"
-                returnKeyType="done"
-                onSubmitEditing={submit}
+              <View
+                style={styles.otpRow}
                 accessibilityLabel="6-digit verification code"
-                onFocus={() => {
-                  setTimeout(() => scrollRef.current?.scrollTo({ y: 60, animated: true }), 100);
-                }}
-                style={styles.otpInput}
-              />
+              >
+                {cells.map((cell, index) => {
+                  const active = focusedCell === index;
+                  return (
+                    <TextInput
+                      key={index}
+                      ref={(element) => {
+                        cellRefs.current[index] = element;
+                      }}
+                      value={cell}
+                      onChangeText={(text) => handleCellChange(index, text)}
+                      onKeyPress={(event) => handleCellKeyPress(index, event.nativeEvent.key)}
+                      onFocus={() => setFocusedCell(index)}
+                      keyboardType="number-pad"
+                      maxLength={OTP_LENGTH}
+                      autoFocus={index === 0}
+                      textAlign="center"
+                      selectionColor={colors.brand}
+                      cursorColor={colors.brand}
+                      textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+                      autoComplete={index === 0 ? 'sms-otp' : 'off'}
+                      returnKeyType={index === OTP_LENGTH - 1 ? 'done' : 'next'}
+                      onSubmitEditing={index === OTP_LENGTH - 1 ? submit : () => focusCell(index + 1)}
+                      accessibilityLabel={`Digit ${index + 1} of 6`}
+                      style={[styles.otpCell, active && styles.otpCellActive]}
+                    />
+                  );
+                })}
+              </View>
               <Text style={styles.otpHelperText}>The code expires in 10 minutes and is single-use.</Text>
             </View>
 
@@ -600,20 +641,35 @@ const styles = StyleSheet.create({
   signupLinkText: { fontSize: 13, fontWeight: '700', color: colors.brand },
   otpFieldWrap: { marginTop: spacing.sm },
   otpLabel: { fontSize: 11, fontWeight: '800', color: colors.muted, letterSpacing: 0.8, textAlign: 'center', marginBottom: 6 },
-  otpInput: {
-    letterSpacing: 10,
-    // RN adds letterSpacing after the last glyph too, which would push the
-    // visible digits left of true center. Equal left padding re-centers them.
-    paddingLeft: 10,
-    fontSize: 26,
+  otpRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  otpCell: {
+    width: 48,
+    height: 58,
+    fontSize: 24,
     fontWeight: '800',
     textAlign: 'center',
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#BFDBFE',
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
     borderWidth: 1.5,
     borderRadius: 12,
     color: colors.ink,
+  },
+  otpCellActive: {
+    // Active cell: visible focus ring + centered caret so the entry point is
+    // unmistakable. The caret renders centered because textAlign is center.
+    borderColor: colors.brand,
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+    shadowColor: colors.brand,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 2,
   },
   otpHelperText: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 6 },
 });

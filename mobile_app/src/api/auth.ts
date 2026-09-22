@@ -4,7 +4,6 @@ export type Role = 'CHILD' | 'PARENT' | 'ADMIN';
 export type LoginMode = 'kids' | 'parent' | 'admin';
 
 export interface ChildOnboardingState {
-  face_required: boolean;
   quiz_required: boolean;
 }
 
@@ -29,7 +28,6 @@ export interface LoginResponse {
   token: string;
   auth_method: string;
   user: SessionUser;
-  biometric_key?: string;
   onboarding?: OnboardingState;
 }
 
@@ -106,52 +104,6 @@ export function fetchParentEmailStatus(
 
 export function createChild(token: string, input: CreateChildInput): Promise<{ ok: boolean; child_id: number; next_steps: string[] }> {
   return post(routes.parentCreateChild, { ...input }, token, 60000);
-}
-
-/** Child face enrollment with a fresh live camera photo (base64 JSON). Allows 60s for serverless AI cold start. */
-export function enrollChildFace(token: string, photoB64: string): Promise<{ ok: boolean; biometric_key: string; quiz_required: boolean }> {
-  return post(routes.childFaceEnroll, { photo_b64: photoB64 }, token, 60000);
-}
-
-/** Skip child face enrollment and proceed to next onboarding step. */
-export function skipChildFaceEnroll(token: string): Promise<{ ok: boolean; skipped: boolean; quiz_required: boolean }> {
-  return post(routes.childFaceSkip, {}, token, 15000);
-}
-
-export interface FaceChallengeResponse {
-  ok: boolean;
-  challenge_id: string;
-  nonce: string;
-  action: 'BLINK' | 'TURN_LEFT' | 'TURN_RIGHT';
-  expires_at: string;
-}
-
-/** Request a single-use interactive challenge nonce bound to the user (kids face login only). */
-export function requestFaceChallenge(
-  identifier: string,
-  mode: 'kids' = 'kids',
-): Promise<FaceChallengeResponse> {
-  return post<FaceChallengeResponse>(routes.faceChallenge, { identifier, mode });
-}
-
-/**
- * Replay-resistant face login. Requires a fresh camera image and valid one-time challenge nonce.
- * Allows 60s for serverless AI cold start.
- */
-export function faceLogin(
-  identifier: string,
-  mode: 'kids',
-  photoB64: string,
-  challengeId: string,
-  nonce: string,
-  actionCompleted: FaceChallengeResponse['action'],
-): Promise<LoginResponse> {
-  return post<LoginResponse>(
-    routes.faceLogin,
-    { identifier, mode, photo_b64: photoB64, challenge_id: challengeId, nonce, action_completed: actionCompleted },
-    undefined,
-    60000,
-  );
 }
 
 export function requestPasswordReset(identifier: string): Promise<{ ok: boolean; user_id?: number; masked_email?: string; is_parent_proxy?: boolean; message: string }> {

@@ -5,20 +5,18 @@ import { quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision'
 import { validateResetInput } from '../src/auth/resetValidation';
 import { captureLivePhotoCore, CameraBlockedError, CameraCancelledError, CameraPermissionError } from '../src/camera/capture';
 
-describe('reactive child gate routing (face -> quiz -> home)', () => {
-  it('orders gates face first, then quiz, then home', () => {
-    assert.equal(childNextRoute(true, true), 'FaceEnroll');
-    assert.equal(childNextRoute(false, true), 'Quiz');
-    assert.equal(childNextRoute(false, false), 'KidsTabs');
+describe('reactive child gate routing (quiz -> home)', () => {
+  it('orders gates quiz first, then home', () => {
+    assert.equal(childNextRoute(true), 'Quiz');
+    assert.equal(childNextRoute(false), 'KidsTabs');
   });
 
-  it('cold restore with face_required stays on FaceEnroll', () => {
-    assert.equal(resolveChildRoute({ face_required: true, quiz_required: true }, false), 'FaceEnroll');
-    assert.equal(resolveChildRoute({ face_required: true, quiz_required: false }, false), 'FaceEnroll');
+  it('cold restore with quiz_required stays on Quiz', () => {
+    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'Quiz');
   });
 
   it('preserves ungated product routes', () => {
-    const clear = { face_required: false, quiz_required: false };
+    const clear = { quiz_required: false };
     assert.equal(resolveChildRoute(clear, false, 'KidsTabs'), 'KidsTabs');
     assert.equal(resolveChildRoute(clear, false, 'FeedTab'), 'FeedTab');
     assert.equal(resolveChildRoute(clear, false, 'ReelsTab'), 'ReelsTab');
@@ -27,30 +25,23 @@ describe('reactive child gate routing (face -> quiz -> home)', () => {
 
   it('forces active gates from every product route', () => {
     for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat'] as const) {
-      assert.equal(resolveChildRoute({ face_required: true, quiz_required: true }, false, route), 'FaceEnroll');
-      assert.equal(resolveChildRoute({ face_required: false, quiz_required: true }, false, route), 'Quiz');
+      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), 'Quiz');
     }
   });
 
   it('enters the product once after a gate clears', () => {
-    const clear = { face_required: false, quiz_required: false };
-    assert.equal(resolveChildRoute(clear, false, 'FaceEnroll'), 'KidsTabs');
+    const clear = { quiz_required: false };
     assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'KidsTabs');
   });
 
-  it('failed enrollment (still face_required) stays gated', () => {
-    assert.equal(resolveChildRoute({ face_required: true, quiz_required: false }, false), 'FaceEnroll');
-  });
-
-  it('restart never bypasses an unknown face gate (fails closed)', () => {
-    assert.equal(resolveChildRoute(null, false), 'FaceEnroll');
-    assert.equal(resolveChildRoute(null, true), 'FaceEnroll');
-    assert.equal(resolveChildRoute(undefined, false), 'FaceEnroll');
-    assert.equal(resolveChildRoute(undefined, true), 'FaceEnroll');
+  it('restart never bypasses an unknown gate (fails closed)', () => {
+    assert.equal(resolveChildRoute(null, false), 'Quiz');
+    assert.equal(resolveChildRoute(null, true), 'Quiz');
+    assert.equal(resolveChildRoute(undefined, false), 'Quiz');
+    assert.equal(resolveChildRoute(undefined, true), 'Quiz');
   });
 
   it('routes backend gates to their resolving screens', () => {
-    assert.equal(screenForGate('face'), 'FaceEnroll');
     assert.equal(screenForGate('quiz'), 'Quiz');
     assert.equal(screenForGate('parent_verification'), 'OtpVerify');
     assert.equal(screenForGate('email_verification'), 'OtpVerify');
@@ -61,9 +52,8 @@ describe('reactive child gate routing (face -> quiz -> home)', () => {
 
 describe('quiz completion gating (authoritative refresh)', () => {
   it('proceeds only when the refresh confirms every gate clear', () => {
-    assert.equal(shouldProceedAfterRefresh({ face_required: false, quiz_required: false }), true);
-    assert.equal(shouldProceedAfterRefresh({ face_required: false, quiz_required: true }), false);
-    assert.equal(shouldProceedAfterRefresh({ face_required: true, quiz_required: false }), false);
+    assert.equal(shouldProceedAfterRefresh({ quiz_required: false }), true);
+    assert.equal(shouldProceedAfterRefresh({ quiz_required: true }), false);
   });
 
   it('never proceeds on unknown/failed refresh (stays gated with retry)', () => {

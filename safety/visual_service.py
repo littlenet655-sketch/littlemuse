@@ -83,17 +83,19 @@ def _extra_hf_nsfw(path):
 # ---------------------------------------------------------------------------
 # OCR for burned-in text (phone numbers, handles, URLs) in images.
 #
-# OCR is an optional, bounded enhancement: it is OFF unless
-# LITTLENET_ENABLE_OCR=1. When enabled, extracted text is routed through the
+# OCR is an always-on, bounded enhancement: it runs unless
+# LITTLENET_ENABLE_OCR=0. When enabled, extracted text is routed through the
 # SAME text + PII policy as user-typed text (check_text + scan_pii); no policy
 # logic is duplicated here. OCR evidence can only strengthen the visual
 # decision: scores merge by max, hard-block text flags propagate, and any OCR
 # failure becomes partial safety evidence (REVIEW at most), never a bypass.
 #
-# No OCR dependency ships in requirements-*.txt. Enabling OCR requires
-# installing one backend package (see docs/IMAGE_OCR_SAFETY.md). When the flag
-# is on but no backend is importable the stage degrades gracefully, logs once,
-# and records 'ocr_unavailable' as partial safety evidence (fail closed).
+# The preferred OCR backend is rapidocr-onnxruntime (pinned in
+# requirements-core.txt; no external system binary needed). easyocr and
+# pytesseract (+ tesseract binary) are supported fallbacks, tried in that
+# order. When the flag is on but no backend is importable the stage fails
+# closed: it records 'ocr_unavailable' and sets partial_safety_failure so the
+# item goes to REVIEW instead of being silently allowed.
 # ---------------------------------------------------------------------------
 
 class _OCRUnavailable(RuntimeError):
@@ -196,7 +198,9 @@ def _ocr_extract_text(path):
 
     Returns ``(text, error_code)``; ``error_code`` is None on success (even
     when no text is found). Never raises: failures are reported as codes so
-    the caller records partial safety evidence instead of bypassing.
+    the caller records them as partial safety evidence instead of bypassing.
+    A non-None ``error_code`` is a failure signal -- the caller must treat it
+    as a safety gap (fail closed), never as "no text present".
     """
     global _OCR_UNAVAILABLE_LOGGED
     try:
@@ -204,9 +208,10 @@ def _ocr_extract_text(path):
     except _OCRUnavailable:
         if not _OCR_UNAVAILABLE_LOGGED:
             _OCR_UNAVAILABLE_LOGGED = True
-            print('[littlenet-safety] LITTLENET_ENABLE_OCR=1 but no OCR backend is installed; '
-                  'burned-in text screening is inactive. Install easyocr, rapidocr-onnxruntime, '
-                  'or pytesseract (+ tesseract binary) to enable it.')
+            print('[littlenet-safety] OCR is enabled but no OCR backend is installed; '
+                  'burned-in text screening is inactive and images fail closed to '
+                  'REVIEW. Install rapidocr-onnxruntime (preferred), easyocr, or '
+                  'pytesseract (+ tesseract binary) to restore it.')
         return None, 'ocr_unavailable'
     tmp = None
     try:
@@ -343,18 +348,24 @@ def _merge_yolo_into_trained(path, trained):
 def _apply_ocr_stage(result, path, ocr, ran):
     """Burned-in text screening shared by the trained and legacy image paths.
 
-    ``ocr``: None (default) honors LITTLENET_ENABLE_OCR; True/False forces the
-    OCR stage on/off. OCR evidence can only strengthen the visual decision:
-    scores merge by max, hard-block text flags propagate, and any OCR failure
-    becomes partial safety evidence (REVIEW at most), never a bypass.
+    ``ocr``: None (default) honors LITTLENET_ENABLE_OCR, which is ON unless
+    explicitly set to 0; True/False forces the OCR stage on/off. OCR evidence
+    can only strengthen the visual decision: scores merge by max, hard-block
+    text flags propagate, and any OCR failure becomes partial safety evidence
+    (REVIEW at most), never a bypass.
     """
     if ocr is None:
-        ocr = env_flag('LITTLENET_ENABLE_OCR')
+        ocr = env_flag('LITTLENET_ENABLE_OCR', default=True)
     if not ocr:
         return result
     ocr_text, ocr_error = _ocr_extract_text(path)
     if ocr_error:
+        # Fail closed: an OCR stage that ran but could not screen burned-in
+        # text (missing backend, timeout, engine failure) is a safety gap,
+        # not a silent skip. Unconditional partial evidence -- consistent
+        # with _merge_legacy_into_trained's treatment of legacy errors.
         result['errors'].append(ocr_error)
+        result['partial_safety_failure'] = True
     elif ocr_text:
         signals = result.get('model_signals')
         if isinstance(signals, dict):
@@ -446,9 +457,10 @@ def _merge_legacy_into_trained(path, trained):
 def check_image(path, *, ocr=None):
     """Moderate an image through the local visual stack plus optional OCR.
 
-    ``ocr``: None (default) honors LITTLENET_ENABLE_OCR; True/False forces the
-    OCR stage on/off. Video frame samplers pass False unless
-    LITTLENET_ENABLE_OCR_VIDEO_FRAMES=1 so per-frame OCR stays bounded.
+    ``ocr``: None (default) honors LITTLENET_ENABLE_OCR, which is ON unless
+    explicitly set to 0; True/False forces the OCR stage on/off. Video frame
+    samplers pass False unless LITTLENET_ENABLE_OCR_VIDEO_FRAMES=1 so
+    per-frame OCR stays bounded.
     """
     # Prefer the scale-to-zero CPU tier for all web-side image moderation,
     # including the legacy/Jinja upload path. Inside an AI worker this client is

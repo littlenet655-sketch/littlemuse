@@ -1,8 +1,13 @@
 """Contract tests for the minimal GET /api/mobile/v1/me onboarding addition.
 
-CHILD responses must carry authoritative gate state computed with the exact
-Agent A Facenet512 enrollment check. PARENT/ADMIN responses omit onboarding.
+Face/biometric verification was removed from LittleNet on 2026-09-22.
+CHILD responses now carry only the authoritative quiz gate state
+(``{"quiz_required": bool}``). PARENT/ADMIN responses omit onboarding.
+
+The mobile token revocation lookup is stubbed: it needs PostgreSQL, which
+is orthogonal to the onboarding payload contract under test.
 """
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import pytest
@@ -18,7 +23,7 @@ def client():
 
 
 def _headers(user_id, role):
-    token = _issue_token({"user_id": user_id, "role": role, "full_name": "Test User"})
+    token = _issue_token({"user_id": user_id, "role": role})
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -34,28 +39,25 @@ def _user_row(user_id, role):
     }
 
 
-def _fetch_one(user_id, role, face_row):
-    def side_effect(query, params=None):
-        if "FROM users" in query:
-            return _user_row(user_id, role)
-        if "face_profiles" in query:
-            return face_row
-        return None
-
-    return side_effect
-
-
-def _child_context(user_id=202, face_row=None, quiz_required=False, onboarding_quiz=False):
-    return (
-        patch("mobile.api.fetch_one", side_effect=_fetch_one(user_id, "CHILD", face_row)),
-        patch("mobile.api.get_child_profile", return_value={"child_id": user_id}),
-        patch("mobile.api.feed_quiz_state", return_value={"required": quiz_required, "posts_seen": 0, "interval": 4}),
-        patch("mobile.api.needs_onboarding_quiz", return_value=onboarding_quiz),
+def _ctx(user_id, role, quiz_required=False, onboarding_quiz=False):
+    """Patch stack for a /me request: auth user row, quiz gates, no revocation DB."""
+    stack = ExitStack()
+    stack.enter_context(
+        patch(
+            "mobile.api.fetch_one",
+            side_effect=lambda query, params=None: _user_row(user_id, role) if "FROM users" in query else None,
+        )
     )
-
-
-def _valid_face():
-    return {"embedding": [0.1] * 512, "model_name": "Facenet512"}
+    stack.enter_context(patch("mobile.api.get_child_profile", return_value={"child_id": user_id}))
+    stack.enter_context(
+        patch(
+            "mobile.api.feed_quiz_state",
+            return_value={"required": quiz_required, "posts_seen": 0, "interval": 4},
+        )
+    )
+    stack.enter_context(patch("mobile.api.needs_onboarding_quiz", return_value=onboarding_quiz))
+    stack.enter_context(patch("mobile.api._mobile_token_revoked", return_value=False))
+    return stack
 
 
 def test_me_unauthenticated(client):
@@ -64,63 +66,39 @@ def test_me_unauthenticated(client):
     assert res.get_json()["error"] == "mobile_auth_required"
 
 
-def test_me_child_enrolled_no_quiz_gates_clear(client):
-    patches = _child_context(face_row=_valid_face())
-    with patches[0], patches[1], patches[2], patches[3]:
+def test_me_child_no_quiz_gates_clear(client):
+    with _ctx(202, "CHILD"):
         res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
     assert res.status_code == 200
     payload = res.get_json()
     assert payload["ok"] is True
-    assert payload["onboarding"] == {"face_required": False, "quiz_required": False}
+    assert payload["onboarding"] == {"quiz_required": False}
+    assert "face_required" not in payload["onboarding"]
 
 
-def test_me_child_missing_face_profile_requires_face(client):
-    patches = _child_context(face_row=None)
-    with patches[0], patches[1], patches[2], patches[3]:
+def test_me_child_with_onboarding_quiz(client):
+    with _ctx(202, "CHILD", onboarding_quiz=True):
         res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
     assert res.status_code == 200
-    assert res.get_json()["onboarding"] == {"face_required": True, "quiz_required": False}
+    assert res.get_json()["onboarding"] == {"quiz_required": True}
 
 
-def test_me_child_invalid_embedding_fails_closed(client):
-    patches = _child_context(face_row={"embedding": [0.0] * 512, "model_name": "Facenet512"})
-    with patches[0], patches[1], patches[2], patches[3]:
+def test_me_child_with_feed_quiz(client):
+    with _ctx(202, "CHILD", quiz_required=True):
         res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
     assert res.status_code == 200
-    assert res.get_json()["onboarding"]["face_required"] is True
-
-
-def test_me_child_wrong_model_requires_face(client):
-    patches = _child_context(face_row={"embedding": [0.1] * 512, "model_name": "LocalBiometricV1"})
-    with patches[0], patches[1], patches[2], patches[3]:
-        res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
-    assert res.status_code == 200
-    assert res.get_json()["onboarding"]["face_required"] is True
-
-
-def test_me_child_enrolled_with_onboarding_quiz(client):
-    patches = _child_context(face_row=_valid_face(), onboarding_quiz=True)
-    with patches[0], patches[1], patches[2], patches[3]:
-        res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
-    assert res.status_code == 200
-    assert res.get_json()["onboarding"] == {"face_required": False, "quiz_required": True}
+    assert res.get_json()["onboarding"] == {"quiz_required": True}
 
 
 def test_me_parent_omits_onboarding(client):
-    with patch("mobile.api.fetch_one", side_effect=_fetch_one(101, "PARENT", None)), \
-         patch("mobile.api.get_child_profile", return_value=None), \
-         patch("mobile.api.feed_quiz_state", return_value={}), \
-         patch("mobile.api.needs_onboarding_quiz", return_value=False):
+    with _ctx(101, "PARENT"):
         res = client.get("/api/mobile/v1/me", headers=_headers(101, "PARENT"))
     assert res.status_code == 200
     assert "onboarding" not in res.get_json()
 
 
 def test_me_admin_omits_onboarding(client):
-    with patch("mobile.api.fetch_one", side_effect=_fetch_one(1, "ADMIN", None)), \
-         patch("mobile.api.get_child_profile", return_value=None), \
-         patch("mobile.api.feed_quiz_state", return_value={}), \
-         patch("mobile.api.needs_onboarding_quiz", return_value=False):
+    with _ctx(1, "ADMIN"):
         res = client.get("/api/mobile/v1/me", headers=_headers(1, "ADMIN"))
     assert res.status_code == 200
     assert "onboarding" not in res.get_json()

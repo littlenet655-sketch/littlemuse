@@ -23,8 +23,7 @@ value: silently weakening the baseline is never acceptable. Set
 
 to a value *at or below* the default to tighten, or leave them unset.
 
-This mirrors the tighten-only pattern in ``safety/yolo_policy.py`` and
-``safety/face_service.py``.
+This mirrors the tighten-only pattern in ``safety/yolo_policy.py``.
 """
 from __future__ import annotations
 

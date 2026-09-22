@@ -2,10 +2,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-
 def text(path):
     return (ROOT / path).read_text(encoding='utf-8')
-
 
 def test_parent_flow_is_email_then_otp_activation():
     api = text('auth/api.py')
@@ -26,7 +24,6 @@ def test_parent_flow_is_email_then_otp_activation():
     assert 'parent_liveness_verify.html' not in routes
     assert 'selfie_data' not in routes
 
-
 def test_parent_otp_is_hashed_expiring_and_rate_limited():
     otp = text('auth/parent_email_otp.py')
     routes = text('auth/routes.py')
@@ -37,7 +34,6 @@ def test_parent_otp_is_hashed_expiring_and_rate_limited():
     assert 'code VARCHAR' not in otp
     assert 'code TEXT' not in otp
     assert "5 per 10 minutes" in routes
-
 
 def test_parent_liveness_page_and_js_are_removed_no_bypass_possible():
     # The parent liveness page and its MediaPipe JS were removed entirely by
@@ -50,27 +46,6 @@ def test_parent_liveness_page_and_js_are_removed_no_bypass_possible():
     assert 'drawFallbackSelfie' not in routes
     assert 'manualCaptureBtn' not in routes
 
-
-def test_server_face_path_remains_anti_spoof_fail_closed():
-    face = text('safety/face_service.py')
-    assert 'anti_spoofing=True' in face
-    assert "reason': 'liveness_failed'" in face
-    assert "reason': 'liveness_unavailable'" in face
-    assert 'face_adult_verify' in face
-
-
-def test_child_onboarding_is_face_then_age_quiz_before_normal_app():
-    api = text('auth/api.py')
-    quiz = text('quiz/service.py')
-    assert 'child_locked_onboarding_gate' in api
-    assert "SELECT 1 FROM face_profiles WHERE child_id=%s" in api
-    assert "redirect('/face/enroll/')" in api
-    assert "redirect('/quiz/start/?onboarding=1')" in api
-    assert 'needs_onboarding_quiz' in quiz
-    assert "ACCOUNT_CREATED_BY_PARENT" in quiz
-    assert "SELECT 1 FROM face_profiles WHERE child_id=%s LIMIT 1" in quiz
-
-
 def test_doom_scroll_quiz_is_compulsory_and_non_skippable():
     js = text('static/js/feed_quiz.js')
     assert 'QUIZ_INTERVAL = 4' in js
@@ -82,7 +57,6 @@ def test_doom_scroll_quiz_is_compulsory_and_non_skippable():
     assert 'Skip for now' not in js
     assert '_unlockScroll()' in js
 
-
 def test_text_hard_blocks_cover_adult_grooming_and_severe_abuse():
     service = text('safety/text_service.py')
     policy = text('safety/policy.py')
@@ -93,7 +67,6 @@ def test_text_hard_blocks_cover_adult_grooming_and_severe_abuse():
     assert "HARD_TEXT_CATEGORIES={'GROOMING','SEVERE_ABUSE'}" in policy
     assert 'deterministic_grooming' in policy
     assert '18+ content hard blocked' in policy
-
 
 def test_yolo_and_nsfw_are_active_for_image_and_video_moderation():
     visual = text('safety/visual_service.py')
@@ -107,7 +80,6 @@ def test_yolo_and_nsfw_are_active_for_image_and_video_moderation():
     assert 'ultralytics>=8.3,<9' in requirements
     assert 'ultralytics>=8.3,<9' in modal
     assert 'yolo_oiv7' in modal
-
 
 def test_audio_voice_whisper_and_story_music_are_retired():
     requirements = text('requirements-ai.txt')
@@ -130,7 +102,6 @@ def test_audio_voice_whisper_and_story_music_are_retired():
     assert "field=='music_file'" in api
     assert 'accept="image/*,video/*"' in upload_ui
     assert 'accept="image/*,video/*,.pdf,.docx,.txt"' in chat_ui
-
 
 def test_r2_is_required_and_persisted_for_child_media():
     api = text('auth/api.py')

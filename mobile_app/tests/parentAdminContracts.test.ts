@@ -6,7 +6,6 @@ process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
 import { ApiError, setUnauthorizedHandler } from '../src/api/client';
 import {
-  enrollChildFaceByParent,
   extendChildScreenTime,
   fetchAdminAudit,
   fetchAdminDashboard,
@@ -20,7 +19,6 @@ import {
   fetchParentNotifications,
   fetchParentSafety,
   markParentNotificationsRead,
-  resetChildFace,
   resetChildPassword,
   resetChildScreenTime,
   resolveAdminReview,
@@ -193,27 +191,6 @@ describe('parent dashboard and controls contracts', () => {
     assert.equal(authz(), 'Bearer parent-tok');
     assert.deepEqual(bodyJson(), { new_password: 'new-secret-9' });
     assert.match(result.message, /password updated/i);
-  });
-
-  it('resets the child face profile with a plain POST', async () => {
-    stubFetch();
-    nextStatus = 200;
-    nextPayload = { ok: true, message: 'Face profile reset successfully' };
-    const result = await resetChildFace('parent-tok', 7);
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/child/7/reset-face');
-    assert.equal(method(), 'POST');
-    assert.ok(result.ok);
-  });
-
-  it('enrolls the child face from the parent session with a live photo', async () => {
-    stubFetch();
-    nextStatus = 200;
-    nextPayload = { ok: true, child_id: 7, face_enrolled: true, quiz_required: true };
-    const result = await enrollChildFaceByParent('parent-tok', 7, 'aGVsbG8=');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/children/7/face/enroll');
-    assert.equal(method(), 'POST');
-    assert.deepEqual(bodyJson(), { photo_b64: 'aGVsbG8=' });
-    assert.equal(result.face_enrolled, true);
   });
 
   it('unlinks the child with a DELETE on the parent child resource', async () => {

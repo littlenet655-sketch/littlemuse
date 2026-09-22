@@ -195,7 +195,6 @@ A comprehensive read-only audit of the LittleNet live production deployment was 
 Even though R2 holds 122 curated videos, a child's feed in the mobile app can display empty due to the following server-side gates:
 1. **Onboarding / Feed Quiz Gate**: `_child_gate()` in `mobile/api.py` checks `needs_onboarding_quiz(uid)` and `feed_quiz_state(uid)`. If the child hasn't passed the onboarding safety quiz or if a feed-break quiz is triggered, the feed returns `428 quiz_required`.
 2. **Quiet Hours / Screen Time Gate**: If the child is logged in during scheduled quiet hours or exceeded their daily screen time limit, the endpoint returns `423 quiet_hours` or `screen_time_limit`.
-3. **Face Enrollment Gate**: If the child does not have a validated Facenet512 embedding in `face_profiles`, access is blocked (`428 face_enrollment_required`).
 4. **Discoverability & Friend Filtering**: `fetch_social_candidates()` calls `discoverable_child_ids(child_id)`. If the parent has set `allow_discover = FALSE` and the child has no approved followers/friends, `allowed_child_ids` is empty, hiding all social posts.
 5. **Educational-Only Filtering**: If `educational_only_feed` is toggled ON by the parent, all non-educational social posts are filtered out.
 6. **Curated Feed vs Reels Split**: All 122 curated items have `is_reel = TRUE`. None are tagged `is_reel = FALSE`. Consequently, the standard home feed (`surface="FEED"`) has **zero** curated candidate items and must rely exclusively on social posts. If social posts are filtered out by relationship or age rules, the home feed is completely blank.
@@ -268,8 +267,7 @@ The following cost control flags were inspected across code, `.env`, and Modal d
 | **Parent Signup** | Yes | Yes | N/A | Yes | Yes | Working in production |
 | **OTP** | Yes | Yes | N/A | Yes | Yes | 6 active OTP records in DB; Resend/SMTP ready |
 | **Parent-Child Mapping** | Yes | Yes | N/A | Yes | Yes | 69 verified relationships in DB |
-| **Face Enrollment** | Yes | Yes | N/A | Yes | Yes | 115 Facenet512 vector profiles active |
-| **Face Login** | Yes | Yes | N/A | Yes | Yes | 66 login attempts logged; challenge verification active |
+| **Face Enrollment / Face Login** | REMOVED 2026-09-22 | REMOVED | REMOVED | REMOVED | N/A | All face/biometric artifacts removed by product decision; children log in with passwords. |
 | **Image Upload** | Yes | Yes | Yes | Yes | Partial | V2 presigned PUT works; DB points to missing `posts/clean.jpg` |
 | **Image Moderation** | Yes | Yes | N/A | Yes | Yes | Runs on Modal GPU T4; fail-closed safety verified |
 | **Image Publication** | Yes | Yes | Yes | Yes | Partial | Code publishes to R2, but 78 DB rows reference local disk paths |
@@ -295,8 +293,8 @@ The following cost control flags were inspected across code, `.env`, and Modal d
 - Cloudflare Wrangler / R2 authentication and single bucket `littlenet-media` topology.
 - Direct signed URL generator with strict viewer authentication and fail-closed gates.
 - Curated educational reels pipeline: 122 videos stored in R2 and served via signed MP4 URLs.
-- Neon database core entities: `users`, `child_profiles`, `parent_child_map`, `face_profiles`, `feed_sessions`, `recommendation_signals`.
-- Child face login & challenge verification with Facenet512 embeddings.
+- Neon database core entities: `users`, `child_profiles`, `parent_child_map`, `feed_sessions`, `recommendation_signals`.
+- Child password login plus compulsory onboarding quiz.
 - Parent controls and safety gating (quiet hours, screen time limits, category filters).
 
 ### 2. Code Exists but Not Deployed
@@ -318,7 +316,6 @@ The following cost control flags were inspected across code, `.env`, and Modal d
 
 ### 6. Needs Real-Phone Test
 - Camera video recording and direct R2 PUT upload flow on physical Android/iOS device.
-- Full face liveness blink & turn challenge verification under real lighting conditions.
 - Story camera capture and playback.
 
 ### 7. Exact Next Actions in Priority Order

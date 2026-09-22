@@ -23,6 +23,7 @@
     "src/navigation/gates.ts",
     "src/kids/social.ts",
     "src/quiz/decision.ts",
+    "src/screens/otpCells.ts",
     "src/video/types.ts",
     "src/video/playbackPolicy.ts",
     "src/video/reelPlaybackMetrics.ts"

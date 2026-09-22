@@ -15,7 +15,7 @@ Use this order so the demo follows the locked current project instead of older a
 | Parent Review | Borderline media waits for explicit decision | ALLOW/REVIEW/BLOCK + audit history |
 | Approved-only chat | Two-parent-approved friends only; supported text/media are moderated | social authorization + safety policy |
 | Screen time + quiet hours | Server-owned limits and lockouts | usage/control services + PostgreSQL |
-| Face Login | Child face verification plus anti-spoof/liveness | DeepFace/MediaPipe + protected AI service |
+| Child login | Child password login plus compulsory onboarding quiz | Auth routes + quiz service |
 | Live Safety | Camera frames sampled without retaining normal frames | fail-closed visual moderation |
 | Admin moderation | Review signals/audit and removal actions | moderation events + audit log |
 | Learning | Age-group quizzes/challenges | seeded PostgreSQL quiz data |

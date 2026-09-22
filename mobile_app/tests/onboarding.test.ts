@@ -4,14 +4,12 @@ import { routes, ApiError } from '../src/api/client';
 import { childNextRoute, resetsDisplayState, screenForGate, shouldRefreshOnboardingForGate } from '../src/navigation/gates';
 
 describe('onboarding navigation', () => {
-  it('orders child gates face -> quiz -> home', () => {
-    assert.equal(childNextRoute(true, true), 'FaceEnroll');
-    assert.equal(childNextRoute(false, true), 'Quiz');
-    assert.equal(childNextRoute(false, false), 'KidsTabs');
+  it('orders child gates quiz -> home', () => {
+    assert.equal(childNextRoute(true), 'Quiz');
+    assert.equal(childNextRoute(false), 'KidsTabs');
   });
 
   it('routes backend gates to their resolving screens', () => {
-    assert.equal(screenForGate('face'), 'FaceEnroll');
     assert.equal(screenForGate('quiz'), 'Quiz');
     assert.equal(screenForGate('parent_verification'), 'OtpVerify');
     assert.equal(screenForGate('email_verification'), 'OtpVerify');
@@ -28,19 +26,16 @@ describe('onboarding navigation', () => {
     assert.equal(routes.uploadComplete('up 1/2'), '/api/mobile/v2/uploads/up%201%2F2/complete');
   });
 
-  it('refreshes onboarding only on a NEW 428 face/quiz gate', () => {
-    const faceGate = new ApiError(428, 'face_enrollment_required', 'Face enrollment is required', 'face');
+  it('refreshes onboarding only on a NEW 428 quiz gate', () => {
     const quizGate = new ApiError(428, 'quiz_required', 'quiz required', 'quiz');
     const other = new ApiError(403, 'disabled_by_parent', 'disabled', null);
 
-    // Unknown onboarding: always refresh so the child is routed to enrollment/quiz.
-    assert.equal(shouldRefreshOnboardingForGate(faceGate, null), true);
+    // Unknown onboarding: always refresh so the child is routed to quiz.
     assert.equal(shouldRefreshOnboardingForGate(quizGate, undefined), true);
     // Changed gates refresh; already-known gates do not (no refresh loop).
-    assert.equal(shouldRefreshOnboardingForGate(faceGate, { face_required: false, quiz_required: true }), true);
-    assert.equal(shouldRefreshOnboardingForGate(faceGate, { face_required: true, quiz_required: false }), false);
-    assert.equal(shouldRefreshOnboardingForGate(quizGate, { face_required: false, quiz_required: true }), false);
-    // Non-428 errors never trigger the enrollment redirect.
+    assert.equal(shouldRefreshOnboardingForGate(quizGate, { quiz_required: false }), true);
+    assert.equal(shouldRefreshOnboardingForGate(quizGate, { quiz_required: true }), false);
+    // Non-428 errors never trigger the onboarding redirect.
     assert.equal(shouldRefreshOnboardingForGate(other, null), false);
     assert.equal(shouldRefreshOnboardingForGate(new Error('boom'), null), false);
   });

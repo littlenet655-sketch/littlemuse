@@ -3,22 +3,20 @@ import type { GateKind } from '../api/errors';
 import type { OnboardingState } from '../api/auth';
 
 export type ChildRoute =
-  | 'FaceEnroll' | 'Quiz' | 'KidsTabs'
+  | 'Quiz' | 'KidsTabs'
   | 'FeedTab' | 'DiscoverTab' | 'CreateTab' | 'ReelsTab' | 'ProfileTab'
   | 'Stories' | 'NotificationsTab' | 'Conversations' | 'Chat'
   | 'ChatDetails' | 'NewMessage' | 'SavedContent' | 'EditProfile' | 'Connections'
   | 'PostDetail' | 'OtherProfile' | 'ProcessingStatus' | 'SafetyCentre' | 'ReportHistory';
 
-/** Face gate always wins: a child without enrollment must never reach quiz or home. */
-export function childNextRoute(faceRequired: boolean, quizRequired: boolean): ChildRoute {
-  if (faceRequired) return 'FaceEnroll';
+/** Quiz gate wins: a child with a pending quiz must never reach home. */
+export function childNextRoute(quizRequired: boolean): ChildRoute {
   if (quizRequired) return 'Quiz';
   return 'KidsTabs';
 }
 
 /** Map a backend gate to the screen that resolves it, if any. */
-export function screenForGate(gate: GateKind): 'FaceEnroll' | 'Quiz' | 'OtpVerify' | null {
-  if (gate === 'face') return 'FaceEnroll';
+export function screenForGate(gate: GateKind): 'Quiz' | 'OtpVerify' | null {
   if (gate === 'quiz') return 'Quiz';
   if (gate === 'parent_verification' || gate === 'email_verification') return 'OtpVerify';
   return null;
@@ -26,7 +24,7 @@ export function screenForGate(gate: GateKind): 'FaceEnroll' | 'Quiz' | 'OtpVerif
 
 /**
  * Should a 428 onboarding gate from the server trigger an authoritative
- * onboarding refresh (which routes the child to FaceEnroll or Quiz)?
+ * onboarding refresh (which routes the child to Quiz)?
  * Only when the gate is NEW relative to the last known session gates, so a
  * stably gated session never re-fetches in a loop.
  */
@@ -36,7 +34,6 @@ export function shouldRefreshOnboardingForGate(
 ): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.status !== 428) return false;
-  if (error.gate === 'face') return onboarding?.face_required !== true;
   if (error.gate === 'quiz') return onboarding?.quiz_required !== true;
   return false;
 }
@@ -54,17 +51,15 @@ export function resetsDisplayState(resetsRemaining: number | null): ResetsDispla
 
 /**
  * Reactive child route from authoritative gates.
- * Order: face -> quiz -> home. Unknown/missing onboarding ALWAYS fails
- * closed to FaceEnroll: a stale cached quiz flag must never bypass unknown
- * face-enrollment state.
+ * Order: quiz -> home. Unknown/missing onboarding ALWAYS fails closed to
+ * Quiz: a stale cached flag must never bypass unknown onboarding state.
  */
 export function resolveChildRoute(
   onboarding: OnboardingState | null | undefined,
   _fallbackQuizRequired: boolean,
   current: ChildRoute = 'KidsTabs',
 ): ChildRoute {
-  if (!onboarding) return 'FaceEnroll';
-  if (onboarding.face_required) return 'FaceEnroll';
+  if (!onboarding) return 'Quiz';
   if (onboarding.quiz_required) return 'Quiz';
-  return current === 'FaceEnroll' || current === 'Quiz' ? 'KidsTabs' : current;
+  return current === 'Quiz' ? 'KidsTabs' : current;
 }

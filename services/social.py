@@ -34,7 +34,6 @@ def child_surface_open(viewer_id, feature=None):
 
     user=fetch_one("SELECT account_status,role FROM users WHERE user_id=%s",(viewer_id,))
     if not user or user.get('role')!='CHILD' or user.get('account_status')!='ACTIVE':return False
-    if not fetch_one('SELECT 1 FROM face_profiles WHERE child_id=%s LIMIT 1',(viewer_id,)):return False
     if feature and not feature_allowed(viewer_id,feature):return False
     try:
         if quiet_hours_state(viewer_id).get('active'):return False

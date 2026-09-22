@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
 import type { FeedItem, FeedPage } from '../api/kidsFeed';
 import { useAuth } from '../auth/AuthProvider';
 import { queryClient } from '../query/client';
 import { invalidateSocialCaches, kidsKeys } from '../query/keys';
-import { toggleLike, toggleSave } from '../api/kidsSocial';
+import { deletePost, toggleLike, toggleSave } from '../api/kidsSocial';
 import { isPubliclyVisible, runSocialPostAction, socialPostTarget } from './social';
 import { VideoMedia } from './VideoMedia';
 import { Avatar, CategoryBadge, TimeAgo } from '../ui/social';
@@ -114,6 +114,7 @@ export function PostCard({
   onOpen,
   onProfile,
   onNotInterested,
+  onDeleted,
   inlineVideoPlayback = false,
   videoActive = false,
 }: {
@@ -121,6 +122,8 @@ export function PostCard({
   onOpen?: () => void;
   onProfile?: () => void;
   onNotInterested?: () => void;
+  /** Fired after the server confirms the delete so parents can drop the card locally. */
+  onDeleted?: (postId: number) => void;
   inlineVideoPlayback?: boolean;
   videoActive?: boolean;
 }) {
@@ -128,6 +131,9 @@ export function PostCard({
   const isVideo = item.media_type?.toUpperCase() === 'VIDEO';
   // Hook runs unconditionally; the visibility gate below only affects rendering.
   const posterAspect = useRemoteAspect(isVideo ? item.poster_url : undefined, item.aspect_ratio);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   // Per-post in-flight guard: rapid double-taps on like/save used to fire
   // duplicate toggle requests (double optimistic flips, out-of-order server
   // replies). Keys are action-scoped so a like in flight never blocks a save.
@@ -151,6 +157,36 @@ export function PostCard({
   if (!isPubliclyVisible(item)) return null;
   const socialTarget = socialPostTarget(item);
   const previewUrl = isVideo ? item.poster_url : item.media_url;
+  // Delete is offered only for the viewer's own social posts (the server
+  // re-checks ownership; curated/learn items have no target and no owner).
+  const isOwn = socialTarget != null && session?.user?.user_id != null && item.child_id === session.user.user_id;
+
+  function confirmDelete() {
+    setMenuOpen(false);
+    Alert.alert(
+      'Delete this post?',
+      'It will be removed for everyone and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void doDelete() },
+      ],
+    );
+  }
+
+  async function doDelete() {
+    if (!session || !socialTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await deletePost(session.token, socialTarget.postId);
+      await invalidateSocialCaches([socialTarget.postId]);
+      onDeleted?.(socialTarget.postId);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete this post. Try again.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   function fireHeartBurst() {
     setBurstVisible(true);
@@ -284,7 +320,22 @@ export function PostCard({
             <Feather name="eye-off" size={18} color={colors.muted} />
           </Pressable>
         ) : null}
+        {isOwn ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Post options"
+            onPress={() => {
+              setDeleteError('');
+              setMenuOpen(true);
+            }}
+            hitSlop={8}
+            style={styles.dismiss}
+          >
+            <Feather name="more-horizontal" size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
       </View>
+      {deleteError ? <Text style={styles.deleteError}>{deleteError}</Text> : null}
       {item.title ? <Text style={styles.title}>{item.title}</Text> : null}
       {item.caption ? (
         <Text style={styles.caption}>
@@ -383,6 +434,31 @@ export function PostCard({
           ) : null}
         </View>
       ) : null}
+      <Modal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setMenuOpen(false)}>
+          <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+            <Text style={styles.sheetTitle}>Post options</Text>
+            <Pressable
+              style={styles.sheetDanger}
+              accessibilityRole="button"
+              accessibilityLabel="Delete post"
+              disabled={deleteBusy}
+              onPress={confirmDelete}
+            >
+              <Feather name="trash-2" size={18} color={colors.danger} />
+              <Text style={styles.sheetDangerText}>{deleteBusy ? 'Deleting…' : 'Delete post'}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.sheetCancel}
+              accessibilityRole="button"
+              accessibilityLabel="Close options"
+              onPress={() => setMenuOpen(false)}
+            >
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -416,6 +492,27 @@ const styles = StyleSheet.create({
   commentCount: { color: colors.muted, fontSize: type.body, fontWeight: '700', paddingHorizontal: spacing.md, marginTop: 4, paddingVertical: 4 },
   flex: { flex: 1 },
   dismiss: { padding: 6 },
+  deleteError: { color: colors.danger, fontWeight: '700', fontSize: 13, paddingHorizontal: spacing.md, marginTop: 6 },
+  sheetBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: spacing.md,
+    gap: 10,
+  },
+  sheetTitle: { color: colors.ink, fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  sheetDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  sheetDangerText: { color: colors.danger, fontWeight: '800', fontSize: 15 },
+  sheetCancel: { alignItems: 'center', paddingVertical: 12, borderRadius: 10, backgroundColor: '#F3F4F6' },
+  sheetCancelText: { color: colors.ink, fontWeight: '700', fontSize: 15 },
   icon: { color: colors.ink, fontSize: 24, lineHeight: 24 },
   liked: { color: colors.danger },
 });

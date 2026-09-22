@@ -5,12 +5,11 @@
  * (and sometimes a `gate` field). This module keeps every parsing rule in one
  * pure, test-covered place so screens can render explicit UX for each gate:
  * 401 logged-out/invalid, 403 forbidden/disabled, 423 locked (quiet hours or
- * screen-time), 428 action-required (face/quiz/parent verification), 503
+ * screen-time), 428 action-required (quiz/parent verification), 503
  * temporarily unavailable.
  */
 
 export type GateKind =
-  | 'face'
   | 'quiz'
   | 'parent_verification'
   | 'email_verification'
@@ -37,7 +36,6 @@ export class ApiError extends Error {
 }
 
 const GATE_BY_CODE: Record<string, GateKind> = {
-  face_enrollment_required: 'face',
   onboarding_quiz_required: 'quiz',
   quiz_required: 'quiz',
   parent_verification_required: 'parent_verification',
@@ -48,7 +46,6 @@ const GATE_BY_CODE: Record<string, GateKind> = {
 
 export function gateFor(status: number, code: string, payloadGate?: unknown): GateKind {
   if (typeof payloadGate === 'string') {
-    if (payloadGate === 'face') return 'face';
     if (payloadGate === 'quiz') return 'quiz';
     if (payloadGate === 'quiet_hours') return 'quiet_hours';
     if (payloadGate === 'screen_time') return 'screen_time';
@@ -116,15 +113,6 @@ export function userMessageFor(status: number, code: string, body?: Record<strin
       return 'That code is not correct. Check the email and try again.';
     case 'live_camera_photo_required':
       return 'A live camera photo is required. Please allow camera access and retake the photo.';
-    case 'face_login_failed': {
-      // Server intentionally returns a uniform response (anti-enumeration),
-      // so no per-reason message is shown here.
-      return 'Face did not match this account. Try again or use password login.';
-    }
-    case 'face_enrollment_required':
-      return 'Face enrollment is required before Kids Mode can start.';
-    case 'face_enrollment_failed':
-      return 'Face enrollment failed. Retake the photo in good light with only one face visible.';
     case 'onboarding_quiz_required':
     case 'quiz_required':
       return 'A short safety quiz is required before continuing.';
@@ -134,20 +122,12 @@ export function userMessageFor(status: number, code: string, body?: Record<strin
       return 'Parent verification is not finished. Continue with email code and adult check.';
     case 'email_verification_required':
       return 'Verify the email code first, then continue with the adult check.';
-    case 'single_face_required':
-      return 'Keep exactly one face fully inside the oval, then blink again.';
-    case 'liveness_failed':
-      return 'Live-face verification did not pass. Look straight at the camera in good light and blink again.';
     case 'age_estimate_ambiguous':
       return 'We could not confidently confirm adult age from this photo. Retake it in clear, even lighting.';
     case 'age_verification_unavailable':
       return 'Adult age verification is temporarily unavailable. Please try again in a moment.';
     case 'adult_verification_failed': {
       const reason = typeof body?.reason === 'string' ? body.reason : '';
-      if (reason === 'single_face_required')
-        return 'Keep exactly one face fully inside the oval, then blink again.';
-      if (reason === 'liveness_failed')
-        return 'Live-face verification did not pass. Look straight at the camera in good light and blink again.';
       if (reason === 'age_estimate_ambiguous')
         return 'We could not confidently confirm adult age from this photo. Retake it in clear, even lighting.';
       if (reason === 'age_verification_unavailable')

@@ -50,8 +50,24 @@ export function markNotificationsRead(token: string, ids?: number[]): Promise<{ 
   return postJson(routes.notificationsRead, ids ? { notification_ids: ids } : {}, token);
 }
 
-export function fetchConversations(token: string): Promise<{ ok: boolean; conversations: ConversationItem[] }> {
-  return get(routes.conversations, token);
+export interface ConversationsPage {
+  ok: boolean;
+  conversations: ConversationItem[];
+  /** True when the server has another page after this one (offset paging). */
+  has_more?: boolean;
+}
+
+/**
+ * Server-paged conversation list. The backend clamps limit to 1..50 and
+ * returns has_more (it fetches one row past the limit).
+ */
+export function fetchConversations(
+  token: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ConversationsPage> {
+  const p = new URLSearchParams({ limit: String(opts?.limit ?? 20) });
+  if (opts?.offset) p.set('offset', String(opts.offset));
+  return get(`${routes.conversations}?${p.toString()}`, token);
 }
 
 export function fetchChat(token: string, peerId: number, limit = 30, beforeId?: number): Promise<{ ok: boolean; peer: Record<string, unknown>; messages: ChatMessage[]; peer_typing?: boolean }> {

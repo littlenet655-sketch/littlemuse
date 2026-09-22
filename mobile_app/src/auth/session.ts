@@ -13,7 +13,7 @@ export interface PersistedSession {
   onboarding: OnboardingState | null;
 }
 
-export type InitialRoute = 'auth' | 'child' | 'child_face' | 'child_quiz' | 'parent' | 'admin';
+export type InitialRoute = 'auth' | 'child' | 'child_quiz' | 'parent' | 'admin';
 
 /** Where the child wanted to go before a mandatory quiz interrupted them. */
 export async function savePendingDestination(storage: StorageBackend, destination: string): Promise<void> {
@@ -32,8 +32,8 @@ function parseOnboarding(raw: string | null): OnboardingState | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<OnboardingState>;
-    if (typeof value.face_required !== 'boolean' || typeof value.quiz_required !== 'boolean') return null;
-    return { face_required: value.face_required, quiz_required: value.quiz_required };
+    if (typeof value.quiz_required !== 'boolean') return null;
+    return { quiz_required: value.quiz_required };
   } catch {
     return null;
   }
@@ -86,15 +86,14 @@ export async function clearSession(storage: StorageBackend): Promise<void> {
 
 /**
  * Cold-start routing from a restored session plus authoritative gates.
- * For CHILD, unknown/missing onboarding ALWAYS fails closed to child_face:
- * a stale cached quiz flag must never bypass unknown face-enrollment state.
+ * For CHILD, unknown/missing onboarding ALWAYS fails closed to child_quiz:
+ * a stale cached flag must never bypass unknown onboarding state.
  */
-export function decideInitialRoute(session: PersistedSession | null, onboarding?: { face_required: boolean; quiz_required: boolean } | null): InitialRoute {
+export function decideInitialRoute(session: PersistedSession | null, onboarding?: { quiz_required: boolean } | null): InitialRoute {
   if (!session) return 'auth';
   if (session.user.role === 'PARENT') return 'parent';
   if (session.user.role === 'ADMIN') return 'admin';
-  if (!onboarding) return 'child_face';
-  if (onboarding.face_required) return 'child_face';
+  if (!onboarding) return 'child_quiz';
   if (onboarding.quiz_required) return 'child_quiz';
   return 'child';
 }

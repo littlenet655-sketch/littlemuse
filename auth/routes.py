@@ -1,4 +1,4 @@
-import os, uuid, base64
+import os
 import logging
 from flask import Blueprint, render_template, request, redirect, session, jsonify, flash, url_for
 from auth.service import (
@@ -12,7 +12,6 @@ from auth.service import (
     process_child_decision
 )
 from auth.parent_email_otp import begin_parent_registration, verify_parent_email_otp, resend_parent_email_otp
-from safety.face_service import enroll, verify
 from services.usage import start_session, close_session
 from database.connection import fetch_one, execute
 from extensions import limiter, csrf
@@ -383,88 +382,6 @@ def resend_parent_email_page():
 @limiter.limit('10 per minute')
 def register_parent(token):
     return redirect(f'/verify-parent/{token}/')
-
-
-@auth_bp.route('/face/enroll/', methods=['GET', 'POST'])
-@child_required
-def face_enroll():
-    if session.get('role') != 'CHILD':
-        return redirect('/login/?mode=kids')
-    if request.method == 'POST':
-        os.makedirs('uploads/faces', exist_ok=True)
-        path = os.path.join('uploads/faces', f'enroll_{session["user_id"]}_{uuid.uuid4().hex}.jpg')
-        has_photo = False
-        photo = request.files.get('photo')
-        if photo:
-            photo.save(path); has_photo = True
-        else:
-            photo_b64 = request.form.get('photo_b64')
-            if photo_b64:
-                if ',' in photo_b64:photo_b64 = photo_b64.split(',', 1)[1]
-                try:
-                    with open(path, 'wb') as f:f.write(base64.b64decode(photo_b64))
-                    has_photo = True
-                except Exception:pass
-        if not has_photo:
-            return render_template('face_enroll.html', error='Live camera capture required.'), 400
-        try:
-            enroll(session['user_id'], path)
-            return redirect('/child/dashboard/')
-        except Exception:
-            return render_template('face_enroll.html', error='Face enrollment failed. Look directly into the camera in good lighting.'), 400
-        finally:
-            try:os.remove(path)
-            except OSError:pass
-    return render_template('face_enroll.html')
-
-
-@auth_bp.route('/face-login/', methods=['GET', 'POST'])
-@limiter.limit('10 per minute')
-def face_login():
-    # Child Face ID login only. Parent Face ID login was removed: parents
-    # sign in with their password on the web.
-    mode = (request.form.get('mode') or request.args.get('mode') or 'kids').strip().lower()
-    if mode == 'parent':
-        return redirect('/login/?mode=parent')
-
-    if request.method == 'POST':
-        identifier = request.form.get('email', '').strip().lower()
-        user = fetch_one(
-            "SELECT * FROM users WHERE (LOWER(email)=%s OR LOWER(username)=%s) AND role='CHILD' AND account_status='ACTIVE'",
-            (identifier, identifier),
-        )
-        if not user:
-            return render_template('face_login.html', mode='kids', error='Child account not found or not active.'), 400
-        os.makedirs('uploads/faces', exist_ok=True)
-        path = os.path.join('uploads/faces', f'login_{uuid.uuid4().hex}.jpg')
-        has_photo = False
-        photo = request.files.get('photo')
-        if photo:
-            photo.save(path); has_photo = True
-        else:
-            photo_b64 = request.form.get('photo_b64')
-            if photo_b64:
-                if ',' in photo_b64:photo_b64 = photo_b64.split(',', 1)[1]
-                try:
-                    with open(path, 'wb') as f:f.write(base64.b64decode(photo_b64))
-                    has_photo = True
-                except Exception:pass
-        if not has_photo:
-            return render_template('face_login.html', mode='kids', error='Live camera selfie is required.'), 400
-        try:
-            ok, reason, _ = verify(user['user_id'], path)
-            if not ok:
-                # Anti-enumeration: keep one generic message so the page does
-                # not reveal whether the account exists or has Face ID enrolled.
-                return render_template('face_login.html', mode='kids', error='Face authentication failed. Try again or use password login.'), 401
-            _set_session(user, 'FACE')
-            return redirect(_dest(user))
-        except Exception:
-            return render_template('face_login.html', mode='kids', error='Face authentication service unavailable. Use password login.'), 503
-        finally:
-            try:os.remove(path)
-            except OSError:pass
-    return render_template('face_login.html', mode='kids')
 
 
 @auth_bp.route('/logout/',methods=['POST'])

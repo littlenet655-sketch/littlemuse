@@ -6,7 +6,7 @@ for p in root.rglob('*.py'):
  try:ast.parse(p.read_text(encoding='utf-8'))
  except Exception as e:fail.append(f'PY {p.relative_to(root)}: {e}')
 schema=(root/'database/schema.sql').read_text()
-for table in ['users','parent_child_map','posts','likes','comments','followers','child_messages','notifications','child_time_limits','child_usage_sessions','quizzes','face_profiles','moderation_events','moderation_reviews','reports','blocked_users','muted_users']:
+for table in ['users','parent_child_map','posts','likes','comments','followers','child_messages','notifications','child_time_limits','child_usage_sessions','quizzes','moderation_events','moderation_reviews','reports','blocked_users','muted_users']:
  if f'CREATE TABLE IF NOT EXISTS {table}' not in schema:fail.append('SCHEMA '+table)
 # A real handoff/export must not contain repository metadata. GitHub Actions,
 # however, necessarily checks the source out as a Git worktree; CI=true is set

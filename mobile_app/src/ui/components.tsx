@@ -246,8 +246,6 @@ export function GateNotice({ error }: { error: unknown }) {
       ? error.code === 'request_timeout'
         ? 'Connection timed out'
         : 'Connection required'
-      : error.gate === 'face'
-      ? 'Face step needed'
       : error.gate === 'quiz'
         ? 'Quiz needed'
         : error.gate === 'quiet_hours'

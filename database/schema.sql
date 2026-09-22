@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS child_profiles (
  profile_id SERIAL PRIMARY KEY, child_id INTEGER UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  parent_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL, full_name VARCHAR(150) NOT NULL,
  date_of_birth DATE, age INTEGER, school_name VARCHAR(200), location VARCHAR(200), current_class VARCHAR(50), bio TEXT,
- profile_picture VARCHAR(500), face_enrollment_skipped BOOLEAN NOT NULL DEFAULT FALSE,
+ profile_picture VARCHAR(500),
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS child_skills (skill_id SERIAL PRIMARY KEY, child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, skill_name VARCHAR(100) NOT NULL, approved BOOLEAN NOT NULL DEFAULT FALSE);

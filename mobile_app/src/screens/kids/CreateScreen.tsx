@@ -59,9 +59,30 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
   );
 }
 
-export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+type CreateTabParams = { initialKind?: Kind } | undefined;
+
+export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>) {
   const { session } = useAuth();
-  const [kind, setKind] = useState<Kind>('post');
+  // Deep links (e.g. the "+ Story" button in StoriesScreen) can request an
+  // initial composer mode. CreateTab is typed as `undefined` params in
+  // navigation/types.ts, so the runtime param is read through a cast.
+  const initialKind = ((route as { params?: CreateTabParams } | undefined)?.params?.initialKind ?? 'post') as Kind;
+  const [kind, setKind] = useState<Kind>(['post', 'reel', 'story'].includes(initialKind) ? initialKind : 'post');
+
+  // Re-navigation to an already-mounted CreateScreen (e.g. tapping "+ Story"
+  // again after posting) carries fresh params — sync the composer mode then.
+  const initialKindRef = useRef(initialKind);
+  useEffect(() => {
+    if (initialKindRef.current !== initialKind) {
+      initialKindRef.current = initialKind;
+      if (['post', 'reel', 'story'].includes(initialKind)) {
+        setKind(initialKind);
+        setMedia(null);
+        setStatus('');
+        setError(null);
+      }
+    }
+  }, [initialKind]);
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');

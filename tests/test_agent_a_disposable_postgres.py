@@ -12,7 +12,6 @@ from psycopg2.extras import RealDictCursor
 
 from app import app
 from mobile.api import _issue_token, _resolve_parent_review
-from safety import face_service
 from services import media_processor
 from services.job_queue import enqueue_media_job
 from config import Config
@@ -84,109 +83,6 @@ def _auth_headers(user):
 
 
 # ============================================================================
-# 1. EXACT 512-DIM FACE VALIDATION & WRONG MODEL (DB LEVEL)
-# ============================================================================
-
-def test_db_face_profiles_constraint_exact_512_dimensions(db):
-    user = _random_user(db, "CHILD")
-    uid = user["user_id"]
-    cur = db.cursor()
-
-    # 1. 128 dimensions -> REJECTED by DB constraint
-    with pytest.raises(psycopg2.IntegrityError):
-        cur.execute(
-            "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-            (uid, json.dumps([0.1] * 128)),
-        )
-
-    # 2. 511 dimensions -> REJECTED by DB constraint
-    with pytest.raises(psycopg2.IntegrityError):
-        cur.execute(
-            "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-            (uid, json.dumps([0.1] * 511)),
-        )
-
-    # 3. 513 dimensions -> REJECTED by DB constraint
-    with pytest.raises(psycopg2.IntegrityError):
-        cur.execute(
-            "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-            (uid, json.dumps([0.1] * 513)),
-        )
-
-    # 4. Wrong model_name -> REJECTED by DB constraint
-    with pytest.raises(psycopg2.IntegrityError):
-        cur.execute(
-            "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'VGG-Face')",
-            (uid, json.dumps([0.1] * 512)),
-        )
-
-    # 5. Exactly 512 dimensions with model_name='Facenet512' -> SUCCEEDS
-    cur.execute(
-        "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-        (uid, json.dumps([0.1] * 512)),
-    )
-    row = cur.execute("SELECT child_id, model_name, jsonb_array_length(embedding) as len FROM face_profiles WHERE child_id=%s", (uid,))
-    row = cur.fetchone()
-    assert row["child_id"] == uid
-    assert row["model_name"] == "Facenet512"
-    assert row["len"] == 512
-
-
-# ============================================================================
-# 2. FRESH FACE SUCCESS / MISMATCH / LIVENESS (SERVICE + REAL DB)
-# ============================================================================
-
-def test_real_db_face_verification_matrix(db):
-    user = _random_user(db, "CHILD")
-    uid = user["user_id"]
-    cur = db.cursor()
-
-    enrolled_vec = [0.05] * 512
-    cur.execute(
-        "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-        (uid, json.dumps(enrolled_vec)),
-    )
-
-    # 1. Matching capture -> SUCCESS (matched)
-    with patch("safety.remote_client.enabled", return_value=False), \
-         patch("safety.face_service._embedding", return_value=enrolled_vec):
-        match, reason, dist = face_service.verify(uid, "selfie.jpg")
-        assert match is True
-        assert reason == "matched"
-        assert dist is not None and dist < 0.35
-
-    # Check attempt logged in face_login_attempts
-    cur.execute("SELECT * FROM face_login_attempts WHERE child_id=%s ORDER BY attempt_id DESC LIMIT 1", (uid,))
-    att = cur.fetchone()
-    assert att["success"] is True
-
-    # 2. Mismatch capture -> FAILS (not_matched)
-    diff_vec = [-0.05] * 512
-    with patch("safety.remote_client.enabled", return_value=False), \
-         patch("safety.face_service._embedding", return_value=diff_vec):
-        match, reason, dist = face_service.verify(uid, "selfie.jpg")
-        assert match is False
-        assert reason in ("not_matched", "face_mismatch")
-
-    cur.execute("SELECT * FROM face_login_attempts WHERE child_id=%s ORDER BY attempt_id DESC LIMIT 1", (uid,))
-    att = cur.fetchone()
-    assert att["success"] is False
-    assert att["reason"] in ("not_matched", "face_mismatch")
-
-    # 3. Spoof / liveness failure -> FAILS (liveness_failed)
-    with patch("safety.remote_client.enabled", return_value=False), \
-         patch("safety.face_service._embedding", side_effect=ValueError("liveness_failed")):
-        match, reason, dist = face_service.verify(uid, "selfie.jpg")
-        assert match is False
-        assert reason == "liveness_failed"
-
-    cur.execute("SELECT * FROM face_login_attempts WHERE child_id=%s ORDER BY attempt_id DESC LIMIT 1", (uid,))
-    att = cur.fetchone()
-    assert att["success"] is False
-    assert att["reason"] == "liveness_failed"
-
-
-# ============================================================================
 # 3. CONCURRENT /COMPLETE CALLS (EXACTLY ONE POST AND ONE LOGICAL JOB)
 # ============================================================================
 
@@ -196,11 +92,6 @@ def test_concurrent_upload_complete_produces_exactly_one_post(client, db):
     headers = _auth_headers(user)
     cur = db.cursor()
 
-    # Enroll face for gate
-    cur.execute(
-        "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-        (uid, json.dumps([0.05] * 512)),
-    )
 
     upload_id = str(uuid.uuid4())
     object_key = f"uploads/r2/quarantine/{uid}/{upload_id}.jpg"
@@ -264,10 +155,6 @@ def test_dispatch_failure_and_idempotent_retry(client, db):
     headers = _auth_headers(user)
     cur = db.cursor()
 
-    cur.execute(
-        "INSERT INTO face_profiles(child_id, embedding, model_name) VALUES(%s, %s::jsonb, 'Facenet512')",
-        (uid, json.dumps([0.05] * 512)),
-    )
 
     upload_id = str(uuid.uuid4())
     object_key = f"uploads/r2/quarantine/{uid}/{upload_id}.jpg"

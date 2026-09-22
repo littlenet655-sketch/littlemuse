@@ -1,5 +1,10 @@
 # LittleNet Authentication & System Integrity Report
 
+> **2026-09-22 note:** This report is historical. All face/biometric artifacts
+> (DeepFace, face login, face enrollment, guardian liveness) were removed from
+> LittleNet by product decision on 2026-09-22; the face-path findings below
+> describe a system state that no longer exists.
+
 ## Executive Summary
 
 An end-to-end investigation and remediation of the LittleNet authentication architecture was conducted across the **React Native / Expo mobile app** (`mobile_app/`), the **Python Flask backend** (`mobile/`, `auth/`, `safety/`), and the **Neon PostgreSQL database**.

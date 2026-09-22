@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
 import os
-import random
-import secrets
-import tempfile
 import uuid
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -52,6 +48,7 @@ from config import Config
 from database.connection import execute, execute_count, fetch_all, fetch_one, get_db_connection
 from extensions import csrf, limiter
 from parent.service import children, owns, pending_follows
+from parent.api import child_viewing_insights
 from quiz.service import (
     age_group,
     complete_required_feed_quiz,
@@ -64,7 +61,6 @@ from quiz.service import (
     record_feed_view,
     required_feed_quiz,
 )
-from safety.face_service import clear_child_face, enroll, has_face_profile, verify
 from safety.moderation_service import evaluate, record, safety_level
 from safety.pii_service import scan_pii
 from safety.policy import Decision, decide
@@ -99,16 +95,13 @@ from child.search_routes import search_visible_posts, visible_hashtags
 from services.audit import log
 from services.usage import close_session, heartbeat, lock_state, minutes_today, online_state, start_session
 
-
 _AUTH_SALT = "littlenet-native-auth-v1"
 _PENDING_PARENT_SALT = "littlenet-native-parent-pending-v1"
 _TOKEN_TTL = int(os.getenv("LITTLENET_MOBILE_TOKEN_TTL_SECONDS", "86400"))
 _PENDING_TTL = 30 * 60
 
-
 class _InvalidJsonBody(Exception):
     """Raised when a JSON request body is present but is not an object."""
-
 
 def _json_dict():
     """Return the request JSON body as a dict.
@@ -125,10 +118,8 @@ def _json_dict():
         raise _InvalidJsonBody()
     return data
 
-
 def _serializer(salt: str) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(Config.SECRET_KEY, salt=salt)
-
 
 def _clean(value):
     if isinstance(value, dict):
@@ -144,7 +135,6 @@ def _clean(value):
         return str(value)
     return value
 
-
 def _issue_token(user: dict, usage_session_key=None) -> str:
     claims = {
         "uid": int(user["user_id"]),
@@ -156,7 +146,6 @@ def _issue_token(user: dict, usage_session_key=None) -> str:
         claims["usage_session_key"] = str(usage_session_key)
     return _serializer(_AUTH_SALT).dumps(claims)
 
-
 def _revoke_all_user_sessions(user_id: int) -> None:
     """Invalidate all active bearer sessions across devices for this user."""
     execute(
@@ -164,10 +153,8 @@ def _revoke_all_user_sessions(user_id: int) -> None:
         (int(user_id),),
     )
 
-
 def _issue_pending_parent(user_id: int, email: str) -> str:
     return _serializer(_PENDING_PARENT_SALT).dumps({"uid": int(user_id), "email": email})
-
 
 def _load_pending_parent(token: str):
     try:
@@ -175,13 +162,11 @@ def _load_pending_parent(token: str):
     except (BadSignature, SignatureExpired):
         return None
 
-
 def _bearer_token() -> str:
     header = request.headers.get("Authorization", "")
     if not header.lower().startswith("bearer "):
         return ""
     return header.split(" ", 1)[1].strip()
-
 
 def _load_claims():
     token = _bearer_token()
@@ -191,7 +176,6 @@ def _load_claims():
         return _serializer(_AUTH_SALT).loads(token, max_age=_TOKEN_TTL)
     except (BadSignature, SignatureExpired):
         return None
-
 
 def _mobile_token_revoked(token: str) -> bool:
     """Check the dedicated revocation store independently of route data lookups.
@@ -214,7 +198,6 @@ def _mobile_token_revoked(token: str) -> bool:
     except Exception as exc:
         logging.getLogger(__name__).exception("revocation-store lookup failed: %s", exc)
         return True
-
 
 def _require_mobile(*roles):
     allowed = {r.upper() for r in roles}
@@ -248,60 +231,10 @@ def _require_mobile(*roles):
 
     return decorator
 
-
-def _face_enrolled(uid: int) -> bool:
-    """Single definition of the Agent A Facenet512 enrollment check.
-
-    A child is enrolled only when a validated Facenet512 embedding is stored.
-    Missing rows, wrong models, and invalid embeddings all fail closed.
-    """
-    face = fetch_one("SELECT embedding, model_name FROM face_profiles WHERE child_id=%s LIMIT 1", (uid,))
-    if not face or not face.get("embedding") or face.get("model_name") != "Facenet512":
-        return False
-    try:
-        from safety.face_service import _validated_embedding
-        emb = face["embedding"]
-        if isinstance(emb, str):
-            import json
-            emb = json.loads(emb)
-        _validated_embedding(emb)
-    except Exception:
-        return False
-    return True
-
-
-def _face_gate_satisfied(uid: int) -> bool:
-    """Accept a valid enrollment or explicit deferral without fabricating identity data."""
-    row = fetch_one(
-        """SELECT fp.embedding, fp.model_name, cp.face_enrollment_skipped
-           FROM child_profiles cp
-           LEFT JOIN face_profiles fp ON fp.child_id=cp.child_id
-           WHERE cp.child_id=%s LIMIT 1""",
-        (uid,),
-    )
-    if not row:
-        return False
-    if row.get("face_enrollment_skipped"):
-        return True
-    if not row.get("embedding") or row.get("model_name") != "Facenet512":
-        return False
-    try:
-        from safety.face_service import _validated_embedding
-        emb = row["embedding"]
-        if isinstance(emb, str):
-            emb = json.loads(emb)
-        _validated_embedding(emb)
-    except Exception:
-        return False
-    return True
-
-
 def _onboarding_state(uid: int) -> dict:
-    """Authoritative gate state: face may be enrolled or explicitly deferred."""
-    face_required = not _face_gate_satisfied(uid)
+    """Authoritative gate state: only the onboarding quiz gates Kids Mode."""
     quiz_required = bool(feed_quiz_state(uid).get("required") or needs_onboarding_quiz(uid))
-    return {"face_required": face_required, "quiz_required": quiz_required}
-
+    return {"quiz_required": quiz_required}
 
 def _kid_self_resets_today(child_id: int) -> int:
     row = fetch_one(
@@ -310,11 +243,8 @@ def _kid_self_resets_today(child_id: int) -> int:
     )
     return int(row["cnt"]) if row else 0
 
-
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
-    if not _face_gate_satisfied(uid):
-        return jsonify(error="face_enrollment_required", gate="face"), 428
     if needs_onboarding_quiz(uid):
 
         return jsonify(error="onboarding_quiz_required", gate="quiz"), 428
@@ -343,7 +273,6 @@ def _child_gate(feature: str | None = None):
             pass
     return None
 
-
 def _asset_url(reference, viewer_id=None, viewer_role=None):
     if not reference:
         return None
@@ -357,7 +286,6 @@ def _asset_url(reference, viewer_id=None, viewer_role=None):
     res = resolve_media_delivery(reference, viewer_id=v_id, viewer_role=v_role)
     return res.get("url")
 
-
 def _profile_json(row):
     if not row:
         return None
@@ -365,7 +293,6 @@ def _profile_json(row):
     out["avatar_url"] = _asset_url(out.get("profile_picture"))
     out.pop("profile_picture", None)
     return _clean(out)
-
 
 def _post_json(row, viewer_id=None):
     if not row:
@@ -415,46 +342,6 @@ def _post_json(row, viewer_id=None):
 
     return _clean(out)
 
-
-def _save_request_image(prefix: str):
-    upload = request.files.get("photo") or request.files.get("media")
-    if upload and upload.filename:
-        suffix = os.path.splitext(upload.filename)[1].lower() or ".jpg"
-        fd, path = tempfile.mkstemp(prefix=prefix, suffix=suffix)
-        os.close(fd)
-        upload.save(path)
-        if os.path.getsize(path) > Config.MAX_CONTENT_LENGTH:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
-            return None
-        return path
-    data = _json_dict()
-    raw = str(data.get("photo_b64") or data.get("selfie_data") or "").strip()
-    if not raw:
-        return None
-    if "base64," in raw:
-        raw = raw.split("base64,", 1)[1]
-    raw = "".join(raw.split())
-    if not raw:
-        return None
-    missing_padding = len(raw) % 4
-    if missing_padding:
-        raw += "=" * (4 - missing_padding)
-    try:
-        blob = base64.b64decode(raw)
-    except Exception:
-        return None
-    if len(blob) < 1000 or len(blob) > 8 * 1024 * 1024:
-        return None
-    fd, path = tempfile.mkstemp(prefix=prefix, suffix=".jpg")
-    os.close(fd)
-    with open(path, "wb") as handle:
-        handle.write(blob)
-    return path
-
-
 def _mobile_user_payload(user):
     profile = None
     quiz_required = False
@@ -480,7 +367,6 @@ def _mobile_user_payload(user):
         "quiz_interval": quiz_interval,
     }
 
-
 def _mobile_login_response(user, method="PASSWORD"):
     usage_key = None
     if user["role"] == "CHILD":
@@ -493,16 +379,10 @@ def _mobile_login_response(user, method="PASSWORD"):
         "auth_method": method,
         "user": _mobile_user_payload(user),
     }
-    # NOTE: biometric_key (the face-challenge HMAC secret) is intentionally
-    # NOT returned on ordinary login. The client receives it once at face
-    # enrollment (enrollChildFace) and uses it to sign challenges;
-    # re-sending the signing secret on every login widened exposure for
-    # zero client consumers (2026-09-22 hardener review).
     if user["role"] == "CHILD":
         uid = int(user["user_id"])
         response["onboarding"] = _onboarding_state(uid)
     return jsonify(_clean(response))
-
 
 def _media_allowed(uid: int, role: str, ref: str) -> bool:
     cur = fetch_one(
@@ -571,7 +451,6 @@ def _media_allowed(uid: int, role: str, ref: str) -> bool:
         return can_discover_child(uid, f["child_id"])
     return ref == "uploads/profile_pictures/download.webp" and role in {"CHILD", "PARENT", "ADMIN"}
 
-
 def _merge_signals(*signals):
     out = {
         "adult_score": 0.0,
@@ -595,7 +474,6 @@ def _merge_signals(*signals):
         out["sources"].append(sig.get("category", "UNKNOWN"))
     out["category"] = "ADULT" if out["adult_score"] >= Config.ADULT_HARD_BLOCK_THRESHOLD else "CONTENT"
     return out
-
 
 def _resolve_parent_review(
     reviewer_id: int,
@@ -801,7 +679,6 @@ def _resolve_parent_review(
     finally:
         conn.close()
 
-
 def register_mobile_api(bp):
     @bp.errorhandler(_InvalidJsonBody)
     def _invalid_json_body(_exc):
@@ -868,210 +745,6 @@ def register_mobile_api(bp):
             except Exception:
                 pass
         return jsonify(ok=True)
-
-    @bp.route("/api/mobile/v1/auth/face-login", methods=["POST"])
-    @csrf.exempt
-    @limiter.limit("10 per minute")
-    def mobile_face_login():
-        data = _json_dict()
-        identifier = str(data.get("identifier") or request.form.get("identifier") or "").strip().lower()
-        mode = str(data.get("mode") or request.form.get("mode") or "kids").strip().lower()
-        if mode == "parent":
-            # Face login is kids-only: parent accounts authenticate via
-            # password + email OTP / device auth, never face.
-            return jsonify(error="parent_face_unsupported"), 400
-        role = "CHILD"
-        user = fetch_one(
-            "SELECT * FROM users WHERE (LOWER(email)=%s OR LOWER(username)=%s) AND role=%s AND account_status='ACTIVE'",
-            (identifier, identifier, role),
-        )
-        if not user:
-            return jsonify(error="face_login_failed"), 401
-
-        challenge_id = str(data.get("challenge_id") or request.form.get("challenge_id") or "").strip()
-        nonce = str(data.get("nonce") or request.form.get("nonce") or "").strip()
-        action_completed = str(data.get("action_completed") or request.form.get("action_completed") or "").strip().upper()
-        if not challenge_id or not nonce or not action_completed:
-            return jsonify(error="face_auth_challenge_required"), 400
-
-        challenge = fetch_one(
-            "SELECT * FROM face_auth_challenges WHERE challenge_id=%s AND user_id=%s AND nonce=%s",
-            (challenge_id, user["user_id"], nonce),
-        )
-        if not challenge:
-            return jsonify(error="invalid_face_challenge"), 403
-        if challenge.get("used_at") is not None:
-            return jsonify(error="challenge_already_used_replay_detected"), 403
-        if action_completed != str(challenge.get("action") or "").upper():
-            return jsonify(error="challenge_action_mismatch"), 400
-
-        now = datetime.now(timezone.utc)
-        exp = challenge.get("expires_at")
-        if exp:
-            exp_tz = exp.replace(tzinfo=timezone.utc if exp.tzinfo is None else exp.tzinfo)
-            if now > exp_tz:
-                return jsonify(error="challenge_expired"), 403
-
-        path = _save_request_image("littlenet_mobile_face_login_")
-        if not path:
-            return jsonify(error="live_camera_photo_required"), 400
-        try:
-            consumed = execute(
-                """UPDATE face_auth_challenges SET used_at=NOW()
-                   WHERE challenge_id=%s AND user_id=%s AND nonce=%s
-                     AND action=%s AND used_at IS NULL AND expires_at > NOW()
-                   RETURNING challenge_id""",
-                (challenge_id, user["user_id"], nonce, action_completed),
-                returning=True,
-            )
-            if not consumed:
-                return jsonify(error="face_challenge_expired_or_consumed"), 403
-            ok, reason, _ = verify(user["user_id"], path)
-            if not ok:
-                # Anti-enumeration: every failure looks identical so an
-                # unauthenticated caller cannot tell "no such account" from
-                # "account exists but no face enrolled" from "face mismatch".
-                return jsonify(error="face_login_failed"), 401
-
-            return _mobile_login_response(user, "FACE")
-        finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-
-    @bp.route("/api/mobile/v1/auth/face/challenge", methods=["POST"])
-    @csrf.exempt
-    @limiter.limit("20 per minute")
-    def mobile_face_challenge():
-        """Issue a short-lived nonce bound to user and action for on-device liveness proof."""
-        data = request.get_json(silent=True) or request.form or {}
-        identifier = str(data.get("identifier") or "").strip()
-        mode = str(data.get("mode") or "kids").strip().lower()
-        if mode == "parent":
-            # Face login is kids-only: parent accounts authenticate via
-            # password + email OTP / device auth, never face.
-            return jsonify(error="parent_face_unsupported"), 400
-        role = "CHILD"
-        session_ctx = str(data.get("session_context") or "mobile_android").strip()[:128]
-
-        user = None
-        if identifier:
-            user = fetch_one(
-                "SELECT user_id, username, role, account_status FROM users WHERE (LOWER(email)=%s OR LOWER(username)=%s) AND role=%s",
-                (identifier.lower(), identifier.lower(), role),
-            )
-        elif hasattr(g, "mobile_user") and g.mobile_user:
-            user = g.mobile_user
-
-        if not user:
-            # Return an indistinguishable synthetic challenge so this public
-            # endpoint cannot be used to enumerate child or parent accounts.
-            return jsonify(
-                ok=True,
-                challenge_id=str(uuid.uuid4()),
-                nonce=secrets.token_hex(24),
-                action=random.choice(["BLINK", "TURN_LEFT", "TURN_RIGHT"]),
-                expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
-            )
-
-        action = random.choice(["BLINK", "TURN_LEFT", "TURN_RIGHT"])
-        nonce = secrets.token_hex(24)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-
-        row = execute(
-            """INSERT INTO face_auth_challenges(user_id, nonce, action, expires_at, session_context)
-               VALUES(%s, %s, %s, %s, %s)
-               RETURNING challenge_id, issued_at, expires_at""",
-            (user["user_id"], nonce, action, expires_at, session_ctx),
-            returning=True,
-        )
-
-        return jsonify(
-            ok=True,
-            challenge_id=str(row["challenge_id"]),
-            nonce=nonce,
-            action=action,
-            expires_at=row["expires_at"].isoformat() + "Z",
-        )
-
-    @bp.route("/api/mobile/v1/auth/face/verify-challenge", methods=["POST"])
-    @csrf.exempt
-    @limiter.limit("20 per minute")
-    def mobile_face_verify_challenge():
-        """Verify on-device liveness completion and similarity proof with replay protection."""
-        data = request.get_json(silent=True) or request.form or {}
-        challenge_id = str(data.get("challenge_id") or "").strip()
-        nonce = str(data.get("nonce") or "").strip()
-        action_completed = str(data.get("action_completed") or data.get("liveness_action_completed") or "").strip().upper()
-
-        if not challenge_id or not nonce or not action_completed:
-            return jsonify(error="missing_challenge_params"), 400
-
-        challenge = fetch_one(
-            "SELECT * FROM face_auth_challenges WHERE challenge_id=%s",
-            (challenge_id,),
-        )
-        if not challenge:
-            return jsonify(error="challenge_not_found"), 404
-
-        # Replay protection: challenge must be single-use
-        if challenge.get("used_at") is not None:
-            return jsonify(error="challenge_already_used_replay_detected"), 403
-
-        # Expiry check
-        now = datetime.now(timezone.utc)
-        exp = challenge["expires_at"]
-        if hasattr(exp, "tzinfo") and exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
-        if exp < now:
-            return jsonify(error="challenge_expired"), 403
-
-        # Cryptographic nonce check
-        if challenge["nonce"] != nonce:
-            return jsonify(error="challenge_nonce_mismatch"), 403
-
-        # Challenge action check
-        if challenge["action"] != action_completed:
-            return jsonify(error="challenge_action_mismatch"), 400
-
-        # Fetch user's enrolled biometric key
-        face_profile = fetch_one("SELECT biometric_key FROM face_profiles WHERE child_id=%s", (challenge["user_id"],))
-        biometric_key = face_profile.get("biometric_key") if face_profile else None
-        if not biometric_key:
-            return jsonify(error="biometric_credentials_not_enrolled"), 403
-
-        # Challenge-bound cryptographic signature verification
-        client_signature = str(data.get("signature") or "").strip().lower()
-        if not client_signature:
-            # Echo attack detected: client supplied nonce & action without cryptographic proof
-            return jsonify(error="biometric_proof_required_echo_attack_rejected"), 403
-
-        import hashlib
-        import hmac
-
-        expected_msg = f"{challenge_id}:{nonce}:{challenge['action']}:{challenge['user_id']}".encode("utf-8")
-        expected_sig = hmac.new(biometric_key.encode("utf-8"), expected_msg, hashlib.sha256).hexdigest().lower()
-
-        if not hmac.compare_digest(expected_sig, client_signature):
-            return jsonify(error="biometric_signature_invalid"), 403
-
-        consumed = execute(
-            """UPDATE face_auth_challenges SET used_at=NOW()
-               WHERE challenge_id=%s AND nonce=%s AND action=%s
-                 AND used_at IS NULL AND expires_at > NOW()
-               RETURNING challenge_id""",
-            (challenge_id, nonce, action_completed),
-            returning=True,
-        )
-        if not consumed:
-            return jsonify(error="face_challenge_expired_or_consumed"), 403
-
-        user = fetch_one("SELECT * FROM users WHERE user_id=%s", (challenge["user_id"],))
-        if not user:
-            return jsonify(error="user_not_found"), 404
-
-        return _mobile_login_response(user, "DEVICE_BIOMETRIC_CHALLENGE")
 
     @bp.route("/api/mobile/v1/music/curated", methods=["GET"])
     def mobile_curated_music():
@@ -1220,7 +893,6 @@ def register_mobile_api(bp):
             return jsonify(ok=False, error=msg), 400
         return jsonify(ok=True, message=msg)
 
-
     @bp.route("/api/mobile/v1/me")
     @_require_mobile("CHILD", "PARENT", "ADMIN")
     def mobile_me():
@@ -1254,65 +926,6 @@ def register_mobile_api(bp):
         if os.path.exists(demo):
             return send_from_directory(os.path.join("static", "demo"), rel)
         return jsonify(error="media_missing"), 404
-
-    @bp.route("/api/mobile/v1/kids/face/enroll", methods=["POST"])
-    @csrf.exempt
-    @_require_mobile("CHILD")
-    def mobile_child_face_enroll():
-        uid = int(g.mobile_user["user_id"])
-        if has_face_profile(uid):
-            return jsonify(
-                error="face_already_enrolled",
-                message="Face profile is already enrolled. Only a linked parent can reset enrolled child faces."
-            ), 409
-        path = _save_request_image("littlenet_mobile_enroll_")
-        if not path:
-            return jsonify(error="live_camera_photo_required"), 400
-        try:
-            enroll(uid, path)
-            b_key = secrets.token_hex(32)
-            execute(
-                """UPDATE face_profiles
-                   SET biometric_key=%s, reference_path=NULL
-                   WHERE child_id=%s""",
-                (b_key, uid),
-            )
-            execute(
-                "UPDATE child_profiles SET face_enrollment_skipped=FALSE, updated_at=NOW() WHERE child_id=%s",
-                (uid,),
-            )
-            return jsonify(
-                ok=True,
-                biometric_key=b_key,
-                quiz_required=bool(needs_onboarding_quiz(uid)),
-            )
-        except ValueError as exc:
-            return jsonify(error=str(exc) or "face_enrollment_failed"), 400
-        except Exception:
-            return jsonify(error="face_enrollment_failed"), 400
-        finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-
-    @bp.route("/api/mobile/v1/kids/face/skip", methods=["POST"])
-    @csrf.exempt
-    @_require_mobile("CHILD")
-    def mobile_child_face_skip():
-        uid = int(g.mobile_user["user_id"])
-        # The skip is only honored after the parent explicitly approved the
-        # deferral (POST /api/mobile/v1/parent/children/<id>/face/deferral);
-        # otherwise it stays a dead end with a clear parent-approval message.
-        row = fetch_one("SELECT face_enrollment_skipped FROM child_profiles WHERE child_id=%s", (uid,))
-        if row and row.get("face_enrollment_skipped"):
-            return jsonify(ok=True, skipped=True, deferred=True,
-                           quiz_required=bool(needs_onboarding_quiz(uid)))
-        return jsonify(
-            ok=False,
-            error="parent_approval_required",
-            message="Face enrollment can only be skipped with parent approval.",
-        ), 403
 
     @bp.route("/api/mobile/v1/kids/home")
     @_require_mobile("CHILD")
@@ -1406,7 +1019,6 @@ def register_mobile_api(bp):
             posts=[_post_json(p, uid) for p in visible_profile_posts(uid, uid)],
             controls=_clean(controls_for_child(uid)),
             minutes_today=minutes_today(uid),
-            has_face=bool(fetch_one("SELECT 1 FROM face_profiles WHERE child_id=%s", (uid,))),
         )
 
     @bp.route("/api/mobile/v1/kids/notifications")
@@ -2148,7 +1760,6 @@ def register_mobile_api(bp):
                     conn.commit()
                     return jsonify(error="upload_session_expired"), 400
 
-
             from services import object_storage
 
             if object_storage.enabled():
@@ -2339,7 +1950,6 @@ def register_mobile_api(bp):
                 upload_id=upload_id,
             ), 503
 
-
     @bp.route("/api/mobile/v2/posts/<int:post_id>/processing-status", methods=["GET"])
     @_require_mobile("CHILD", "PARENT")
     def mobile_v2_processing_status(post_id):
@@ -2374,7 +1984,6 @@ def register_mobile_api(bp):
             error=post.get("processing_error"),
             retryable=st == "UPLOADED" and bool(post.get("processing_error")),
         )
-
 
     @bp.route("/api/mobile/v2/posts/<int:post_id>/redrive", methods=["POST"])
     @csrf.exempt
@@ -2415,8 +2024,6 @@ def register_mobile_api(bp):
         except Exception as exc:
             res["abandoned_uploads"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return jsonify(res)
-
-
 
     @bp.route("/api/mobile/v1/kids/learning")
     @_require_mobile("CHILD")
@@ -2537,7 +2144,6 @@ def register_mobile_api(bp):
             controls=_clean(controls_for_child(uid)),
             minutes_today=minutes_today(uid),
             daily_limit=daily_limit,
-            has_face=bool(fetch_one("SELECT 1 FROM face_profiles WHERE child_id=%s", (uid,))),
             safety_level=s_level,
         )
 
@@ -2727,90 +2333,7 @@ def register_mobile_api(bp):
             if "unique constraint" in err_msg or "duplicate key" in err_msg or "uniqueviolation" in err_msg:
                 return jsonify(error="This username is already taken. Please choose another."), 400
             return jsonify(error="child_creation_failed", message="Unable to create child account. Please verify details and try again."), 400
-        return jsonify(ok=True, child_id=child_id, next_steps=["child_face_enrollment", "age_quiz"]), 201
-
-    @bp.route("/api/mobile/v1/parent/children/<int:child_id>/face/enroll", methods=["POST"])
-    @csrf.exempt
-    @limiter.limit("15 per minute")
-    @_require_mobile("PARENT")
-    def mobile_parent_enroll_child_face(child_id):
-        pid = int(g.mobile_user["user_id"])
-        if not owns(pid, child_id):
-            return jsonify(error="child_not_found"), 404
-        path = _save_request_image("littlenet_parent_enroll_child_")
-        if not path:
-            return jsonify(error="live_camera_photo_required"), 400
-        try:
-            enroll(child_id, path)
-            b_key = secrets.token_hex(32)
-            persisted = execute(
-                """UPDATE face_profiles
-                   SET biometric_key=COALESCE(face_profiles.biometric_key, %s), updated_at=NOW()
-                   WHERE child_id=%s
-                   RETURNING biometric_key""",
-                (b_key, child_id),
-                returning=True,
-            ) or {}
-            # Re-enrollment must return the key actually stored in PostgreSQL.
-            # If an existing key was preserved by COALESCE, returning the newly
-            # generated candidate would make later device challenge signatures fail.
-            persisted_key = persisted.get("biometric_key") or b_key
-            return jsonify(
-                ok=True,
-                child_id=child_id,
-                face_enrolled=True,
-                biometric_key=persisted_key,
-                quiz_required=bool(needs_onboarding_quiz(child_id)),
-            )
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).exception("face_enrollment_failed: %s", exc)
-            return jsonify(error="face_enrollment_failed", message="Unable to enroll face. Please ensure a clear, well-lit photo of the face and try again."), 400
-        finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-
-    @bp.route("/api/mobile/v1/parent/children/<int:child_id>/face/deferral", methods=["POST"])
-    @csrf.exempt
-    @limiter.limit("30 per hour")
-    @_require_mobile("PARENT")
-    def mobile_parent_face_deferral(child_id):
-        """Parent approves/rejects a child's face-enrollment skip request.
-
-        The child's "Skip for Now" button (POST /api/mobile/v1/kids/face/skip)
-        stays a dead end (403 parent_approval_required) until the parent
-        records an explicit decision here. Approval sets
-        child_profiles.face_enrollment_skipped=TRUE, which the onboarding gate
-        (_face_gate_satisfied) honors; a later successful enrollment clears it.
-        """
-        pid = int(g.mobile_user["user_id"])
-        if not owns(pid, child_id):
-            return jsonify(error="child_not_found"), 404
-        data = _json_dict()
-        action = str(data.get("action") or "").lower()
-        if action not in {"approve", "reject"}:
-            return jsonify(error="invalid_action"), 400
-        skipped = action == "approve"
-        profile = fetch_one("SELECT child_id FROM child_profiles WHERE child_id=%s", (child_id,))
-        if not profile:
-            return jsonify(error="child_not_found"), 404
-        execute(
-            "UPDATE child_profiles SET face_enrollment_skipped=%s WHERE child_id=%s",
-            (skipped, child_id),
-        )
-        log(child_id, "FACE_DEFERRAL_" + ("APPROVED" if skipped else "REJECTED"), {"parent_id": pid})
-        notify(
-            child_id,
-            "FACE_DEFERRAL",
-            "Your parent approved skipping face enrollment for now."
-            if skipped
-            else "Your parent asked you to complete face enrollment.",
-            "/child/dashboard/",
-            pid,
-        )
-        return jsonify(ok=True, child_id=child_id, face_enrollment_skipped=skipped)
+        return jsonify(ok=True, child_id=child_id, next_steps=["age_quiz"]), 201
 
     @bp.route("/api/mobile/v1/parent/controls/<int:child_id>", methods=["GET", "PUT"])
     @csrf.exempt
@@ -2871,6 +2394,18 @@ def register_mobile_api(bp):
         execute("UPDATE users SET account_status='DEACTIVATED' WHERE user_id=%s AND role='CHILD'", (child_id,))
         return jsonify(ok=True, message="child_unlinked")
 
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/viewing-insights")
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_viewing_insights(child_id):
+        # Bearer-token alias of GET /api/parent/child/<child_id>/viewing-insights
+        # (session-cookie auth there 401s the mobile client). Same parent-owns-
+        # child gate and the same read-only aggregation helper.
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        return jsonify(success=True, **child_viewing_insights(child_id))
+
     @bp.route("/api/mobile/v1/parent/child/<int:child_id>/reset-password", methods=["POST"])
     @csrf.exempt
     @_require_mobile("PARENT")
@@ -2882,20 +2417,6 @@ def register_mobile_api(bp):
         if not ok:
             return jsonify(ok=False, error=msg), 400
         return jsonify(ok=True, message=msg)
-
-    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/reset-face", methods=["POST"])
-    @csrf.exempt
-    @_require_mobile("PARENT")
-    def mobile_parent_reset_child_face(child_id):
-        pid = int(g.mobile_user["user_id"])
-        if not owns(pid, child_id):
-            return jsonify(error="child_not_found"), 404
-        clear_child_face(child_id)
-        _revoke_all_user_sessions(child_id)
-        log(child_id, "CHILD_FACE_RESET_BY_PARENT", {"parent_id": pid})
-        notify(child_id, "FACE_RESET", "Your parent has reset your face login profile.", "/child/dashboard/", pid)
-        return jsonify(ok=True, message="Face profile reset successfully")
-
 
     @bp.route("/api/mobile/v1/parent/time-limit/<int:child_id>", methods=["PUT"])
     @csrf.exempt
@@ -3191,7 +2712,6 @@ def register_mobile_api(bp):
             resets_remaining=remaining,
             minutes_today=0,
         )
-
 
     @bp.route("/api/mobile/v2/kids/feed")
     @_require_mobile("CHILD")

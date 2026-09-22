@@ -6,7 +6,6 @@ name: Deploy & Validate LittleNet Live
 # Tracked contract paths for live release auditing:
 # - 'auth/**'
 # - 'mailg/**'
-# - 'safety/face_service.py'
 on:
   workflow_dispatch:
     inputs:

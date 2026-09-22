@@ -161,7 +161,7 @@ modal secret create littlenet-email --force \
 ```
 
 The release preflight validates the database/schema, quiz bank, AI
-configuration, Presidio PII detection, MediaPipe liveness assets, public
+configuration, Presidio PII detection, public
 `BASE_URL`, Resend readiness, R2 bucket access and the configured
 video-delivery provider. If Stream is disabled, the private R2 fallback is the
 accepted provider; if Stream is enabled, its API configuration must pass.
@@ -178,7 +178,7 @@ Modal auth validation
 → PostgreSQL init/migrations          (modal run modal_web.py --init-db)
 → compulsory quiz seed                 (modal run modal_web.py --seed)
 → T4 model warm/validation             (opt-in: modal run modal_ai.py --confirm-gpu-warmup)
-→ DB/AI/Presidio/liveness/mail/R2/BASE_URL preflight
+→ DB/AI/Presidio/mail/R2/BASE_URL preflight
 → public /healthz + strict /readyz
 → Playwright browser smoke
 → live-URL Android APK build           (LittleNet-live-verified-apk artifact)
@@ -247,7 +247,7 @@ after the live workflow is green:
   builds against the Modal web URL and uploads the APK + SHA256 artifact.
 
 Install on a real Android device and test: parent registration/OTP/camera
-verification, child account creation, child face enrollment/login, safe and
+verification, child account creation, child password login, safe and
 blocked text/image/video uploads, private media loading, Parent Review and
 controls, and camera/file permissions in the Android WebView.
 

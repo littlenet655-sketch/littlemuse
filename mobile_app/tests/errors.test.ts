@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { gateFor, parseErrorResponse, retryDelayMs, shouldRetryRequest, userMessageFor } from '../src/api/errors';
 
 describe('backend gate parsing', () => {
-  it('maps 428 face/quiz codes to gates', () => {
-    assert.equal(parseErrorResponse(428, { error: 'face_enrollment_required' }).gate, 'face');
+  it('maps 428 quiz codes to gates', () => {
     assert.equal(parseErrorResponse(428, { error: 'quiz_required' }).gate, 'quiz');
     assert.equal(parseErrorResponse(428, { error: 'onboarding_quiz_required' }).gate, 'quiz');
   });
@@ -21,7 +20,6 @@ describe('backend gate parsing', () => {
   });
 
   it('keeps an explicit payload gate field authoritative', () => {
-    assert.equal(gateFor(200, 'other', 'face'), 'face');
     assert.equal(gateFor(200, 'other', 'quiz'), 'quiz');
   });
 
@@ -33,26 +31,12 @@ describe('backend gate parsing', () => {
   });
 
   it('explains guardian verification retry reasons distinctly', () => {
-    assert.match(userMessageFor(422, 'single_face_required', {}), /one face/i);
-    assert.match(userMessageFor(422, 'liveness_failed', {}), /blink/i);
     assert.match(userMessageFor(422, 'age_estimate_ambiguous', {}), /confidently/i);
     assert.match(userMessageFor(503, 'age_verification_unavailable', {}), /temporarily/i);
   });
 
   it('decodes guardian reasons even when the live backend still returns the generic 403 code', () => {
-    assert.match(userMessageFor(403, 'adult_verification_failed', { reason: 'single_face_required' }), /one face/i);
-    assert.match(userMessageFor(403, 'adult_verification_failed', { reason: 'liveness_failed' }), /blink/i);
     assert.match(userMessageFor(403, 'adult_verification_failed', { reason: 'age_estimate_ambiguous' }), /confidently/i);
-  });
-
-  it('shows one uniform face-login failure message (anti-enumeration)', () => {
-    // The server intentionally returns the same message for every
-    // face-login failure so callers cannot probe enrollment state.
-    const spoof = userMessageFor(401, 'face_login_failed', { reason: 'spoof' });
-    const missing = userMessageFor(401, 'face_login_failed', { reason: 'not_enrolled' });
-    assert.match(spoof, /did not match/i);
-    assert.match(missing, /did not match/i);
-    assert.equal(spoof, missing);
   });
 
   it('retries only safe GET requests with backoff', () => {

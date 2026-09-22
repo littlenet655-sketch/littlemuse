@@ -1,7 +1,6 @@
 /**
  * Post/reel/story media selection for ordinary creation.
- * Uses normal Expo gallery + camera capture. CameraCapture stays reserved
- * for Agent B face/liveness security flows only.
+ * Uses normal Expo gallery + camera capture.
  */
 import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';

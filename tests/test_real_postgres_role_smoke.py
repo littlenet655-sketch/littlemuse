@@ -64,13 +64,12 @@ def _seed_role_fixture():
         (CHILD_ID, PARENT_ID, ADMIN_ID, OTHER_PARENT_ID, CHILD_ID, PARENT_ID, ADMIN_ID, OTHER_PARENT_ID),
     )
     _db_exec(
-        """INSERT INTO child_profiles(child_id,parent_id,full_name,age,face_enrollment_skipped)
-           VALUES(%s,%s,'CI Child',12,FALSE)
+        """INSERT INTO child_profiles(child_id,parent_id,full_name,age)
+           VALUES(%s,%s,'CI Child',12)
            ON CONFLICT(child_id) DO UPDATE SET
              parent_id=EXCLUDED.parent_id,
              full_name=EXCLUDED.full_name,
-             age=EXCLUDED.age,
-             face_enrollment_skipped=FALSE""",
+             age=EXCLUDED.age""",
         (CHILD_ID, PARENT_ID),
     )
     _db_exec(
@@ -78,17 +77,6 @@ def _seed_role_fixture():
            VALUES(%s,FALSE)
            ON CONFLICT(child_id) DO UPDATE SET quiz_required=FALSE""",
         (CHILD_ID,),
-    )
-    # Seed a schema-valid embedding. This fixture only proves
-    # authenticated role guards; real face/liveness behavior is covered separately.
-    embedding = json.dumps([0.05] * 512)
-    _db_exec(
-        """
-        INSERT INTO face_profiles(child_id,embedding,model_name)
-        VALUES(%s,%s::jsonb,'Facenet512')
-        ON CONFLICT(child_id) DO UPDATE SET embedding=EXCLUDED.embedding, model_name=EXCLUDED.model_name;
-        """,
-        (CHILD_ID, embedding),
     )
     _db_exec(
         """

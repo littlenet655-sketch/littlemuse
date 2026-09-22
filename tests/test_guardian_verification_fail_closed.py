@@ -39,8 +39,11 @@ def test_token_guardian_flow_records_email_otp_audit_row():
     service = (ROOT / "auth/service.py").read_text(encoding="utf-8")
     # The VERIFIED audit row (authoritative for the DB trigger and the admin
     # gate) is still written, with EMAIL_OTP as the provider.
-    assert "'EMAIL_OTP', 'VERIFIED', 'NOT_APPLICABLE', 'NOT_APPLICABLE'" in service
+    assert "'EMAIL_OTP', 'VERIFIED'," in service
     assert "verification_status='VERIFIED'" in service
+    # Face/liveness evidence columns are gone from the audit insert.
+    assert 'liveness_status' not in service
+    assert 'face_match_status' not in service
 
 
 def test_new_token_parent_is_created_pending_and_activated_only_after_otp():

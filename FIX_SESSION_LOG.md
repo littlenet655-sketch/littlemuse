@@ -27,7 +27,7 @@ I traced why registering a child account was failing in a fresh environment:
 bio) before allowing account creation. If that model isn't loaded, the
 fail-closed policy correctly BLOCKs  -  which is the right behavior for real
 content, but it means **basic parent onboarding is hard-dependent on the
-same multi-gigabyte install as YOLO/NudeNet/Whisper/DeepFace**, none of
+same multi-gigabyte install as YOLO/NudeNet/Whisper~~/DeepFace~~ (removed 2026-09-22)**, none of
 which have anything to do with checking a name field.
 
 Fix: split `requirements-ai.txt` into `requirements-text.txt` (torch +
@@ -47,7 +47,7 @@ below for what's still open.
 ## What I did NOT fix, and why (genuine external blockers, not evasion)
 
 **AI optimization, remainder**  -  I have not installed or run the actual
-NudeNet/YOLO/Whisper/DeepFace/Detoxify models against real samples in this
+NudeNet/YOLO/Whisper/Detoxify models (DeepFace path removed 2026-09-22) against real samples in this
 session. That requires several GB of downloads and, for reasonable
 inference speed, a GPU. Your own `BUILD_STATUS.md` already lists this as an
 external blocker ("Real execution/model warm-up... End-to-end tests using

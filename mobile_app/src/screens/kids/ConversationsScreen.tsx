@@ -12,10 +12,10 @@ import { ApiError } from '../../api/client';
 import { colors } from '../../ui/tokens';
 
 /**
- * Client-side window size. The backend conversations endpoint returns the
- * full list with no cursor/limit params, so the list is windowed locally:
- * only the first page renders, and more rows append as the user scrolls.
- * This keeps initial render cheap even with many conversations.
+ * Server-side page size. The backend conversations endpoint supports
+ * limit/offset paging (limit clamped to 1..50 server-side) and returns
+ * has_more. Pages are fetched on demand as the user scrolls; each page is
+ * appended and deduped. Search still filters locally over loaded pages.
  */
 const PAGE_SIZE = 20;
 
@@ -33,22 +33,23 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   const [items, setItems] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [query, setQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const myId = session?.user.user_id;
+  const q = query.trim().toLowerCase();
 
   async function load(mode: 'first' | 'refresh') {
     if (!session || !foreground) return;
     if (mode === 'first') setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await fetchConversations(session.token);
-      // Backend returns the full conversation list (no cursor params); dedupe
-      // defensively so repeats never render twice.
+      // First server page (offset 0); has_more drives onEndReached paging.
+      const res = await fetchConversations(session.token, { limit: PAGE_SIZE, offset: 0 });
       setItems(dedupeConversations(res.conversations ?? []));
-      setVisibleCount(PAGE_SIZE);
+      setHasMore(res.has_more === true);
       setError(null);
     } catch (err) {
       setError(err);
@@ -58,25 +59,43 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
     }
   }
 
+  /** Append the next server page. Offset paging keys off loaded rows; the
+      server orders deterministically (last_sent_at DESC, conversation_id
+      DESC) so pages are stable while idle. */
+  async function loadMore() {
+    if (!session || !foreground || loading || loadingMore || !hasMore || q) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetchConversations(session.token, { limit: PAGE_SIZE, offset: items.length });
+      // Dedupe defensively so repeats (or a new message shifting rows between
+      // pages) never render twice.
+      setItems((prev) => dedupeConversations([...prev, ...(res.conversations ?? [])]));
+      setHasMore(res.has_more === true);
+    } catch {
+      // Keep the loaded pages; the footer stays as a manual retry.
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   useEffect(() => {
     if (focused && foreground) void load(loading ? 'first' : 'refresh');
   }, [session?.token, focused, foreground]);
 
-  // Most-recent-first, like Instagram's inbox. The backend does not ORDER BY,
-  // so sorting happens here before windowing.
+  // Most-recent-first, like Instagram's inbox. The server pages in this
+  // order already; the local sort keeps it stable across appended pages.
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => sentAtMs(b) - sentAtMs(a));
   }, [items]);
 
-  const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     if (!q) return sorted;
     return sorted.filter((c) => (c.peer_name ?? '').toLowerCase().includes(q));
   }, [sorted, q]);
 
-  // Windowing only applies to the unfiltered list; search shows all matches.
-  const visible = q ? filtered : filtered.slice(0, visibleCount);
-  const hasMore = !q && visibleCount < filtered.length;
+  // Search scopes to already-loaded pages (no server search param); paging
+  // pauses while a query is active and resumes when it is cleared.
+  const showMore = !q && hasMore;
 
   if (loading) return <Screen><LoadingState message="Loading messages…" /></Screen>;
   if (error instanceof ApiError && error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Messages" /></Screen>;
@@ -85,14 +104,14 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   return (
     <Screen>
       <FlatList
-        data={visible}
+        data={filtered}
         keyExtractor={(c) => `c:${c.conversation_id}`}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load('refresh')} />}
         initialNumToRender={PAGE_SIZE}
         maxToRenderPerBatch={PAGE_SIZE}
         onEndReachedThreshold={0.5}
         onEndReached={() => {
-          if (hasMore) setVisibleCount((n) => n + PAGE_SIZE);
+          if (showMore && !loadingMore) void loadMore();
         }}
         ListHeaderComponent={(
           <>
@@ -119,9 +138,19 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
             body={q ? `No chats with "${query.trim()}".` : 'Make an approved friend to start chatting.'}
           />
         )}
-        ListFooterComponent={hasMore ? (
+        ListFooterComponent={showMore || loadingMore ? (
           <View style={styles.moreWrap}>
-            <ActivityIndicator size="small" color={colors.muted} />
+            {loadingMore ? (
+              <ActivityIndicator size="small" color={colors.muted} />
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void loadMore()}
+                style={styles.loadMoreBtn}
+              >
+                <Text style={styles.loadMoreText}>Load more conversations</Text>
+              </Pressable>
+            )}
           </View>
         ) : null}
         renderItem={({ item }) => {
@@ -223,5 +252,16 @@ const styles = StyleSheet.create({
   moreWrap: {
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  loadMoreBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#EFF6FF',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563EB',
   },
 });
