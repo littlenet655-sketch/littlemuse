@@ -15,6 +15,7 @@ import {
   fetchAdminUsers,
   fetchFollowRequests,
   fetchParentActivity,
+  fetchParentInsights,
   fetchParentControls,
   fetchParentDashboard,
   fetchParentNotifications,
@@ -166,6 +167,11 @@ describe('parent dashboard and controls contracts', () => {
     nextPayload = { ok: true, events: [] };
     await fetchParentActivity('parent-tok', 7);
     assert.equal(seen[2]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/activity/7');
+
+    nextPayload = { ok: true, range_days: 7, summary: { impressions: 4, reel_impressions: 3, watched_ms: 90000, completions: 2, replays: 1, avg_reel_watch_ms: 30000 }, categories: [{ category: 'STEM', views: 3, watched_ms: 60000 }], signals: [] };
+    const insights = await fetchParentInsights('parent-tok', 7);
+    assert.equal(seen[3]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/insights/7');
+    assert.equal(insights.summary.reel_impressions, 3);
   });
 
   it('propagates parent 403/404 with user-safe messages', async () => {
