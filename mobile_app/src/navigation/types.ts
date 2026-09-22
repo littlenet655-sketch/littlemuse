@@ -2,7 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 export type AuthStackParamList = {
   Welcome: undefined;
-  Login: undefined;
+  Login: { mode?: 'kids' | 'parent' | 'admin' } | undefined;
   ForgotPassword: undefined;
   ResetPassword: { userId: number; maskedEmail: string; message?: string };
   ParentRegister: undefined;
@@ -16,7 +16,7 @@ export type ChildStackParamList = {
   KidsTabs: { tab?: string } | undefined;
   FeedTab: undefined;
   DiscoverTab: undefined;
-  CreateTab: undefined;
+  CreateTab: { kind?: 'post' | 'reel' | 'story' } | undefined;
   ReelsTab: undefined;
   ProfileTab: undefined;
   Stories: undefined;
