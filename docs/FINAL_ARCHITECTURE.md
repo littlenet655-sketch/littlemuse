@@ -2,7 +2,7 @@
 
 ## Runtime boundaries
 
-LittleNet has one native client: React Native + Expo in `mobile_app/`. It calls the existing Flask backend through bearer-authenticated `/api/mobile/v1` and `/api/mobile/v2` routes. PostgreSQL stores identity, relationships, controls, quizzes, content state, activity, and audit records. Cloudflare R2 stores private media. Modal runs heavy face/image/video inference through the existing durable media job path.
+LittleNet has one native client: React Native + Expo in `mobile_app/`. It calls the existing Flask backend through bearer-authenticated `/api/mobile/v1` and `/api/mobile/v2` routes. PostgreSQL stores identity, relationships, controls, quizzes, content state, activity, and audit records. Cloudflare R2 stores private media. Modal runs heavy image/video inference through the existing durable media job path.
 
 No parent control or safety decision is trusted from the client. Flask remains authoritative for role access, parent ownership, onboarding gates, friendship approval, screen time, quiet hours, feature/category controls, moderation, and publication.
 
@@ -11,7 +11,7 @@ No parent control or safety decision is trusted from the client. Flask remains a
 ### Child
 
 1. A restored session is checked against the live user record.
-2. Face enrollment/login and quiz requirements gate entry.
+2. Parent-created child credentials authenticate the child; the compulsory onboarding/recurring quiz gates Kids Mode.
 3. Feed, reels, stories, discover, posting, and messaging re-check server controls.
 4. Social interaction requires an active, two-parent-approved relationship.
 5. The client can render a restriction, but it cannot grant access.
@@ -52,7 +52,7 @@ The client never promotes or publishes media. A review approval calls the backen
 
 - Expo receives only `EXPO_PUBLIC_API_BASE_URL`.
 - PostgreSQL, R2, mail, Modal, and signing credentials remain backend-only.
-- The mobile API never returns password hashes, bearer tokens from other sessions, face embeddings, storage credentials, or raw internal model prompts.
+- The mobile API never returns password hashes, bearer tokens from other sessions, storage credentials, or raw internal model prompts.
 - Tests that mutate PostgreSQL must use a verified disposable database.
 
 ## Performance boundaries
