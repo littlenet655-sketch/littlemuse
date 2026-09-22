@@ -138,7 +138,6 @@ jobs:
       - name: Audit core web/runtime dependencies
         run: pip-audit -r requirements-core.txt --progress-spinner off
       - name: Audit extended AI/text/safety dependencies
-        continue-on-error: true
         run: |
           pip-audit -r requirements-text.txt --progress-spinner off
           pip-audit -r requirements-safety.txt --progress-spinner off
