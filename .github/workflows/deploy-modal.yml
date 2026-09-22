@@ -87,7 +87,7 @@ jobs:
       - name: Warm and validate every locked-scope AI model
         if: ${{ inputs.warm_ai_models }}
         run: modal run modal_ai.py --confirm-gpu-warmup
-      - name: Run DB, AI, Presidio, liveness, mail, R2 and BASE_URL preflight
+      - name: Run DB, AI, Presidio, mail, R2 and BASE_URL preflight
         run: modal run modal_web.py --preflight
       - name: Validate public readiness and mobile API
         run: |
