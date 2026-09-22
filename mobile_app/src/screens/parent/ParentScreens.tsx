@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   approveFaceDeferral,
   enrollChildFaceByParent,
@@ -1203,10 +1204,31 @@ export function ParentSafetyScreen({ navigation }: ParentScreenProps<'ParentSafe
   );
 }
 
+function ReviewVideo({ uri, token }: { uri: string; token: string }) {
+  const player = useVideoPlayer(
+    { uri, headers: { Authorization: `Bearer ${token}` } },
+    (instance) => {
+      instance.loop = false;
+      instance.muted = true;
+    },
+  );
+  return <VideoView player={player} style={styles.reviewVideo} nativeControls contentFit="contain" />;
+}
+
 function ReviewMedia({ preview, token }: { preview?: ReviewPreview | null; token: string }) {
-  const imageUrl = (preview?.media_type ?? '').toUpperCase() === 'IMAGE' ? preview?.media_url : preview?.poster_url;
-  if (imageUrl) return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
-  if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
+  const mediaType = (preview?.media_type ?? '').toUpperCase();
+  if (mediaType === 'VIDEO' && preview?.media_url) {
+    return (
+      <View>
+        <ReviewVideo uri={preview.media_url} token={token} />
+        <Notice tone="info" message="Private quarantine preview. Playback stays inside Parent Review and starts muted." />
+      </View>
+    );
+  }
+  const imageUrl = mediaType === 'IMAGE' ? preview?.media_url : preview?.poster_url;
+  if (imageUrl) {
+    return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
+  }
   return null;
 }
 
@@ -1988,6 +2010,7 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
   }
 
   const rows = query.data?.events ?? [];
+  const insights = query.data?.insights;
 
   return (
     <Screen>
@@ -1997,14 +2020,34 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
         contentContainerStyle={styles.refreshScrollContent}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}
         ListHeaderComponent={
-          <SubScreenHero
-            kicker={child?.full_name ?? 'Child'}
-            title="Activity History"
-            subtitle="Chronological log of account, safety, and screen time events."
-            icon="activity"
-            iconColor="#7C3AED"
-            iconBg="#F5F3FF"
-          />
+          <>
+            <SubScreenHero
+              kicker={child?.full_name ?? 'Child'}
+              title="Activity & Viewing Insights"
+              subtitle="Chronological safety events plus the last 7 days of privacy-respecting content habits."
+              icon="activity"
+              iconColor="#7C3AED"
+              iconBg="#F5F3FF"
+            />
+            {insights ? (
+              <Card>
+                <Text style={styles.sectionTitle}>Last 7 days</Text>
+                <View style={styles.insightGrid}>
+                  <View style={styles.insightCell}><Text style={styles.insightValue}>{insights.views_7d}</Text><Text style={styles.insightLabel}>Views</Text></View>
+                  <View style={styles.insightCell}><Text style={styles.insightValue}>{insights.reels_watched_7d}</Text><Text style={styles.insightLabel}>Reels watched</Text></View>
+                  <View style={styles.insightCell}><Text style={styles.insightValue}>{insights.reel_watch_minutes_7d}</Text><Text style={styles.insightLabel}>Reel minutes</Text></View>
+                  <View style={styles.insightCell}><Text style={styles.insightValue}>{insights.replay_count_7d}</Text><Text style={styles.insightLabel}>Replays</Text></View>
+                </View>
+                <Text style={styles.insightHeading}>Top content categories</Text>
+                {insights.top_categories.length ? insights.top_categories.map((row) => (
+                  <View key={row.category} style={styles.insightCategoryRow}>
+                    <CategoryBadge label={row.category} />
+                    <Text style={styles.muted}>{row.views} views · {(row.watched_ms / 60000).toFixed(1)} min</Text>
+                  </View>
+                )) : <Text style={styles.muted}>Not enough viewing history yet.</Text>}
+              </Card>
+            ) : null}
+          </>
         }
         ListEmptyComponent={
           query.isPending ? (
@@ -2681,6 +2724,13 @@ const styles = StyleSheet.create({
   },
   safeText: { color: '#047857', fontWeight: '800', fontSize: 11 },
   reviewImage: { width: '100%', height: 280, borderRadius: 12, backgroundColor: colors.line, marginVertical: spacing.sm },
+  reviewVideo: { width: '100%', height: 280, borderRadius: 12, backgroundColor: '#000000', marginVertical: spacing.sm },
+  insightGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm },
+  insightCell: { width: '48%', backgroundColor: '#F8FAFC', borderRadius: 12, padding: 12 },
+  insightValue: { color: colors.ink, fontSize: 22, fontWeight: '900' },
+  insightLabel: { color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  insightHeading: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: spacing.md, marginBottom: 6 },
+  insightCategoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 5 },
   toggle: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', paddingVertical: spacing.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginHorizontal: spacing.md },
   chip: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: radius.pill, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: colors.surface },
