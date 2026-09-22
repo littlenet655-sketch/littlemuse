@@ -71,6 +71,31 @@ def _database_url():
     return Config.DATABASE_URL
 
 
+def _database_timezone() -> str:
+    """Return a validated IANA timezone for every PostgreSQL session.
+
+    Screen-time accounting uses CURRENT_DATE/NOW() in SQL while quiet hours use
+    APP_TIMEZONE in Python. Setting the DB session timezone centrally keeps both
+    policies on the same local day boundary instead of silently using the
+    provider's default (commonly UTC).
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    raw = (os.getenv("APP_TIMEZONE") or "Asia/Kolkata").strip() or "Asia/Kolkata"
+    try:
+        ZoneInfo(raw)
+    except (ZoneInfoNotFoundError, ValueError):
+        return "UTC"
+    return raw
+
+
+def _connect_kwargs() -> dict:
+    return {
+        "cursor_factory": __import__("psycopg2.extras", fromlist=["RealDictCursor"]).RealDictCursor,
+        "options": f"-c timezone={_database_timezone()}",
+    }
+
+
 def _get_pool():
     global _pool
     if _pool is None or _pool.closed:
@@ -84,7 +109,7 @@ def _get_pool():
                 started = time.monotonic()
                 minconn = max(1, int(os.getenv("DB_POOL_MIN_CONNECTIONS", "2")))
                 maxconn = max(minconn, int(os.getenv("DB_POOL_MAX_CONNECTIONS", "20")))
-                _pool = ThreadedConnectionPool(minconn, maxconn, _database_url(), cursor_factory=RealDictCursor)
+                _pool = ThreadedConnectionPool(minconn, maxconn, _database_url(), cursor_factory=RealDictCursor, options=f"-c timezone={_database_timezone()}")
                 _metric("pool_creations", time.monotonic() - started)
                 _metric("connection_creations", amount=minconn)
     return _pool
@@ -162,7 +187,7 @@ def get_db_connection():
         import psycopg2
         from psycopg2.extras import RealDictCursor
         started = time.monotonic()
-        conn = psycopg2.connect(_database_url(), cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(_database_url(), cursor_factory=RealDictCursor, options=f"-c timezone={_database_timezone()}")
         _metric("connection_creations", time.monotonic() - started)
         return conn
 
