@@ -38,7 +38,7 @@ function expiresInLabel(createdAt?: string): string | null {
 }
 
 /** Full-screen story viewer. Stories are already filtered by the server's public-safety rules. */
-export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+export function StoriesScreen({ navigation }: ChildScreenProps<'Stories'>) {
   const { session } = useAuth();
   const { height } = useWindowDimensions();
   const focused = useIsFocused();
@@ -194,7 +194,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
   if (error) return <Screen><ErrorState message="Could not load stories." onRetry={() => void load()} /></Screen>;
-  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab')} /></Screen>;
+  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab', { kind: 'story' })} /></Screen>;
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
@@ -264,7 +264,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 <Text style={styles.viewersText}>{viewers.length}</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={() => navigation.navigate('CreateTab')} style={styles.create}>
+            <Pressable onPress={() => navigation.navigate('CreateTab', { kind: 'story' })} style={styles.create}>
               <Text style={styles.createText}>＋ Story</Text>
             </Pressable>
             <Pressable
