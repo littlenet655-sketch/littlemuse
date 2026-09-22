@@ -663,7 +663,16 @@ def _process_media_job_impl(
             )
             try:
                 from services.push_notifications import notify_parent_safety_event, notify_child_content_status
-                pcm = fetch_one("SELECT p.parent_id, u.full_name FROM parent_child_map p JOIN users u ON u.user_id=p.child_id WHERE p.child_id=%s AND p.approved=TRUE", (child_id,))
+                pcm = fetch_one("""SELECT p.parent_id, u.full_name
+                                   FROM parent_child_map p
+                                   JOIN users u ON u.user_id=p.child_id
+                                   JOIN users guardian ON guardian.user_id=p.parent_id
+                                   WHERE p.child_id=%s
+                                     AND p.approved=TRUE
+                                     AND p.approval_status='APPROVED'
+                                     AND guardian.role='PARENT'
+                                     AND guardian.account_status='ACTIVE'
+                                   LIMIT 1""", (child_id,))
                 if pcm and pcm.get("parent_id"):
                     notify_parent_safety_event(int(pcm["parent_id"]), str(pcm.get("full_name") or "Child"), event_id, "REVIEW")
                 notify_child_content_status(child_id, post_id, "REVIEW", kind)
