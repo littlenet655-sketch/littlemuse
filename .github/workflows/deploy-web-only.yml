@@ -48,6 +48,8 @@ jobs:
           modal token info
       - name: Deploy web backend only
         run: modal deploy modal_web.py
+      - name: Run production dependency preflight
+        run: modal run modal_web.py --preflight
       - name: Verify public web and mobile health
         run: |
           set -euo pipefail
