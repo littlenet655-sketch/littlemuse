@@ -4,6 +4,7 @@ from decorators import child_required
 from database.connection import fetch_all,fetch_one,execute
 from services.social import can_interact,parent_notify,post_visible_to,notify
 from childMessage.service import conversation,messages
+from config import Config
 from extensions import limiter
 from safety.moderation_service import evaluate,record
 from safety.policy import Decision
@@ -104,6 +105,7 @@ def send_text(child_id):
     if not can_interact(session['user_id'],child_id):return jsonify(error='approved connection required'),403
     text=(request.form.get('message_text') or '').strip()
     if not text:return jsonify(error='empty message'),400
+    if len(text)>Config.MAX_USER_TEXT_CHARS:return jsonify(error='message too long'),400
     from safety.pii_service import scan_pii
     pii_res = scan_pii(text)
     if pii_res['detected'] and pii_res['policy_action'] == 'BLOCK':

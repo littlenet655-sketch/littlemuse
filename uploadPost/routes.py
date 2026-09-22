@@ -113,6 +113,7 @@ def api_reels():
 def upload_post(force_kind=None):
     if request.method=='GET' and force_kind is None:return render_template('upload_post.html')
     caption=(request.form.get('caption') or '').strip();category=request.form.get('content_category','Other');category=category if category in SAFE_CATEGORIES else 'Other';kind=force_kind or request.form.get('kind','post');is_reel=kind=='reel';is_story=kind=='story';audience=request.form.get('audience_age_group','ALL');audience=audience if audience in {'ALL','6-8','9-11','12-13','14-18'} else 'ALL';controls=controls_for_child(session['user_id']);file=request.files.get('media')
+    if len(caption)>Config.MAX_USER_TEXT_CHARS:return jsonify(error='caption too long'),400
     if is_reel and not controls.get('allow_reels',True):return jsonify(error='Reels are disabled by Parent Mode'),403
     if is_story and not controls.get('allow_stories',True):return jsonify(error='Stories are disabled by Parent Mode'),403
     if not controls.get('allow_posting',True):return jsonify(error='Posting is disabled by Parent Mode'),403
@@ -164,6 +165,7 @@ def comment(post_id):
     if not p:return jsonify(error='not found'),404
     if p['child_id']!=session['user_id'] and not can_interact(session['user_id'],p['child_id']):return jsonify(error='approved connection required'),403
     if not text:return jsonify(error='empty comment'),400
+    if len(text)>Config.MAX_USER_TEXT_CHARS:return jsonify(error='comment too long'),400
     from safety.pii_service import scan_pii
     pii_res = scan_pii(text)
     if pii_res['detected'] and pii_res['policy_action'] == 'BLOCK':
@@ -259,6 +261,7 @@ def api_random_posts():return jsonify(visible_posts(session['user_id'],False,6,0
 def upload_story_alias():
     files=[f for f in request.files.getlist('media') if f and f.filename]
     caption=(request.form.get('caption') or '').strip();category=request.form.get('content_category','Other');category=category if category in SAFE_CATEGORIES else 'Other';audience=request.form.get('audience_age_group','ALL');audience=audience if audience in {'ALL','6-8','9-11','12-13','14-18'} else 'ALL';controls=controls_for_child(session['user_id'])
+    if len(caption)>Config.MAX_USER_TEXT_CHARS:return jsonify(error='caption too long'),400
     if not controls.get('allow_posting',True) or not controls.get('allow_stories',True):return jsonify(error='Stories are disabled by Parent Mode'),403
     if category not in effective_categories(session['user_id']):return jsonify(error='This content category is disabled by Parent Mode'),403
     music=request.files.get('music_file')
@@ -293,6 +296,7 @@ def delete_story(post_id):
 @child_required
 def edit_story_caption(post_id):
     data=request.get_json(silent=True) or {};caption=(data.get('caption') or '').strip()
+    if len(caption)>Config.MAX_USER_TEXT_CHARS:return jsonify(ok=False,error='caption too long'),400
     from safety.pii_service import scan_pii
     pii=scan_pii(caption)
     if pii.get('detected') and pii.get('policy_action')=='BLOCK':return jsonify(ok=False,status='BLOCK',reason='CONTACT_SHARING_BLOCKED'),400

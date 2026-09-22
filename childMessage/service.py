@@ -27,7 +27,12 @@ def messages(cid, viewer, limit=None, before_id=None, after_id=None):
     peer = conv['child2_id'] if conv['child1_id'] == viewer else conv['child1_id']
     if not can_interact(viewer, peer):
         return []
-    safe_limit = int(limit) if limit is not None else 2147483647
+    # Bound the page size like conversations_page does: an unbounded LIMIT
+    # lets one caller force a full-history DB read (audit T1-005).
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 100
     rows = fetch_all(
         """SELECT m.*, u.full_name
            FROM child_messages m

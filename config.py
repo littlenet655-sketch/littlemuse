@@ -33,6 +33,9 @@ class Config:
     DATABASE_URL = _DATABASE_ENV or "postgresql://postgres:littlenet@localhost:5432/safeconnect_db"
 
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024
+    # Server-side cap for user-supplied text (chat messages, comments, captions).
+    # Bounds the regex/PII/AI scan cost per request (audit T1-003).
+    MAX_USER_TEXT_CHARS = 5000
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1" if _PRODUCTION else "0") == "1"

@@ -1136,6 +1136,8 @@ def register_mobile_api(bp):
         text = str(data.get("message_text") or "").strip()
         if not text:
             return jsonify(error="empty_message"), 400
+        if len(text) > Config.MAX_USER_TEXT_CHARS:
+            return jsonify(error="message_too_long"), 400
         if not can_interact(uid, peer_id):
             return jsonify(error="approved_connection_required"), 403
         pii = scan_pii(text)
@@ -1403,6 +1405,8 @@ def register_mobile_api(bp):
         text = str((_json_dict()).get("text") or "").strip()
         if not text:
             return jsonify(error="empty_comment"), 400
+        if len(text) > Config.MAX_USER_TEXT_CHARS:
+            return jsonify(error="comment_too_long"), 400
         pii = scan_pii(text)
         if pii.get("detected") and pii.get("policy_action") == "BLOCK":
             parent_notify(uid, "COMMENT_BLOCKED", "Attempted contact/PII sharing in comment", "/parent/safety/")
