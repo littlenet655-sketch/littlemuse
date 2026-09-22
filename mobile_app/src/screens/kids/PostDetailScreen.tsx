@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addComment, blockUser, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { addComment, blockUser, deleteOwnPost, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
@@ -128,6 +128,31 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
+  function confirmDeletePost() {
+    if (!session || !post || Number(post.child_id) !== Number(session.user.user_id)) return;
+    Alert.alert(
+      post.is_reel ? 'Delete this reel?' : 'Delete this post?',
+      'It will disappear from LittleNet and its private media will be scheduled for secure deletion.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            void deleteOwnPost(session.token, postId)
+              .then(async () => {
+                await invalidateSocialCaches([postId]);
+                nav.goBack();
+              })
+              .catch((err: unknown) => setError(err))
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
+  }
+
   async function openShare() {
     if (!session) return;
     setShareError('');
@@ -161,7 +186,11 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
             }} />
             <Button label="Share" variant="secondary" onPress={() => void openShare()} />
           </View>
-          <Button label="Safety actions" variant="secondary" onPress={() => { setSafetyOpen((value) => !value); setSafetyError(''); }} />
+          {Number(post.child_id) === Number(session?.user.user_id) ? (
+            <Button label={busy ? 'Deleting…' : 'Delete'} variant="secondary" disabled={busy} onPress={confirmDeletePost} />
+          ) : (
+            <Button label="Safety actions" variant="secondary" onPress={() => { setSafetyOpen((value) => !value); setSafetyError(''); }} />
+          )}
         </Card>
         {safetyOpen ? <Card>
           <Text style={styles.safetyTitle}>What would you like to do?</Text>
