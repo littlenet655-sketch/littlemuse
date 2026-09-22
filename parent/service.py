@@ -31,6 +31,108 @@ def owns(parent_id, child_id):
     ''', (parent_id, child_id, parent_id, parent_id)))
 
 
+
+def viewing_insights(parent_id, child_id, days=7):
+    """Privacy-preserving aggregate viewing insights for Parent Mode.
+
+    Returns high-level usage/category totals only. It never exposes watched
+    captions, chat text, search text, or individual content identifiers.
+    """
+    if not owns(parent_id, child_id):
+        return None
+    try:
+        window_days = max(1, min(int(days), 30))
+    except (TypeError, ValueError):
+        window_days = 7
+
+    rows = fetch_all(
+        """
+        SELECT surface,
+               COUNT(*) AS views,
+               COALESCE(SUM(watched_ms), 0) AS watched_ms,
+               COUNT(*) FILTER (WHERE completed=TRUE) AS completed,
+               COALESCE(SUM(replay_count), 0) AS replays,
+               COUNT(*) FILTER (WHERE liked=TRUE) AS liked,
+               COUNT(*) FILTER (WHERE saved=TRUE) AS saved
+        FROM content_impressions
+        WHERE child_id=%s
+          AND shown_at >= NOW() - (%s * INTERVAL '1 day')
+        GROUP BY surface
+        """,
+        (child_id, window_days),
+    ) or []
+
+    by_surface = {
+        "FEED": {"views": 0, "watched_ms": 0, "completed": 0, "replays": 0, "liked": 0, "saved": 0},
+        "REELS": {"views": 0, "watched_ms": 0, "completed": 0, "replays": 0, "liked": 0, "saved": 0},
+    }
+    for row in rows:
+        surface = str(row.get("surface") or "").upper()
+        if surface not in by_surface:
+            continue
+        views = int(row.get("views") or 0)
+        watched_ms = int(row.get("watched_ms") or 0)
+        completed = int(row.get("completed") or 0)
+        by_surface[surface] = {
+            "views": views,
+            "watched_ms": watched_ms,
+            "watched_minutes": round(watched_ms / 60000.0, 1),
+            "completed": completed,
+            "completion_rate": round((completed * 100.0 / views), 1) if views else 0.0,
+            "replays": int(row.get("replays") or 0),
+            "liked": int(row.get("liked") or 0),
+            "saved": int(row.get("saved") or 0),
+        }
+
+    categories = fetch_all(
+        """
+        SELECT category,
+               COUNT(*) AS views,
+               COALESCE(SUM(watched_ms), 0) AS watched_ms
+        FROM (
+            SELECT
+                CASE
+                    WHEN ci.source_type='CURATED' THEN COALESCE(cat.display_name, 'Other')
+                    ELSE COALESCE(NULLIF(p.content_category, ''), 'Other')
+                END AS category,
+                ci.watched_ms
+            FROM content_impressions ci
+            LEFT JOIN posts p
+              ON ci.source_type='SOCIAL' AND p.post_id=ci.source_id
+            LEFT JOIN curated_content cc
+              ON ci.source_type='CURATED' AND cc.content_id=ci.source_id
+            LEFT JOIN content_categories cat
+              ON cc.category_id=cat.category_id
+            WHERE ci.child_id=%s
+              AND ci.shown_at >= NOW() - (%s * INTERVAL '1 day')
+        ) q
+        GROUP BY category
+        ORDER BY COALESCE(SUM(watched_ms), 0) DESC, COUNT(*) DESC, category ASC
+        LIMIT 5
+        """,
+        (child_id, window_days),
+    ) or []
+
+    top_categories = [
+        {
+            "category": str(row.get("category") or "Other"),
+            "views": int(row.get("views") or 0),
+            "watched_minutes": round(int(row.get("watched_ms") or 0) / 60000.0, 1),
+        }
+        for row in categories
+    ]
+    total_views = sum(int(v.get("views") or 0) for v in by_surface.values())
+    total_watched_ms = sum(int(v.get("watched_ms") or 0) for v in by_surface.values())
+    return {
+        "days": window_days,
+        "total_views": total_views,
+        "watched_minutes": round(total_watched_ms / 60000.0, 1),
+        "feed": by_surface["FEED"],
+        "reels": by_surface["REELS"],
+        "top_categories": top_categories,
+    }
+
+
 def pending_follows(parent_id):
     """Return actionable/waiting two-parent friendship stages for this active parent."""
     return fetch_all('''
