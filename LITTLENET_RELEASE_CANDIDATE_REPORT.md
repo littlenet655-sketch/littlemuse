@@ -25,7 +25,7 @@ The merged baseline has passed:
 - dynamic SQL audit
 - Python dependency/application security checks
 - Gitleaks secret scan
-- MediaPipe liveness asset integrity
+- child face enrollment/challenge contract coverage
 - Android APK compilation and package verification
 - submission ZIP packaging
 
@@ -68,7 +68,7 @@ The final submission branch corrected reproduced issues including:
 3. contextual chat review not being recorded as the final decision
 4. contextual safety being skipped when the optional provider was unavailable
 5. old conversations being reusable after relationship revocation
-6. guardian verification accepting insufficient liveness evidence
+6. guardian verification bypassing email OTP or Parent device authentication
 7. 17.x age estimates being rounded into adult eligibility
 8. short usage sessions losing time through per-session minute rounding
 9. stale/missing server usage sessions weakening screen-time checks
@@ -106,16 +106,16 @@ Current server-side behavior includes:
 
 Elapsed usage is accumulated in seconds before display-minute conversion so repeated short sessions do not disappear.
 
-## 7. Face/liveness verification
+## 7. Child face and Parent device-auth verification
 
 Current guardian/face hardening requires:
 
 - one face, not zero/multiple
-- explicit positive liveness evidence
-- fail-closed behavior when liveness is missing
+- fail-closed child face enrollment/challenge evidence
+- fail-closed Parent Mode system-auth gate
 - unrounded age-boundary evaluation
 
-CI also verifies pinned MediaPipe liveness assets by integrity hash.
+CI verifies the current child face contract and Android ParentDeviceAuth integration.
 
 ## 8. Current live-deployment blocker
 
@@ -159,7 +159,7 @@ Recommended deterministic sequence:
 - demonstrate parent controls, screen time and quiet hours
 - show approved messaging
 - show relationship revocation preventing further chat use
-- show Face Login/liveness
+- show child Face Login and Parent Mode device authentication
 - show Admin/Moderator audit/moderation view
 - run/install the current CI-built Android APK
 
