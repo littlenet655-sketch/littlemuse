@@ -59,9 +59,10 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
   );
 }
 
-export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+export function CreateScreen({ navigation, route }: ChildScreenProps<'CreateTab'>) {
   const { session } = useAuth();
-  const [kind, setKind] = useState<Kind>('post');
+  const requestedKind = route.params?.kind;
+  const [kind, setKind] = useState<Kind>(requestedKind ?? 'post');
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
@@ -75,6 +76,18 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<UploadSession | null>(null);
+
+  // Navigation can open the composer directly in Story/Reel/Post mode.
+  // Only reset when the requested route mode itself changes, so a child can
+  // still switch chips manually while the screen is open.
+  useEffect(() => {
+    if (!requestedKind) return;
+    setKind(requestedKind);
+    setMedia(null);
+    setStatus('');
+    setError(null);
+    resetPipelineState();
+  }, [requestedKind]);
 
   // Never leave a native upload running after the screen goes away.
   useEffect(() => () => {
