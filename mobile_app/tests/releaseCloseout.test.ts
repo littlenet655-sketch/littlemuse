@@ -12,7 +12,7 @@ describe('final release close-out contracts', () => {
     const s = source('src/screens/WelcomeLogin.tsx');
     assert.ok(s.includes("label: 'Kids Mode'"));
     assert.ok(s.includes("label: 'Parent Mode'"));
-    assert.ok(s.includes("label: 'Admin'"));
+    assert.ok(s.includes("label: 'Safety Moderator'"));
     assert.ok(s.includes("navigation.navigate('Login', { mode: item.value })"));
   });
 
