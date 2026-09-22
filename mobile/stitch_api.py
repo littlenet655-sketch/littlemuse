@@ -81,24 +81,10 @@ def _validate_report_target(viewer_id: int, target_type: str, target_id: int):
 
 
 def register_mobile_stitch_api(bp):
-    @bp.route('/api/mobile/v1/kids/posts/<int:post_id>')
-    @_require_mobile('CHILD')
-    def mobile_kids_post_detail(post_id):
-        blocked = _gate()
-        if blocked:
-            return blocked
-        uid = int(g.mobile_user['user_id'])
-        post = post_visible_to(uid, post_id)
-        if not post:
-            return jsonify(error='post_not_found'), 404
-        creator = fetch_one(
-            """SELECT u.full_name,u.username,cp.profile_picture
-               FROM users u LEFT JOIN child_profiles cp ON cp.child_id=u.user_id
-               WHERE u.user_id=%s""",
-            (post['child_id'],),
-        ) or {}
-        post.update(creator)
-        return jsonify(ok=True, post=_post_json(post, uid), comments=_clean(_comment_rows(uid, post_id)))
+    # Post detail is defined by mobile.api.register_mobile_api().  Keep this
+    # stitch module limited to endpoints that are otherwise absent from the
+    # canonical mobile API so registering it cannot create duplicate Flask
+    # URL rules.
 
     @bp.route('/api/mobile/v1/kids/friends')
     @_require_mobile('CHILD')
