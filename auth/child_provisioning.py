@@ -41,8 +41,8 @@ def create_child_for_verified_parent(parent_id, form):
         age = int(form.get('age'))
     except (TypeError, ValueError):
         raise ValueError('Enter the child age.')
-    if not 4 <= age <= 18:
-        raise ValueError('Child age must be between 4 and 18.')
+    if not 6 <= age <= 16:
+        raise ValueError('Child age must be between 6 and 16.')
 
     password = form.get('password') or ''
     if len(password) < 8:
