@@ -292,7 +292,8 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
 export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
   const { signIn } = useAuth();
   const { pendingToken, devCode } = route.params;
-  const [otp, setOtp] = useState(devCode || '');
+  const [otp, setOtp] = useState((devCode || '').replace(/\D/g, '').slice(0, 6));
+  const otpInputRef = useRef<TextInput>(null);
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
@@ -460,26 +461,53 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
 
             <View style={styles.otpFieldWrap}>
               <Text style={styles.otpLabel}>6-DIGIT VERIFICATION CODE</Text>
-              <TextInput
-                value={otp}
-                onChangeText={setOtp}
-                keyboardType="number-pad"
-                maxLength={6}
-                placeholder="000000"
-                placeholderTextColor="#9CA3AF"
-                autoFocus
-                selectTextOnFocus
-                selectionColor={colors.brand}
-                textContentType="oneTimeCode"
-                autoComplete="sms-otp"
-                returnKeyType="done"
-                onSubmitEditing={submit}
-                accessibilityLabel="6-digit verification code"
-                onFocus={() => {
-                  setTimeout(() => scrollRef.current?.scrollTo({ y: 60, animated: true }), 100);
-                }}
-                style={styles.otpInput}
-              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Enter 6-digit verification code"
+                onPress={() => otpInputRef.current?.focus()}
+                style={styles.otpCells}
+              >
+                {Array.from({ length: 6 }, (_, index) => {
+                  const digit = otp[index] ?? '';
+                  const active = otp.length < 6 && index === otp.length;
+                  return (
+                    <View
+                      key={index}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      style={[
+                        styles.otpCell,
+                        active && styles.otpCellActive,
+                        digit ? styles.otpCellFilled : null,
+                      ]}
+                    >
+                      {digit ? (
+                        <Text style={styles.otpDigit}>{digit}</Text>
+                      ) : active ? (
+                        <View style={styles.otpCursor} />
+                      ) : null}
+                    </View>
+                  );
+                })}
+                <TextInput
+                  ref={otpInputRef}
+                  value={otp}
+                  onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  autoFocus
+                  selectionColor="transparent"
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  returnKeyType="done"
+                  onSubmitEditing={submit}
+                  accessibilityLabel="6-digit verification code"
+                  onFocus={() => {
+                    setTimeout(() => scrollRef.current?.scrollTo({ y: 60, animated: true }), 100);
+                  }}
+                  style={styles.otpHiddenInput}
+                />
+              </Pressable>
               <Text style={styles.otpHelperText}>The code expires in 10 minutes and is single-use.</Text>
             </View>
 
@@ -600,20 +628,55 @@ const styles = StyleSheet.create({
   signupLinkText: { fontSize: 13, fontWeight: '700', color: colors.brand },
   otpFieldWrap: { marginTop: spacing.sm },
   otpLabel: { fontSize: 11, fontWeight: '800', color: colors.muted, letterSpacing: 0.8, textAlign: 'center', marginBottom: 6 },
-  otpInput: {
-    letterSpacing: 10,
-    // RN adds letterSpacing after the last glyph too, which would push the
-    // visible digits left of true center. Equal left padding re-centers them.
-    paddingLeft: 10,
-    fontSize: 26,
-    fontWeight: '800',
-    textAlign: 'center',
-    paddingVertical: 14,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#BFDBFE',
-    borderWidth: 1.5,
+  otpCells: {
+    position: 'relative',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  otpCell: {
+    width: 44,
+    height: 54,
     borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpCellActive: {
+    borderColor: colors.brand,
+    borderWidth: 2,
+    shadowColor: colors.brand,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  otpCellFilled: {
+    borderColor: '#93C5FD',
+    backgroundColor: '#F8FBFF',
+  },
+  otpDigit: {
     color: colors.ink,
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  otpCursor: {
+    width: 2,
+    height: 24,
+    borderRadius: 1,
+    backgroundColor: colors.brand,
+  },
+  otpHiddenInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0.01,
+    left: '50%',
+    bottom: 0,
   },
   otpHelperText: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 6 },
 });
