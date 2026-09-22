@@ -198,3 +198,36 @@ def notify_new_chat_message(recipient_id: int, sender_name: str, conversation_id
         message=f"{sender_name} sent you a message.",
         payload={"conversationId": conversation_id},
     )
+
+
+def notify_new_like(recipient_id: int, liker_name: str, post_id: int) -> bool:
+    """Notify a child that an approved connection liked their post."""
+    return notify_user_event(
+        recipient_id,
+        event_type="NEW_LIKE",
+        title=f"New like from {liker_name}",
+        message=f"{liker_name} liked your post.",
+        payload={"postId": post_id},
+    )
+
+
+def notify_new_comment(recipient_id: int, commenter_name: str, post_id: int) -> bool:
+    """Notify a child that an approved connection commented on their post."""
+    return notify_user_event(
+        recipient_id,
+        event_type="NEW_COMMENT",
+        title=f"New comment from {commenter_name}",
+        message=f"{commenter_name} commented on your post.",
+        payload={"postId": post_id},
+    )
+
+
+def notify_friend_added(recipient_id: int, friend_name: str) -> bool:
+    """Notify a child that their parent approved a new friendship."""
+    return notify_user_event(
+        recipient_id,
+        event_type="FRIEND_ADDED",
+        title="New friend!",
+        message=f"{friend_name} is now your friend.",
+        payload={},
+    )

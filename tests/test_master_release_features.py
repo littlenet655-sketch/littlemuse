@@ -28,11 +28,11 @@ def test_curated_music_endpoint(client):
 
 def test_face_challenge_and_replay_protection(client):
     # Ensure a test parent/user exists in DB
-    user = fetch_one("SELECT user_id, username, email FROM users WHERE role='PARENT' LIMIT 1")
+    user = fetch_one("SELECT user_id, username, email FROM users WHERE role='CHILD' LIMIT 1")
     if not user:
         user = execute(
             """INSERT INTO users(username, full_name, email, password_hash, role, account_status)
-               VALUES('master_test_parent', 'Master Parent', 'master_parent@littlenet.test', 'fakehash', 'PARENT', 'ACTIVE')
+               VALUES('master_test_child', 'Master Child', 'master_child@littlenet.test', 'fakehash', 'CHILD', 'ACTIVE')
                RETURNING user_id, username, email""",
             returning=True,
         )
@@ -42,7 +42,7 @@ def test_face_challenge_and_replay_protection(client):
     # 1. Issue challenge
     res = client.post(
         "/api/mobile/v1/auth/face/challenge",
-        json={"identifier": identifier, "mode": "parent"},
+        json={"identifier": identifier, "mode": "child"},
     )
     assert res.status_code == 200
     data = res.get_json()
@@ -104,13 +104,13 @@ def test_face_challenge_and_replay_protection(client):
 
 
 def test_face_challenge_rejects_invalid_nonce(client):
-    user = fetch_one("SELECT user_id, username FROM users WHERE role='PARENT' LIMIT 1")
+    user = fetch_one("SELECT user_id, username FROM users WHERE role='CHILD' LIMIT 1")
     if not user:
         return
 
     res = client.post(
         "/api/mobile/v1/auth/face/challenge",
-        json={"identifier": user["username"], "mode": "parent"},
+        json={"identifier": user["username"], "mode": "child"},
     )
     data = res.get_json()
     challenge_id = data["challenge_id"]

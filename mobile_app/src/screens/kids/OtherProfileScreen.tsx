@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
 import { fetchOtherProfile } from '../../api/kidsProfiles';
-import { blockUser, muteUser, submitReport, toggleFollow, type PostDetail } from '../../api/kidsSocial';
+import { blockUser, fetchConnectionRequests, muteUser, submitReport, toggleFollow, type PostDetail } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { canMessageRelationship } from '../../kids/social';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -31,6 +31,9 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   const [posts, setPosts] = useState<PostDetail[]>([]);
   const [counts, setCounts] = useState<Record<string, unknown>>({});
   const [rel, setRel] = useState({ connected: false, pending: false, can_message: false });
+  // They sent us a follow request that is still awaiting approval (server
+  // state). Drives the Instagram-style "Follow Back" button state.
+  const [incomingRequest, setIncomingRequest] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState('');
@@ -50,6 +53,9 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
 
   async function load() {
     if (!session || !targetId) return;
+    // Reset per-profile state first so a stale "Follow Back" from the
+    // previously viewed profile never flashes while the refetch lands.
+    setIncomingRequest(false);
     try {
       const res = await fetchOtherProfile(session.token, targetId);
       setProfile(res.profile);
@@ -59,6 +65,14 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
       setError(null);
     } catch (err) {
       setError(err);
+    }
+    // Best-effort incoming-request check for the "Follow Back" state. A
+    // failure here must never break the profile screen.
+    try {
+      const reqs = await fetchConnectionRequests(session.token);
+      setIncomingRequest((reqs.incoming ?? []).some((r) => r.requester_id === targetId));
+    } catch {
+      setIncomingRequest(false);
     }
   }
 
@@ -118,6 +132,50 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
     } finally {
       setBusy(false);
     }
+  }
+
+  // Instagram-style follow states: Follow / Requested / Following / Follow Back.
+  // "Follow Back" shows when they sent us a request but we have not connected
+  // yet. Every follow still needs parent approval server-side.
+  const followState: 'following' | 'requested' | 'followBack' | 'none' =
+    rel.connected ? 'following' : rel.pending ? 'requested' : incomingRequest ? 'followBack' : 'none';
+  const followLabel =
+    followState === 'following' ? 'Following'
+    : followState === 'requested' ? 'Requested'
+    : followState === 'followBack' ? 'Follow Back'
+    : 'Follow';
+  const followIsPrimary = followState === 'none' || followState === 'followBack';
+  const displayName = String(profile?.full_name ?? 'this account');
+
+  async function onFollowPress() {
+    if (!session || busy) return;
+    const doToggle = async (done: string) => {
+      setBusy(true);
+      setInfo('');
+      try {
+        await toggleFollow(session.token, targetId);
+        await invalidateSocialCaches();
+        setInfo(done);
+        await load();
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+    };
+    if (followState === 'following') {
+      // Instagram confirms before unfollowing; avoids accidental taps.
+      Alert.alert('Unfollow', `Unfollow ${displayName}?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Unfollow', style: 'destructive', onPress: () => void doToggle('Unfollowed.') },
+      ]);
+      return;
+    }
+    if (followState === 'requested') {
+      await doToggle('Follow request cancelled.');
+      return;
+    }
+    await doToggle('Request sent! A parent needs to approve it.');
   }
 
   if (blocked) {
@@ -200,7 +258,13 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
             <Text style={styles.bio}>{profile.bio}</Text>
           ) : null}
           <Text style={styles.rel}>
-            {rel.connected ? 'Friends' : rel.pending ? 'Friend request sent — needs parent approval' : 'Not connected yet'}
+            {rel.connected
+              ? 'Friends'
+              : rel.pending
+                ? 'Friend request sent — needs parent approval'
+                : incomingRequest
+                  ? 'They sent you a friend request — follow back to connect'
+                  : 'Not connected yet'}
           </Text>
         </View>
 
@@ -221,26 +285,23 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           </ScrollView>
         ) : null}
 
-        {/* Action buttons: primary brand-blue + grey secondary */}
+        {/* Action buttons: Instagram order — follow action primary, message secondary */}
         <View style={styles.actionsRow}>
           <Pressable
-            style={[styles.primaryBtn, !canMessageRelationship(rel) && styles.btnDisabled]}
+            style={[followIsPrimary ? styles.primaryBtn : styles.greyBtn, busy && styles.btnDisabled]}
+            disabled={busy}
+            onPress={() => void onFollowPress()}
+          >
+            <Text style={followIsPrimary ? styles.primaryBtnText : styles.greyBtnText}>
+              {busy ? 'Working…' : followLabel}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.greyBtn, !canMessageRelationship(rel) && styles.btnDisabled]}
             disabled={!canMessageRelationship(rel)}
             onPress={() => nav.navigate('Chat', { peerId: targetId })}
           >
-            <Text style={styles.primaryBtnText}>Message</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.greyBtn, busy && styles.btnDisabled]}
-            disabled={busy}
-            onPress={() => void act(
-              (t) => toggleFollow(t, targetId),
-              rel.connected || rel.pending ? 'Removed.' : 'Request sent! A parent needs to approve it.',
-            )}
-          >
-            <Text style={styles.greyBtnText}>
-              {rel.connected ? 'Friends' : rel.pending ? 'Requested' : 'Add Friend'}
-            </Text>
+            <Text style={styles.greyBtnText}>Message</Text>
           </Pressable>
         </View>
         {!canMessageRelationship(rel) ? (

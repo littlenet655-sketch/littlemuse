@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
@@ -200,9 +200,24 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const previous = () => setIndex((value) => Math.max(0, value - 1));
   const expiryLabel = isOwnStory ? expiresInLabel(current.created_at) : null;
 
+  // Instagram parity: swipe down anywhere on the viewer to close it. Only a
+  // deliberate downward swipe claims the gesture — plain taps still reach the
+  // tap zones below.
+  const swipeDown = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dy > 24 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 90) navigation.goBack();
+      },
+    }),
+  ).current;
+
   return (
     <Screen>
-      <View style={[styles.viewer, { height }]}>
+      {/* Swipe-down-to-close is disabled while the viewer-list sheet is open:
+          pulling down at the top of that list must not dismiss the screen. */}
+      <View style={[styles.viewer, { height }]} {...(viewersOpen ? {} : swipeDown.panHandlers)}>
         <View style={styles.top}>
           <View style={styles.progressRow}>
             {stories.map((story, storyIndex) => (
@@ -251,6 +266,15 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             ) : null}
             <Pressable onPress={() => navigation.navigate('CreateTab')} style={styles.create}>
               <Text style={styles.createText}>＋ Story</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={styles.close}
+              accessibilityRole="button"
+              accessibilityLabel="Close stories"
+              hitSlop={8}
+            >
+              <Feather name="x" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
         </View>
@@ -355,6 +379,7 @@ const styles = StyleSheet.create({
   viewersText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   create: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   createText: { color: colors.surface, fontWeight: '800', fontSize: 13 },
+  close: { padding: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
   media: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   image: { width: '100%', height: '100%' },
   missing: { color: colors.surface, fontWeight: '700' },

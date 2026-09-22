@@ -29,7 +29,7 @@ image = (
         "numpy==1.26.4",
         "torch>=2.2,<2.8",
         "torchvision>=0.17,<0.23",
-        "transformers>=4.45,<5",
+        "transformers>=5.0",  # v5 verified end-to-end with littlenet_text_safety
         "detoxify==0.5.2",
         "nudenet>=3.4,<4",
         "deepface>=0.0.93,<0.1",
@@ -45,6 +45,11 @@ image = (
         "requests==2.33.0",
         "psycopg2-binary==2.9.10",
         "boto3==1.40.17",
+        # Explicit: safety/policy_config.py does a top-level `import yaml`
+        # on the image/video moderation path (via safety/policy.py and
+        # safety/yolo_policy.py). It is only satisfied transitively today
+        # (transformers/ultralytics); pin it like requirements-core.txt.
+        "PyYAML==6.0.3",
     )
     .workdir("/root/littlenet")
     .env(
@@ -55,6 +60,11 @@ image = (
             "LITTLENET_ENABLE_TRAINED_IMAGE_ENSEMBLE": "1",
             "LITTLENET_TRAINED_IMAGE_V2_PATH": "/cache/models/littlenet_core_safety_v2.pth",
             "LITTLENET_TRAINED_IMAGE_V3_PATH": "/cache/models/littlenet_weapons_violence_v3.pth",
+            # Text model resolves the same way as the image ensemble: the volume
+            # path is authoritative. tools/sync_modal_volume.py stages the
+            # 541MB littlenet_text_safety/ directory into littlenet-model-cache.
+            "LITTLENET_TRAINED_TEXT_PATH": "/cache/models/littlenet_text_safety",
+            "LITTLENET_ENABLE_TRAINED_TEXT": "1",
             "HF_HOME": "/cache/huggingface",
             "HF_HUB_CACHE": "/cache/huggingface/hub",
             "TORCH_HOME": "/cache/torch",
@@ -276,6 +286,69 @@ def trained_image_preflight():
     return report
 
 
+#: Exact byte size of the verified models/littlenet_text_safety/model.safetensors
+#: artifact. A pointer-sized stub (Git LFS pointers are ~130 bytes) must fail
+#: the deploy preflight, not warn.
+TRAINED_TEXT_SAFETENSORS_BYTES = 541_351_212
+
+
+@app.function(
+    image=image,
+    cpu=2.0,
+    memory=8192,
+    volumes={"/cache": model_cache},
+    timeout=900,
+    min_containers=0,
+    max_containers=1,
+)
+def trained_text_preflight():
+    """CPU-only verification that the private text classifier is staged and loadable.
+
+    Mirrors trained_image_preflight: the 13-label DistilBERT classifier must
+    resolve from the littlenet-model-cache volume, carry the expected artifact
+    bytes, and load into a real transformers pipeline.
+    """
+    os.chdir("/root/littlenet")
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ["LITTLENET_DEVICE"] = "cpu"
+    os.environ["LITTLENET_AI_SERVER"] = "1"
+    from safety import littlenet_trained_text as trained
+
+    artifact = trained.path()
+    weights = artifact / "model.safetensors"
+    report = {
+        "available": trained.available(),
+        "path": str(artifact),
+        "is_dir": artifact.is_dir(),
+        "weights_bytes": weights.stat().st_size if weights.is_file() else 0,
+        "expected_bytes": TRAINED_TEXT_SAFETENSORS_BYTES,
+    }
+    report["bytes_ok"] = report["weights_bytes"] == TRAINED_TEXT_SAFETENSORS_BYTES
+    if report["available"] and report["bytes_ok"]:
+        try:
+            trained.reset_for_tests()
+            pipe = trained._pipeline()
+            label_count = len(getattr(pipe.model.config, "id2label", {}) or {})
+            report["labels"] = label_count
+            report["loadable"] = label_count == 13
+            if report["loadable"]:
+                report["pipeline_model"] = type(pipe.model).__name__
+            else:
+                report["error"] = f"expected 13 labels, got {label_count}"
+        except Exception as exc:
+            report["loadable"] = False
+            report["error"] = f"{type(exc).__name__}: {exc}"
+    else:
+        report["loadable"] = False
+        if not report["available"]:
+            report["error"] = "trained_text_model_not_staged"
+        elif not report["bytes_ok"]:
+            report["error"] = (
+                "trained_text_bytes_mismatch: pointer-sized or corrupt artifact"
+            )
+    return report
+
+
 @app.function(
     image=secret_preflight_image,
     secrets=[ai_secret],
@@ -419,6 +492,7 @@ def main(
     confirm_gpu_warmup: bool = False,
     prepare_face_cache_only: bool = False,
     trained_image_preflight_only: bool = False,
+    trained_text_preflight_only: bool = False,
     secret_preflight: bool = False,
 ):
     """Cost-guarded maintenance entrypoint."""
@@ -435,6 +509,12 @@ def main(
         print(f"trained-image-preflight {json.dumps(report, sort_keys=True)}")
         if not report.get("available") or not report.get("loadable"):
             raise RuntimeError(f"LittleNet trained image ensemble is not ready: {report}")
+        return
+    if trained_text_preflight_only:
+        report = trained_text_preflight.remote()
+        print(f"trained-text-preflight {json.dumps(report, sort_keys=True)}")
+        if not report.get("available") or not report.get("loadable"):
+            raise RuntimeError(f"LittleNet trained text model is not ready: {report}")
         return
     if not confirm_gpu_warmup:
         print("GPU warmup skipped. This command is intentionally cost-guarded.")

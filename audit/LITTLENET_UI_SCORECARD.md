@@ -5,6 +5,7 @@
 - **Capture Resolution**: 1080 x 2400 (DPR 2.5)
 - **Screenshot Archive**: `littlenet_v2_all_39_screens.zip` (3.35 MB)
 - **Total Screens Assessed**: 39
+- **Screen 04 note**: `04_parent_liveness.png` documents the parent liveness/face verification flow that was **removed 2026-09-21** (parent camera/ML Kit/liveness/DeepFace verification replaced by Android system authentication); it is retained in this archive for historical reference only.
 
 ---
 
@@ -25,7 +26,7 @@ Each screen is assessed on:
 | 01 | `01_login.png` | Auth | **8.5/10** | Clean, high-contrast branded card, clear toggle between Child/Parent/Moderator, touch targets >= 48dp. |
 | 02 | `02_parent_signup.png` | Auth | **8.5/10** | Clear multi-field form, guardian verification disclaimer, consistent typography and field states. |
 | 03 | `03_email_otp.png` | Auth | **8.5/10** | Focused 6-digit OTP input, resend countdown timer, clear security disclaimer. |
-| 04 | `04_parent_liveness.png` | Auth | **9.0/10** | Circular camera viewport, facial alignment instructions, real-time safety confidence indicator. |
+| 04 | `04_parent_liveness.png` | Auth | **N/A** | **Removed UI (2026-09-21)** — parent camera/ML Kit/liveness/DeepFace verification was removed; parent authentication now uses Android system authentication (BIOMETRIC_STRONG \| DEVICE_CREDENTIAL). The screenshot above shows a flow that no longer exists. |
 | 05 | `05_child_enrollment.png` | Auth / Parent | **8.5/10** | Structured child profile creator, age category selectors, face enrollment action button. |
 | 06 | `06_home.png` | Kids Social | **8.8/10** | Media-first feed layout, Instagram-style story bubbles rail at top, subtle safety badge, direct notification/message icons in AppBar. |
 | 07 | `07_search_explore.png` | Kids Social | **9.0/10** | Real social explore layout: PII-filtered search bar, 8 pill category chips (`✨ All`, `🚀 Science`, etc.), 4 tabs (`Top`, `Posts`, `People`, `Learning`), and 3-column media preview grid. |
@@ -67,4 +68,4 @@ Each screen is assessed on:
 ## Quality Gate Summary
 - **Minimum Score across all 39 screens**: **8.5 / 10**
 - **Average Quality Score**: **8.76 / 10**
-- **Threshold Met**: All screens pass the `>= 8.0/10` strict visual quality gate.
+- **Threshold Met**: All screens pass the `>= 8.0/10` strict visual quality gate. (Screen 04 was scored 9.0/10 at capture time; its UI was removed 2026-09-21, so its score is now marked N/A above.)

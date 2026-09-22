@@ -12,6 +12,9 @@ required = [
     'app.py', 'modal_ai.py', 'modal_web.py', 'mobile/api.py', 'mobile/admin_api.py',
     'mobile_app/package.json', 'mobile_app/package-lock.json', 'mobile_app/app.json',
     'mobile_app/App.tsx', 'mobile_app/src/api/client.ts',
+    # Trained safety models must ship as real binaries (never LFS pointers).
+    'models/littlenet_core_safety_v2.pth', 'models/littlenet_weapons_violence_v3.pth',
+    'models/littlenet_text_safety/model.safetensors',
     '.github/workflows/react-native.yml', '.github/workflows/release-mobile.yml',
     '.github/workflows/deploy-modal.yml',
 ]
@@ -31,6 +34,10 @@ with zipfile.ZipFile(ZIP) as z:
             errors.append(f'forbidden duplicate Android root: {name}')
         if p.suffix in {'.pyc', '.pyo', '.jks', '.keystore', '.apk', '.aab'}:
             errors.append(f'forbidden build/sensitive suffix: {name}')
+        # Pointer-stub tripwire: real model artifacts are megabytes; an LFS
+        # pointer stub is ~130 bytes of text.
+        if p.parts and p.parts[0] == 'models' and z.getinfo(name).file_size < 1000:
+            errors.append(f'model entry too small, possible LFS pointer stub: {name}')
 
 print('RELEASE_FILES', len(names), 'ERRORS', len(errors))
 for error in errors:

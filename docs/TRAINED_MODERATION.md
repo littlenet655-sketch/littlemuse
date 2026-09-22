@@ -79,7 +79,11 @@ for weapon labels).
 ## Deployment checklist (not done — needs the user's deploy step)
 
 1. Stage the three artifacts above onto the `littlenet-model-cache` Modal
-   volume (verify with the `trained_image_preflight` function in `modal_ai.py`).
+   volume with `python tools/stage_model_volume.py` (refuses pointer stubs /
+   size mismatches). Verify with the `trained_image_preflight` and
+   `trained_text_preflight` functions in `modal_ai.py`:
+   `modal run modal_ai.py --trained-image-preflight-only` and
+   `modal run modal_ai.py --trained-text-preflight-only`.
 2. Redeploy `littlenet-web` so the media workers pick up the volume mount
    (prepared in `modal_web.py`; no code deploy performed here).
 3. Optional: set `LITTLENET_ENABLE_OCR=1` for burned-in text screening.

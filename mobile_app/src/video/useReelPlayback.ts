@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated } from 'react-native';
 import { useVideoPlayer } from 'expo-video';
 import type { FeedItem } from '../api/kidsFeed';
 import { refreshCuratedReelPlayback, refreshReelPlayback } from '../api/kidsFeed';
@@ -52,6 +53,14 @@ export function useReelPlayback({
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
   const [isDebouncedBuffering, setIsDebouncedBuffering] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Instagram parity: per-reel mute toggle. Reels autoplay with sound; the
+  // toggle only affects this cell's player instance.
+  const [muted, setMuted] = useState(false);
+
+  // Instagram-style progress: 0..1 Animated.Value driven straight from the
+  // native timeUpdate events. setValue() avoids re-rendering the cell on
+  // every tick — only the thin progress bar reads it.
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   const sourceRef = useRef<string | null>(null);
   const metricsRef = useRef<ReelMetricsTracker>(new ReelMetricsTracker(item, 'REELS'));
@@ -83,6 +92,7 @@ export function useReelPlayback({
     setCurrentExpiryAt(item.playback_expires_at ?? null);
     setFirstFrameRendered(false);
     setErrorMessage(null);
+    progressAnim.setValue(0);
     playbackStartedRef.current = false;
     sourceFetchInFlightRef.current = false;
     errorRefreshAttemptsRef.current = 0;
@@ -253,6 +263,8 @@ export function useReelPlayback({
 
     const timeSub = player.addListener('timeUpdate', ({ currentTime }) => {
       metricsRef.current.onTimeUpdate(currentTime, player.duration);
+      const duration = player.duration || 0;
+      progressAnim.setValue(duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0);
     });
 
     const endSub = player.addListener('playToEnd', () => {
@@ -307,6 +319,18 @@ export function useReelPlayback({
       player.pause();
     }
   }, [active, nearby, currentSource, errorMessage, paused, player]);
+
+  // Instagram parity: mute/unmute this reel's player only.
+  // The player mutation runs outside the state updater (updaters must be pure).
+  const toggleMute = useCallback(() => {
+    const next = !muted;
+    try {
+      player.muted = next;
+    } catch {
+      // Mute is best-effort on platforms that restrict it.
+    }
+    setMuted(next);
+  }, [player, muted]);
 
   // Manual retry handler — resets the automatic refresh budget.
   const retry = useCallback(async () => {
@@ -384,5 +408,8 @@ export function useReelPlayback({
     errorMessage,
     retry,
     handleFirstFrameRender,
+    progressAnim,
+    muted,
+    toggleMute,
   };
 }

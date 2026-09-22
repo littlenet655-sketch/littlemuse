@@ -51,3 +51,30 @@ def reconcile_pending_deletes(limit: int = 20) -> dict:
             )
             failed += 1
     return {"checked": len(rows), "completed": completed, "failed": failed}
+
+
+# R2 reference columns on the posts table, in enqueue order.
+_POST_MEDIA_COLUMNS = ("source_media_path", "media_path", "poster_path", "story_music_path")
+
+
+def enqueue_post_media_deletes(post, source_id=None) -> int:
+    """Enqueue every stored media reference on a posts row for durable deletion.
+
+    `post` is a mapping-like row (e.g. RealDictRow from fetch_one).
+    enqueue_delete silently ignores anything that is not an R2 reference
+    (legacy local paths, URLs, empty strings), so every media column is safe
+    to pass unconditionally. Returns the number of columns holding a
+    non-empty reference.
+    """
+    row = post or {}
+    enqueued = 0
+    for column in _POST_MEDIA_COLUMNS:
+        reference = row.get(column)
+        if reference:
+            enqueue_delete(
+                str(reference),
+                source_table="posts",
+                source_id=source_id if source_id is not None else row.get("post_id"),
+            )
+            enqueued += 1
+    return enqueued

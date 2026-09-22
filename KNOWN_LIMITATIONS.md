@@ -8,7 +8,7 @@ Things this tree does **not** do, classified from the contract audit (2026-09-21
 2. **No LIKE/COMMENT/FOLLOW notifications** — the actions work, but the content owner is never notified. `NotificationsScreen` shows MESSAGE/PARENT_CONTROLS/SCREEN_TIME types only.
 3. **No bearer-native post/story deletion** — deletion exists only as session-cookie web routes. The native app has no delete affordance at all (by design for now); adding one requires `DELETE /api/mobile/v1/kids/posts/<id>` plus R2 cleanup wiring.
 4. **No bearer parent learning-report endpoint** — the report is web-HTML only (`quiz/routes.py`); no mobile call site exists.
-5. **Push device registration not wired in client** — backend route `/api/mobile/v2/device/register` exists, but the mobile app never calls it (the unused `registerDevice` route constant was removed). Push notifications to devices will not arrive until this is wired.
+5. **Push delivery still needs Firebase/APNs credentials** — push device registration is wired end-to-end (the app requests permission, takes the Expo push token via the EAS projectId, and registers it with `POST /api/mobile/v2/device/register` on sign-in / `POST /api/mobile/v2/device/unregister` on sign-out; `mobile_app/src/push/notifications.ts`, `mobile_app/src/auth/AuthProvider.tsx`). Actual token delivery to a physical device remains unverified until Firebase/APNs credentials exist.
 
 ## Quality / performance improvements
 

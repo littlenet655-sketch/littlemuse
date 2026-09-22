@@ -48,6 +48,15 @@ interface ReelCellProps {
   onOpenSheet: (item: FeedItem) => void;
   onTogglePause: () => void;
   onMetricsFlush: (payload: ImpressionEventPayload) => void;
+  /** Instagram parity: double-tap on the video likes (never unlikes). */
+  onDoubleTapLike: (item: FeedItem) => void;
+}
+
+/** Compact counts like Instagram: 1.2K, 3.4M. */
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return `${n}`;
 }
 
 /**
@@ -74,9 +83,16 @@ const ReelCell = memo(function ReelCell({
   onOpenSheet,
   onTogglePause,
   onMetricsFlush,
+  onDoubleTapLike,
 }: ReelCellProps) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
+  // Instagram parity: tap a truncated caption to expand it. Reset per reel.
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+  const itemKey = feedKey(item);
+  useEffect(() => {
+    setCaptionExpanded(false);
+  }, [itemKey]);
 
   return (
     <View style={[styles.reelPage, { height: reelHeight, width: windowWidth }]}>
@@ -90,6 +106,7 @@ const ReelCell = memo(function ReelCell({
           onTogglePlay={() => {
             if (index === activeIndex) onTogglePause();
           }}
+          onDoubleTap={() => onDoubleTapLike(item)}
           token={token}
           onMetricsFlush={onMetricsFlush}
         />
@@ -127,7 +144,7 @@ const ReelCell = memo(function ReelCell({
               color={item.viewer_liked ? '#EF4444' : '#FFFFFF'}
             />
           </View>
-          <Text style={styles.actionLabel}>{item.likes ?? 0}</Text>
+          <Text style={styles.actionLabel}>{formatCount(item.likes ?? 0)}</Text>
         </Pressable>
 
         {/* Comment Button */}
@@ -142,7 +159,7 @@ const ReelCell = memo(function ReelCell({
             <View style={styles.actionIconCircle}>
               <Feather name="message-circle" size={24} color="#FFFFFF" />
             </View>
-            <Text style={styles.actionLabel}>{item.comments_count ?? 0}</Text>
+            <Text style={styles.actionLabel}>{formatCount(item.comments_count ?? 0)}</Text>
           </Pressable>
         ) : null}
 
@@ -194,11 +211,13 @@ const ReelCell = memo(function ReelCell({
           </View>
         </Pressable>
 
-        {/* Caption */}
+        {/* Caption — tap to expand like Instagram */}
         {item.caption ? (
-          <Text style={styles.reelCaption} numberOfLines={2}>
-            {item.caption}
-          </Text>
+          <Pressable onPress={() => setCaptionExpanded((v) => !v)}>
+            <Text style={styles.reelCaption} numberOfLines={captionExpanded ? undefined : 2}>
+              {item.caption}
+            </Text>
+          </Pressable>
         ) : null}
 
         {/* Safe Audio Tag */}
@@ -215,7 +234,8 @@ const ReelCell = memo(function ReelCell({
   prev.active === next.active &&
   prev.nearby === next.nearby &&
   prev.paused === next.paused &&
-  prev.token === next.token,
+  prev.token === next.token &&
+  prev.onDoubleTapLike === next.onDoubleTapLike,
 );
 
 export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
@@ -409,6 +429,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
 
+  // Instagram parity: double-tap always likes, never unlikes.
+  const handleDoubleTapLike = useCallback((item: FeedItem) => {
+    if (!item.viewer_liked) {
+      void handleLike(item);
+    }
+  }, [handleLike]);
+
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
   const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => (
@@ -429,8 +456,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       onOpenSheet={setSheetItem}
       onTogglePause={togglePause}
       onMetricsFlush={handleMetricsFlush}
+      onDoubleTapLike={handleDoubleTapLike}
     />
-  ), [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush]);
+  ), [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -561,6 +589,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         removeClippedSubviews={false}
         pagingEnabled
         decelerationRate="fast"
+        // Snap exactly one page per fling (Android): without this, a fast
+        // fling's momentum can skip past a reel and land between pages.
+        disableIntervalMomentum
         getItemLayout={(_, index) => ({ length: REEL_HEIGHT, offset: REEL_HEIGHT * index, index })}
         renderItem={renderReelItem}
       />

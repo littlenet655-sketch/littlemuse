@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { fetchParentEmailStatus, registerParent, resendParentEmail, verifyParentEmail } from '../api/auth';
 import { useAuth } from '../auth/AuthProvider';
@@ -216,6 +216,7 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
               label="Date of Birth (YYYY-MM-DD)"
               placeholder="1990-05-14"
               helper="You must be at least 18 years old. Server validates age."
+              keyboardType="numbers-and-punctuation"
               value={dob}
               onChangeText={(text) => { setDob(text); clearFieldError('dob'); }}
               onFocus={() => scrollToInput(195)}
@@ -225,6 +226,9 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
               label="Password"
               placeholder="Minimum 8 characters"
               secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
               value={password}
               onChangeText={(text) => { setPassword(text); clearFieldError('password'); }}
               onFocus={() => scrollToInput(265)}
@@ -444,14 +448,10 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
           bounces={true}
         >
           <View style={styles.headerHero}>
-            <View style={styles.heroLogoBadge}>
-              <Image
-                source={require('../../assets/app_logo.png')}
-                style={styles.heroLogo}
-                resizeMode="cover"
-              />
+            <View style={styles.heroIconBadge}>
+              <Feather name="mail" size={30} color={colors.brand} />
             </View>
-            <Text style={styles.heroBrandName}>LittleNet</Text>
+            <Text style={styles.heroBrandName}>Check your email</Text>
             <Text style={styles.heroSubtitle}>We sent a 6-digit verification code to your email</Text>
           </View>
 
@@ -460,16 +460,24 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
 
             <View style={styles.otpFieldWrap}>
               <Text style={styles.otpLabel}>6-DIGIT VERIFICATION CODE</Text>
-              <Field
-                label=""
-                keyboardType="number-pad"
-                maxLength={6}
+              <TextInput
                 value={otp}
                 onChangeText={setOtp}
+                keyboardType="number-pad"
+                maxLength={6}
+                placeholder="000000"
+                placeholderTextColor="#9CA3AF"
+                autoFocus
+                selectTextOnFocus
+                selectionColor={colors.brand}
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                returnKeyType="done"
+                onSubmitEditing={submit}
+                accessibilityLabel="6-digit verification code"
                 onFocus={() => {
                   setTimeout(() => scrollRef.current?.scrollTo({ y: 60, animated: true }), 100);
                 }}
-                placeholder="000000"
                 style={styles.otpInput}
               />
               <Text style={styles.otpHelperText}>The code expires in 10 minutes and is single-use.</Text>
@@ -503,6 +511,7 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 16,
+    overflow: 'hidden',
     shadowColor: '#0095F6',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.22,
@@ -511,6 +520,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   heroLogo: { width: 58, height: 58, borderRadius: 16 },
+  heroIconBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#E8F4FE',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
   heroBrandName: { color: colors.ink, fontSize: 24, fontWeight: '900', letterSpacing: -0.5, marginTop: 4 },
   heroSubtitle: { color: colors.muted, fontSize: 13, textAlign: 'center', marginTop: 3, lineHeight: 18, maxWidth: 320 },
   pwdToggle: { fontSize: 12, fontWeight: '700', color: colors.brand },
@@ -582,6 +602,9 @@ const styles = StyleSheet.create({
   otpLabel: { fontSize: 11, fontWeight: '800', color: colors.muted, letterSpacing: 0.8, textAlign: 'center', marginBottom: 6 },
   otpInput: {
     letterSpacing: 10,
+    // RN adds letterSpacing after the last glyph too, which would push the
+    // visible digits left of true center. Equal left padding re-centers them.
+    paddingLeft: 10,
     fontSize: 26,
     fontWeight: '800',
     textAlign: 'center',
@@ -589,6 +612,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderColor: '#BFDBFE',
     borderWidth: 1.5,
+    borderRadius: 12,
     color: colors.ink,
   },
   otpHelperText: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 6 },

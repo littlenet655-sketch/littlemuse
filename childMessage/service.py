@@ -75,3 +75,51 @@ def is_peer_typing(cid, viewer):
         (cid, viewer, TYPING_TTL_SECONDS),
     )
     return bool(row)
+
+
+def conversations_page(uid, limit=20, offset=0):
+    """One page of uid's conversations with the latest visible message each.
+
+    Single query: participants only (child1_id/child2_id), peer profile info,
+    and the newest ALLOWED, non-deleted message per conversation via
+    DISTINCT ON. The caller still applies can_interact per row on the page;
+    this helper never returns conversations uid is not a participant of.
+    """
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 20
+    try:
+        safe_offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        safe_offset = 0
+    rows = fetch_all(
+        """SELECT * FROM (
+               SELECT DISTINCT ON (c.conversation_id)
+                      c.conversation_id, c.child1_id, c.child2_id, c.created_at,
+                      CASE WHEN c.child1_id=%s THEN u2.full_name ELSE u1.full_name END AS peer_name,
+                      CASE WHEN c.child1_id=%s THEN u2.username ELSE u1.username END AS peer_username,
+                      CASE WHEN c.child1_id=%s THEN c.child2_id ELSE c.child1_id END AS peer_id,
+                      CASE WHEN c.child1_id=%s THEN cp2.profile_picture ELSE cp1.profile_picture END AS peer_avatar,
+                      m.message_text AS last_message_text,
+                      m.message_type AS last_message_type,
+                      m.sent_at AS last_sent_at,
+                      m.sender_child_id AS last_sender_child_id,
+                      m.is_seen AS last_is_seen
+               FROM child_conversations c
+               JOIN users u1 ON u1.user_id = c.child1_id
+               JOIN users u2 ON u2.user_id = c.child2_id
+               LEFT JOIN child_profiles cp1 ON cp1.child_id = u1.user_id
+               LEFT JOIN child_profiles cp2 ON cp2.child_id = u2.user_id
+               LEFT JOIN child_messages m
+                 ON m.conversation_id = c.conversation_id
+                AND m.moderation_status = 'ALLOWED'
+                AND m.is_deleted = FALSE
+               WHERE c.child1_id = %s OR c.child2_id = %s
+               ORDER BY c.conversation_id, m.sent_at DESC NULLS LAST, m.child_message_id DESC NULLS LAST
+           ) t
+           ORDER BY t.last_sent_at DESC NULLS LAST, t.conversation_id DESC
+           LIMIT %s OFFSET %s""",
+        (uid, uid, uid, uid, uid, uid, safe_limit, safe_offset),
+    )
+    return rows

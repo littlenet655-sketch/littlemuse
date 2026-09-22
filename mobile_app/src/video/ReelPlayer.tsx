@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Pressable,
   StyleSheet,
@@ -14,12 +15,17 @@ import { colors, radius, spacing } from '../ui/tokens';
 import type { ImpressionEventPayload, PlaybackPolicy } from './types';
 import { useReelPlayback } from './useReelPlayback';
 
+/** Max gap between two taps to count as a double-tap (Instagram parity). */
+const DOUBLE_TAP_WINDOW_MS = 280;
+
 interface ReelPlayerProps {
   item: FeedItem;
   active: boolean;
   nearby: boolean;
   paused: boolean;
   onTogglePlay: () => void;
+  /** Instagram parity: double-tap on the video likes the reel. */
+  onDoubleTap?: () => void;
   token?: string;
   policy?: PlaybackPolicy;
   onMetricsFlush?: (payload: ImpressionEventPayload) => void;
@@ -31,12 +37,21 @@ export function ReelPlayer({
   nearby,
   paused,
   onTogglePlay,
+  onDoubleTap,
   token,
   policy = 'NORMAL',
   onMetricsFlush,
 }: ReelPlayerProps) {
   const [showPlayStateFeedback, setShowPlayStateFeedback] = useState(false);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Double-tap disambiguation: a single tap waits out the double-tap window
+  // so a double-tap never also toggles play/pause underneath it.
+  const lastTapRef = useRef(0);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Big-heart burst shown on double-tap (Instagram parity).
+  const [showHeart, setShowHeart] = useState(false);
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
 
   const {
     player,
@@ -46,6 +61,9 @@ export function ReelPlayer({
     errorMessage,
     retry,
     handleFirstFrameRender,
+    progressAnim,
+    muted,
+    toggleMute,
   } = useReelPlayback({
     item,
     active,
@@ -59,6 +77,13 @@ export function ReelPlayer({
   const posterUri = item.poster_url ?? null;
   const showPoster = !firstFrameRendered && Boolean(posterUri);
 
+  // Progress bar fill width as a percentage string — interpolated from the
+  // Animated.Value so the native timeUpdate ticks never re-render the cell.
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
   // Warm the poster into the image cache as soon as the cell mounts so the
   // first paint shows artwork instead of black, even on slow networks.
   useEffect(() => {
@@ -71,6 +96,30 @@ export function ReelPlayer({
     // While the error overlay is up, taps belong to the retry control —
     // never toggle play/pause underneath it.
     if (errorMessage) return;
+    if (onDoubleTap) {
+      const now = Date.now();
+      if (now - lastTapRef.current < DOUBLE_TAP_WINDOW_MS) {
+        // Double-tap: cancel the pending single-tap, burst the heart, like.
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+          singleTapTimerRef.current = null;
+        }
+        lastTapRef.current = 0;
+        triggerHeartBurst();
+        onDoubleTap();
+        return;
+      }
+      lastTapRef.current = now;
+      singleTapTimerRef.current = setTimeout(() => {
+        singleTapTimerRef.current = null;
+        runSingleTap();
+      }, DOUBLE_TAP_WINDOW_MS);
+      return;
+    }
+    runSingleTap();
+  };
+
+  const runSingleTap = () => {
     onTogglePlay();
     setShowPlayStateFeedback(true);
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
@@ -80,8 +129,28 @@ export function ReelPlayer({
     }, 600);
   };
 
+  const triggerHeartBurst = () => {
+    setShowHeart(true);
+    // Stop any in-flight burst first: rapid successive double-taps would
+    // otherwise leave competing drivers writing the same animated values.
+    heartScale.stopAnimation();
+    heartOpacity.stopAnimation();
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(heartScale, { toValue: 1.3, duration: 170, useNativeDriver: true }),
+        Animated.timing(heartScale, { toValue: 1, duration: 130, useNativeDriver: true }),
+      ]),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 650, delay: 300, useNativeDriver: true }),
+    ]).start(({ finished }) => {
+      if (finished) setShowHeart(false);
+    });
+  };
+
   useEffect(() => () => {
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
   }, []);
 
   return (
@@ -127,6 +196,36 @@ export function ReelPlayer({
           </View>
         </View>
       ) : null}
+
+      {/* Double-tap heart burst (Instagram parity) */}
+      {showHeart ? (
+        <View style={styles.heartOverlay} pointerEvents="none">
+          <Animated.View
+            style={[
+              styles.heartBurst,
+              { transform: [{ scale: heartScale }], opacity: heartOpacity },
+            ]}
+          >
+            <Feather name="heart" size={84} color="#FFFFFF" />
+          </Animated.View>
+        </View>
+      ) : null}
+
+      {/* Mute / unmute toggle (Instagram parity) */}
+      <Pressable
+        style={styles.muteButton}
+        onPress={toggleMute}
+        accessibilityRole="button"
+        accessibilityLabel={muted ? 'Unmute reel' : 'Mute reel'}
+        hitSlop={10}
+      >
+        <Feather name={muted ? 'volume-x' : 'volume-2'} size={18} color="#FFFFFF" />
+      </Pressable>
+
+      {/* Instagram-style playback progress bar */}
+      <View style={styles.progressTrack} pointerEvents="none">
+        <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
+      </View>
 
       {/* Error & Controlled Retry Overlay */}
       {errorMessage ? (
@@ -224,5 +323,42 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14,
+  },
+  heartOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heartBurst: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  muteButton: {
+    position: 'absolute',
+    top: 64,
+    right: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0, 0, 0, 0.50)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: '#FFFFFF',
   },
 });

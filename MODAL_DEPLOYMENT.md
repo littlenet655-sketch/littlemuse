@@ -270,6 +270,7 @@ python -m pip install -r requirements-modal.txt
 modal token info
 modal deploy modal_ai.py
 modal run modal_ai.py --trained-image-preflight-only
+modal run modal_ai.py --trained-text-preflight-only
 modal deploy modal_web.py
 modal run modal_web.py --init-db
 modal run modal_web.py --seed

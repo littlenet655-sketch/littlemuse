@@ -176,6 +176,11 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         localUri: media.uri,
         mediaType,
       });
+      // Instagram-style: clear the composer so coming back starts a fresh post.
+      setMedia(null);
+      setCaption('');
+      setTags('');
+      setLocation('');
     } catch (err) {
       if (isUploadCancelled(err)) {
         // The presigned session survives a cancel: retry resumes the PUT.
@@ -230,6 +235,9 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             <Pressable
               key={k}
               disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: active }}
               onPress={() => {
                 setKind(k);
                 setMedia(null);
@@ -278,6 +286,8 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               <>
                 <Pressable
                   style={styles.pickOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose a video from your gallery"
                   onPress={() => void choose(() => pickGalleryMedia('video'))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#EFF6FF' }]}>
@@ -288,6 +298,8 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 </Pressable>
                 <Pressable
                   style={styles.pickOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="Record a video with the camera"
                   onPress={() => void choose(() => capturePostMedia('video'))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#FDF2F8' }]}>
@@ -301,6 +313,8 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               <>
                 <Pressable
                   style={styles.pickOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose a photo from your gallery"
                   onPress={() => void choose(() => pickGalleryMedia('image'))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#EFF6FF' }]}>
@@ -311,6 +325,8 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 </Pressable>
                 <Pressable
                   style={styles.pickOption}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take a photo with the camera"
                   onPress={() => void choose(() => capturePostMedia('image'))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#ECFDF5' }]}>
@@ -339,6 +355,8 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             </View>
             <Pressable
               disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Change the selected media"
               onPress={() => {
                 setMedia(null);
                 resetPipelineState();
@@ -367,7 +385,12 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             textAlignVertical="top"
             placeholder="Write a kind caption…"
             placeholderTextColor="#94A3B8"
+            maxLength={2200}
+            accessibilityLabel="Caption"
           />
+          <Text style={styles.captionCounter} accessibilityLabel={`${caption.length} of 2200 characters used`}>
+            {caption.length}/2200
+          </Text>
         </View>
 
         {/* Suggested Quick Tags */}
@@ -375,7 +398,13 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <Text style={styles.tagLabel}>QUICK TAGS</Text>
           <View style={styles.tagRow}>
             {SUGGESTED_TAGS.map((t) => (
-              <Pressable key={t} onPress={() => addTag(t)} style={styles.tagChip}>
+              <Pressable
+                key={t}
+                onPress={() => addTag(t)}
+                style={styles.tagChip}
+                accessibilityRole="button"
+                accessibilityLabel={`Add tag ${t}`}
+              >
                 <Text style={styles.tagChipText}>#{t}</Text>
               </Pressable>
             ))}
@@ -409,6 +438,9 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       <Pressable
         onPress={() => void publish()}
         disabled={busy || !media}
+        accessibilityRole="button"
+        accessibilityLabel={busy ? 'Sharing your post' : 'Share safely'}
+        accessibilityState={{ disabled: busy || !media }}
         style={[styles.publishBtn, (busy || !media) && styles.publishBtnDisabled]}
       >
         {busy ? (
@@ -637,6 +669,12 @@ const styles = StyleSheet.create({
     color: colors.ink,
     minHeight: 72,
     paddingVertical: 4,
+  },
+  captionCounter: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textAlign: 'right',
+    marginTop: 2,
   },
   tagSection: {
     marginTop: 10,

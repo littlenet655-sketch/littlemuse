@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { fetchOwnProfile, updateOwnProfile } from '../../api/kidsProfiles';
@@ -12,7 +12,7 @@ import { Avatar, StoryRing } from '../../ui/social';
 import { Button, Card, EmptyState, ErrorState, Field, GateNotice, Notice, Screen } from '../../ui/components';
 import { colors, radius, spacing } from '../../ui/tokens';
 
-type Tab = 'posts' | 'saved' | 'edit';
+type Tab = 'posts' | 'reels' | 'saved' | 'edit';
 
 const AVATAR = 80;
 const STORY_RING = AVATAR + 12;
@@ -50,6 +50,21 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const counts = profileQuery.data?.counts ?? {};
   const saved = [...(savedQuery.data?.posts ?? []), ...(savedQuery.data?.reels ?? [])];
   const error = profileQuery.error ?? savedQuery.error ?? saveError;
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Instagram parity: reels live in their own tab, filtered client-side from the
+  // already-fetched profile posts. No API change.
+  const reels = useMemo(
+    () => posts.filter((p) => p.media_type?.toUpperCase() === 'VIDEO'),
+    [posts],
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    Promise.allSettled([profileQuery.refetch(), savedQuery.refetch()]).finally(() =>
+      setRefreshing(false),
+    );
+  };
 
   // Visual-only aggregates from already-fetched data.
   const totalLikes = useMemo(
@@ -74,7 +89,25 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }
   if (profileQuery.error && !profile) return <Screen><GateNotice error={profileQuery.error} /><ErrorState message="Could not load your profile." onRetry={() => void profileQuery.refetch()} /></Screen>;
 
-  const list = tab === 'saved' ? saved : posts;
+  const list = tab === 'saved' ? saved : tab === 'reels' ? reels : posts;
+
+  const emptyCopy: Record<Exclude<Tab, 'edit'>, { icon: 'image' | 'film' | 'bookmark'; title: string; body: string }> = {
+    posts: {
+      icon: 'image',
+      title: 'No posts yet',
+      body: 'Share safe moments with friends using the + button!',
+    },
+    reels: {
+      icon: 'film',
+      title: 'No reels yet',
+      body: 'Video posts you share will appear here.',
+    },
+    saved: {
+      icon: 'bookmark',
+      title: 'No saved posts yet',
+      body: 'Posts and reels you bookmark will appear here.',
+    },
+  };
 
   const avatar = (
     <Avatar
@@ -86,7 +119,18 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.brand]}
+            tintColor={colors.brand}
+          />
+        }
+      >
         {error ? <GateNotice error={error} /> : null}
 
         {/* Instagram-style profile header */}
@@ -104,6 +148,8 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               </View>
               <Pressable
                 style={styles.statItem}
+                accessibilityRole="button"
+                accessibilityLabel="View friends"
                 onPress={() => nav.navigate('Connections', { mode: 'followers' })}
               >
                 <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
@@ -125,20 +171,31 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             )}
           </View>
 
-          {/* Story highlights */}
+          {/* Story highlights (Instagram-style: ring + label) */}
           {stories.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlights}>
-              {stories.map((s, i) => (
-                <View key={String(s.post_id ?? s.id ?? i)} style={styles.highlight}>
-                  <StoryRing size={64} seen={s.viewed === true || s.seen === true}>
-                    <Avatar
-                      uri={typeof s.poster_url === 'string' ? s.poster_url : (typeof s.media_url === 'string' ? s.media_url : null)}
-                      name={typeof s.caption === 'string' ? s.caption : ''}
-                      size={52}
-                    />
-                  </StoryRing>
-                </View>
-              ))}
+              {stories.map((s, i) => {
+                const label =
+                  typeof s.title === 'string' && s.title
+                    ? s.title
+                    : typeof s.caption === 'string' && s.caption
+                      ? s.caption
+                      : 'Story';
+                return (
+                  <View key={String(s.post_id ?? s.id ?? i)} style={styles.highlight}>
+                    <StoryRing size={64} seen={s.viewed === true || s.seen === true}>
+                      <Avatar
+                        uri={typeof s.poster_url === 'string' ? s.poster_url : (typeof s.media_url === 'string' ? s.media_url : null)}
+                        name={label}
+                        size={52}
+                      />
+                    </StoryRing>
+                    <Text style={styles.highlightLabel} numberOfLines={1}>
+                      {label}
+                    </Text>
+                  </View>
+                );
+              })}
             </ScrollView>
           ) : null}
 
@@ -165,18 +222,23 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           </View>
         </View>
 
-        {/* Tab switcher: icon tabs, 1px active underline */}
+        {/* Tab switcher: Instagram-style icon tabs, 1px active underline */}
         <View style={styles.tabBar}>
-          {(['posts', 'saved'] as const).map((t) => {
+          {(['posts', 'reels', 'saved'] as const).map((t) => {
             const active = tab === t;
+            const icon = t === 'posts' ? 'grid' : t === 'reels' ? 'film' : 'bookmark';
+            const label = t === 'posts' ? 'Posts' : t === 'reels' ? 'Reels' : 'Saved';
             return (
               <Pressable
                 key={t}
                 onPress={() => setTab(t)}
                 style={[styles.tabItem, active && styles.tabItemActive]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${label} tab`}
               >
                 <Feather
-                  name={t === 'posts' ? 'grid' : 'bookmark'}
+                  name={icon}
                   size={22}
                   color={active ? colors.ink : colors.muted}
                 />
@@ -214,9 +276,9 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         {/* Empty state */}
         {tab !== 'edit' && !list.length ? (
           <EmptyState
-            icon={tab === 'saved' ? 'bookmark' : 'image'}
-            title={tab === 'saved' ? 'No saved posts yet' : 'No posts yet'}
-            body={tab === 'saved' ? 'Posts and reels you bookmark will appear here.' : 'Share safe moments with friends using the + button!'}
+            icon={emptyCopy[tab as Exclude<Tab, 'edit'>].icon}
+            title={emptyCopy[tab as Exclude<Tab, 'edit'>].title}
+            body={emptyCopy[tab as Exclude<Tab, 'edit'>].body}
           />
         ) : null}
 
@@ -230,6 +292,8 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 <Pressable
                   key={post.post_id}
                   style={styles.gridCell}
+                  accessibilityRole="button"
+                  accessibilityLabel={isVid ? `Open reel ${post.post_id}` : `Open post ${post.post_id}`}
                   onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
                 >
                   {imgUrl ? (
@@ -325,6 +389,13 @@ const styles = StyleSheet.create({
   },
   highlight: {
     alignItems: 'center',
+    maxWidth: 72,
+  },
+  highlightLabel: {
+    fontSize: 11,
+    color: colors.ink,
+    marginTop: 4,
+    textAlign: 'center',
   },
   actionsRow: {
     flexDirection: 'row',

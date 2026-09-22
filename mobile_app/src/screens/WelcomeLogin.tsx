@@ -37,6 +37,10 @@ const MODES: {
   },
 ];
 
+// Admin sign-in stays available through the API, but it is not a peer login
+// choice for parents and children: only kids/parent appear as mode pills.
+const PILL_MODES = MODES.filter((m) => m.value !== 'admin');
+
 export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
   return (
     <Screen hasNativeHeader={false}>
@@ -149,14 +153,15 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
         </View>
 
         <Card>
-          <View style={styles.modePillContainer}>
-            {MODES.map((item) => {
+          <View style={styles.modePillContainer} accessibilityRole="radiogroup">
+            {PILL_MODES.map((item) => {
               const active = item.value === mode;
               return (
                 <Pressable
                   key={item.value}
-                  accessibilityRole="tab"
+                  accessibilityRole="radio"
                   accessibilityState={{ selected: active }}
+                  accessibilityLabel={`${item.label} login`}
                   onPress={() => {
                     setMode(item.value);
                     setError('');
@@ -189,7 +194,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
             value={password}
             onChangeText={setPassword}
             rightAction={
-              <Pressable onPress={() => setShowPassword((prev) => !prev)} hitSlop={8}>
+              <Pressable onPress={() => setShowPassword((prev) => !prev)} hitSlop={12} style={styles.linkHit}>
                 <Text style={styles.pwdToggle}>{showPassword ? 'Hide' : 'Show'}</Text>
               </Pressable>
             }
@@ -219,7 +224,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
           ) : null}
 
           <View style={styles.authLinksContainer}>
-            <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={8}>
+            <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={12} style={styles.linkHit}>
               <Text style={styles.forgotPwdLink}>Forgot your password?</Text>
             </Pressable>
 
@@ -228,10 +233,25 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                 <Text style={styles.signupMuted}>
                   {mode === 'parent' ? 'New to LittleNet?' : 'Need an account?'}
                 </Text>
-                <Pressable onPress={() => navigation.navigate('ParentRegister')} hitSlop={6}>
+                <Pressable onPress={() => navigation.navigate('ParentRegister')} hitSlop={12} style={styles.linkHit}>
                   <Text style={styles.signupLinkText}>Parent Sign Up →</Text>
                 </Pressable>
               </View>
+            ) : null}
+
+            {mode !== 'admin' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Admin sign-in"
+                onPress={() => {
+                  setMode('admin');
+                  setError('');
+                }}
+                hitSlop={12}
+                style={styles.linkHit}
+              >
+                <Text style={styles.adminLinkText}>Admin sign-in</Text>
+              </Pressable>
             ) : null}
           </View>
         </Card>
@@ -275,7 +295,7 @@ const styles = StyleSheet.create({
   wordmark: { color: colors.ink, fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   heroTitle: { color: colors.ink, fontSize: type.hero, lineHeight: 30, fontWeight: '800', textAlign: 'center', marginTop: spacing.md },
   heroBody: { color: colors.muted, fontSize: type.body, lineHeight: 21, textAlign: 'center', marginTop: spacing.sm, maxWidth: 310 },
-  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 4 },
+  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 12 },
   modePillContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
@@ -290,6 +310,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
+    minHeight: 44,
     paddingVertical: 9,
     borderRadius: radius.pill,
   },
@@ -343,13 +364,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
   },
-  faceLoginIcon: {
-    fontSize: 16,
-  },
   faceLoginText: {
     fontSize: 14,
     fontWeight: '700',
     color: colors.brand,
+  },
+  linkHit: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  adminLinkText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
   },
   authLinksContainer: {
     marginTop: spacing.md,

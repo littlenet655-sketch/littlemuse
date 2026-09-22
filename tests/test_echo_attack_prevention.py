@@ -17,12 +17,12 @@ def client():
 import json
 
 
-def _ensure_parent_with_biometrics():
-    user = fetch_one("SELECT user_id, username FROM users WHERE role='PARENT' LIMIT 1")
+def _ensure_child_with_biometrics():
+    user = fetch_one("SELECT user_id, username FROM users WHERE role='CHILD' LIMIT 1")
     if not user:
         user = execute(
             """INSERT INTO users(username, full_name, email, password_hash, role, account_status)
-               VALUES('echo_parent_1', 'Echo Parent', 'echo_parent1@littlenet.test', 'pwd', 'PARENT', 'ACTIVE')
+               VALUES('echo_child_1', 'Echo Child', 'echo_child1@littlenet.test', 'pwd', 'CHILD', 'ACTIVE')
                RETURNING user_id, username""",
             returning=True,
         )
@@ -44,12 +44,12 @@ def test_echo_attack_missing_signature_fails(client):
     Send challenge_id, nonce, and action_completed without valid cryptographic signature.
     Authentication MUST FAIL with 403 Forbidden.
     """
-    user = _ensure_parent_with_biometrics()
+    user = _ensure_child_with_biometrics()
 
     # 1. Request legitimate challenge
     res = client.post(
         "/api/mobile/v1/auth/face/challenge",
-        json={"identifier": user["username"], "mode": "parent"},
+        json={"identifier": user["username"], "mode": "child"},
     )
     assert res.status_code == 200
     data = res.get_json()
@@ -77,10 +77,10 @@ def test_echo_attack_boolean_bypass_fields_fail(client):
     face_match=True, verified=True, blink_passed=True, liveness_passed=True.
     None of these may authenticate without cryptographic biometric signature.
     """
-    user = _ensure_parent_with_biometrics()
+    user = _ensure_child_with_biometrics()
     res = client.post(
         "/api/mobile/v1/auth/face/challenge",
-        json={"identifier": user["username"], "mode": "parent"},
+        json={"identifier": user["username"], "mode": "child"},
     )
     data = res.get_json()
     challenge_id = data["challenge_id"]
@@ -110,11 +110,11 @@ def test_echo_attack_forged_or_tampered_signature_fails(client):
     Attempt to authenticate with an attacker-forged signature or wrong biometric key.
     Must fail with 403 biometric_signature_invalid.
     """
-    user = _ensure_parent_with_biometrics()
+    user = _ensure_child_with_biometrics()
 
     res = client.post(
         "/api/mobile/v1/auth/face/challenge",
-        json={"identifier": user["username"], "mode": "parent"},
+        json={"identifier": user["username"], "mode": "child"},
     )
     data = res.get_json()
 

@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { searchDiscover, type CuratedSearchItem, type KidSummary } from '../../api/kidsProfiles';
-import { toggleFollow, type PostDetail } from '../../api/kidsSocial';
+import { fetchReelsV2, type FeedItem } from '../../api/kidsFeed';
+import { toggleFollow } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import type { ChildScreenProps } from '../../navigation/types';
 import { queryClient, useIsOnline } from '../../query/client';
@@ -65,11 +66,25 @@ const PersonRow = memo(function PersonRow({
   );
 }, (prev, next) => prev.kid === next.kid && prev.busy === next.busy);
 
+/**
+ * Minimal shape the explore grid needs. Both discover-search posts and
+ * reels-feed items satisfy it, so the Reels tab can show the real reels
+ * feed without a type fork.
+ */
+export type ExploreGridItem = {
+  post_id: number;
+  media_type?: string;
+  media_url?: string | null;
+  poster_url?: string | null;
+  is_reel?: boolean;
+  caption?: string;
+};
+
 const ExploreGridCell = memo(function ExploreGridCell({
   post,
   onOpenPost,
 }: {
-  post: PostDetail;
+  post: ExploreGridItem;
   onOpenPost: (postId: number) => void;
 }) {
   const hasVideo = post.media_type?.toUpperCase() === 'VIDEO' || post.is_reel;
@@ -78,6 +93,10 @@ const ExploreGridCell = memo(function ExploreGridCell({
     <Pressable
       style={styles.gridItem}
       onPress={() => onOpenPost(post.post_id)}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={
+        post.caption ? `Open post: ${post.caption.slice(0, 80)}` : hasVideo ? 'Open reel' : 'Open post'
+      }
     >
       {imgUri ? (
         <Image source={{ uri: imgUri }} style={styles.gridThumb} resizeMode="cover" fadeDuration={0} />
@@ -129,6 +148,43 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     staleTime: 30_000,
     queryFn: ({ signal }) => searchDiscover(session!.token, debounced, signal),
   });
+
+  // Reels tab: the discover endpoint only returns non-reel posts when there
+  // is no search query, so the tab was blank on the default Explore view.
+  // Pull the real reels feed (server-enforced ALLOWED + is_safe) instead.
+  const reelsKey = useMemo(() => [...kidsKeys.reels, 'discover-tab', token], [token]);
+  const reelsQuery = useQuery({
+    queryKey: reelsKey,
+    enabled: Boolean(session) && kind === 'Reels',
+    staleTime: 30_000,
+    queryFn: ({ signal }) => fetchReelsV2(session!.token, 0, 30, undefined, signal),
+  });
+  const reels: ExploreGridItem[] = useMemo(
+    () => (reelsQuery.data?.items ?? []).map((item: FeedItem) => ({
+      post_id: item.post_id,
+      media_type: item.media_type,
+      media_url: item.media_url,
+      poster_url: item.poster_url,
+      is_reel: true,
+      caption: item.caption,
+    })),
+    [reelsQuery.data],
+  );
+  const reelsLoading = reelsQuery.isPending;
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: kidsKeys.discover(debounced) }),
+        queryClient.invalidateQueries({ queryKey: kidsKeys.reels }),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [debounced]);
+  const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />;
   const kids = query.data?.children ?? [];
   const posts = query.data?.posts ?? [];
   const curated = query.data?.curated ?? [];
@@ -182,6 +238,15 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return true;
   }), [posts, kind]);
 
+  // Instagram Explore shows reels on the default view; the discover search
+  // only returns reels when a query is typed, so use the reels feed for the
+  // unfiltered Reels tab and search results while typing.
+  const showReelsFeed = kind === 'Reels' && !debounced.trim();
+  const gridItems: ExploreGridItem[] = showReelsFeed ? reels : filteredPosts;
+  const reelsError = showReelsFeed ? reelsQuery.error : null;
+  const hasAnyContent =
+    kids.length > 0 || posts.length > 0 || curated.length > 0 || (showReelsFeed && reels.length > 0);
+
   const renderPerson = useCallback(({ item }: { item: KidSummary }) => (
     <PersonRow
       kid={item}
@@ -191,7 +256,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [followBusy, onFollowKid, openProfile]);
 
-  const renderGridCell = useCallback(({ item }: { item: PostDetail }) => (
+  const renderGridCell = useCallback(({ item }: { item: ExploreGridItem }) => (
     <ExploreGridCell post={item} onOpenPost={openPost} />
   ), [openPost]);
 
@@ -206,7 +271,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const gridCell = (windowWidth - 8) / 3;
   const gridRowHeight = gridCell + 2;
   const gridItemLayout = useCallback(
-    (_data: ArrayLike<PostDetail> | null | undefined, index: number) => {
+    (_data: ArrayLike<ExploreGridItem> | null | undefined, index: number) => {
       const row = Math.floor(index / 3);
       return { length: gridRowHeight, offset: row * gridRowHeight, index };
     },
@@ -282,11 +347,12 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       </ScrollView>
 
       {error ? <GateNotice error={error} /> : null}
+      {reelsError ? <GateNotice error={reelsError} /> : null}
       {pii ? (
         <GateNotice error={new ApiError(200, 'pii_warning', 'That search cannot be shown. Try different words.')} />
       ) : null}
 
-      {loading && !kids.length && !posts.length ? (
+      {(loading && !kids.length && !posts.length) || (showReelsFeed && reelsLoading && !reels.length) ? (
         <View style={styles.skeletonGrid} accessibilityRole="progressbar">
           {Array.from({ length: 9 }).map((_, i) => (
             <View key={i} style={styles.skeletonCell} />
@@ -294,7 +360,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         </View>
       ) : null}
 
-      {!loading && !error && !kids.length && !posts.length && !curated.length ? (
+      {!loading && !reelsLoading && !error && !hasAnyContent && kind !== 'Learn' ? (
         <EmptyState
           icon="search"
           title="No results found"
@@ -302,8 +368,30 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         />
       ) : null}
 
-      {error && !kids.length && !posts.length ? (
-        <ErrorState message="Search is currently unavailable." onRetry={() => void query.refetch()} />
+      {kind === 'Reels' && showReelsFeed && !reelsLoading && !reelsError && reels.length === 0 ? (
+        <EmptyState
+          icon="film"
+          title="No reels yet"
+          body="Reels shared by friends will appear here."
+        />
+      ) : null}
+
+      {kind === 'Learn' && !loading && !error && curated.length === 0 && filteredPosts.length === 0 ? (
+        <EmptyState
+          icon="book-open"
+          title="Nothing to learn yet"
+          body="Try searching a subject like science, space, or art."
+        />
+      ) : null}
+
+      {error && !hasAnyContent ? (
+        <ErrorState
+          message="Search is currently unavailable."
+          onRetry={() => {
+            void query.refetch();
+            void reelsQuery.refetch();
+          }}
+        />
       ) : null}
 
       {/* People Mode: Vertical list of clean friend cards */}
@@ -318,6 +406,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           initialNumToRender={10}
           updateCellsBatchingPeriod={50}
           removeClippedSubviews
+          refreshControl={refreshControl}
           renderItem={renderPerson}
         />
       ) : null}
@@ -342,9 +431,9 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       ) : null}
 
       {/* Posts / Reels / Learn Mode: Instagram Explore 3-column grid */}
-      {kind !== 'People' && filteredPosts.length > 0 ? (
+      {kind !== 'People' && gridItems.length > 0 ? (
         <FlatList
-          data={filteredPosts}
+          data={gridItems}
           keyExtractor={(p) => `post:${p.post_id}`}
           numColumns={3}
           contentContainerStyle={styles.gridContainer}
@@ -356,6 +445,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           updateCellsBatchingPeriod={50}
           removeClippedSubviews
           getItemLayout={gridItemLayout}
+          refreshControl={refreshControl}
           renderItem={renderGridCell}
         />
       ) : null}

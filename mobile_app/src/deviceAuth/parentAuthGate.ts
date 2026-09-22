@@ -123,20 +123,15 @@ export function installParentGateInvalidation(): () => void {
  * - Returns { ok: false, reason: 'failed', ... } on authentication failure.
  */
 export async function requireParentAuth(): Promise<ParentGateOutcome> {
-  const now = state.now();
-  if (isParentAuthorized(now)) {
+  const prep = await prepareParentAuth();
+  if (prep.state === 'already_authorized') {
     return { ok: true };
   }
-
-  let status: ParentDeviceAuthStatus;
-  try {
-    status = await checkParentDeviceAuth();
-  } catch {
-    return { ok: false, reason: 'failed', error: 'failure', message: 'Could not query device authentication.' };
-  }
-
-  if (!status.canAuthenticate) {
+  if (prep.state === 'no_credential') {
     return { ok: false, reason: 'no_credential' };
+  }
+  if (prep.state === 'query_failed') {
+    return { ok: false, reason: 'failed', error: 'failure', message: 'Could not query device authentication.' };
   }
 
   const result = await authenticateParentDevice();
@@ -147,5 +142,68 @@ export async function requireParentAuth(): Promise<ParentGateOutcome> {
   if (result.error === 'user_cancel') {
     return { ok: false, reason: 'cancelled' };
   }
-  return { ok: false, reason: 'failed', error: result.error, message: result.message };
+  return {
+    ok: false,
+    reason: 'failed',
+    error: result.error,
+    message: friendlyParentAuthMessage(result.error, result.message),
+  };
+}
+
+/**
+ * Friendly, non-technical copy for each authentication error code.
+ * Used as the message fallback when the native module returns no message,
+ * so users get actionable guidance (e.g. lockout waits) instead of a
+ * generic "could not verify" string. Never weakens the gate: the outcome
+ * reasons and the fail-closed behavior are unchanged.
+ */
+export const PARENT_AUTH_ERROR_COPY: Record<ParentAuthErrorCode, string> = {
+  user_cancel: 'Authentication was cancelled.',
+  not_enrolled:
+    'No fingerprint or face is set up on this phone. You can still verify with your phone PIN, pattern, or password.',
+  lockout: 'Too many attempts. Wait a moment, then try again.',
+  failure: 'Could not verify it is you. Please try again.',
+  unavailable: 'Device authentication is not available on this device.',
+  in_progress: 'Authentication is already in progress. Please wait.',
+};
+
+function friendlyParentAuthMessage(
+  error: ParentAuthErrorCode | string | undefined,
+  nativeMessage: string | undefined,
+): string {
+  if (nativeMessage) return nativeMessage;
+  const code = String(error ?? '').toLowerCase() as ParentAuthErrorCode;
+  return PARENT_AUTH_ERROR_COPY[code] ?? PARENT_AUTH_ERROR_COPY.failure;
+}
+
+export type ParentAuthPreparation =
+  | { state: 'already_authorized' }
+  | { state: 'ready'; status: ParentDeviceAuthStatus }
+  | { state: 'no_credential'; status: ParentDeviceAuthStatus }
+  | { state: 'query_failed' };
+
+/**
+ * Check whether parent authentication is possible WITHOUT showing the
+ * system prompt.
+ *
+ * Intended for a pre-prompt explanation screen: call this first, explain
+ * what will happen, and only then call requireParentAuth() to fire the system prompt. The window check and the
+ * device-capability check are identical to requireParentAuth's, so the
+ * two-step flow cannot skip the gate.
+ */
+export async function prepareParentAuth(): Promise<ParentAuthPreparation> {
+  if (isParentAuthorized(state.now())) {
+    return { state: 'already_authorized' };
+  }
+  let status: ParentDeviceAuthStatus;
+  try {
+    status = await checkParentDeviceAuth();
+  } catch {
+    // Fail closed: a query failure never skips the gate.
+    return { state: 'query_failed' };
+  }
+  if (!status.canAuthenticate) {
+    return { state: 'no_credential', status };
+  }
+  return { state: 'ready', status };
 }

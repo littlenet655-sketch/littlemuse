@@ -29,6 +29,9 @@ export interface ChatMessage {
   shared_post_id?: number | null;
   moderation_status?: string;
   sent_at?: string;
+  /** Read receipt: the server returns this per message (m.*) and marks peer
+      messages seen on every fetch. Shown under the last own ALLOWED message. */
+  is_seen?: boolean;
 }
 
 async function get<T>(path: string, token: string): Promise<T> {

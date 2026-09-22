@@ -47,7 +47,7 @@ from child.service import (
     replace_profile_tags,
     unfollow_child,
 )
-from childMessage.service import conversation, is_peer_typing, messages, set_typing
+from childMessage.service import conversation, conversations_page, is_peer_typing, messages, set_typing
 from config import Config
 from database.connection import execute, execute_count, fetch_all, fetch_one, get_db_connection
 from extensions import csrf, limiter
@@ -1462,32 +1462,33 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
-        rows = fetch_all(
-            """SELECT c.*,
-               CASE WHEN c.child1_id=%s THEN u2.full_name ELSE u1.full_name END peer_name,
-               CASE WHEN c.child1_id=%s THEN u2.username ELSE u1.username END peer_username,
-               CASE WHEN c.child1_id=%s THEN c.child2_id ELSE c.child1_id END peer_id,
-               CASE WHEN c.child1_id=%s THEN cp2.profile_picture ELSE cp1.profile_picture END peer_avatar
-               FROM child_conversations c
-               JOIN users u1 ON u1.user_id=c.child1_id JOIN users u2 ON u2.user_id=c.child2_id
-               LEFT JOIN child_profiles cp1 ON cp1.child_id=u1.user_id LEFT JOIN child_profiles cp2 ON cp2.child_id=u2.user_id
-               WHERE c.child1_id=%s OR c.child2_id=%s""",
-            (uid, uid, uid, uid, uid, uid),
-        )
+        try:
+            limit = max(1, min(int(request.args.get("limit", 20)), 50))
+        except (TypeError, ValueError):
+            limit = 20
+        try:
+            offset = max(0, int(request.args.get("offset", 0)))
+        except (TypeError, ValueError):
+            offset = 0
+        # Fetch one extra row so has_more reflects whether another page exists.
+        rows = conversations_page(uid, limit + 1, offset)
+        has_more = len(rows) > limit
         out = []
-        for row in rows:
+        for row in rows[:limit]:
             item = dict(row)
             if not can_interact(uid, item["peer_id"]):
                 continue
-            last = fetch_one(
-                """SELECT message_text,message_type,sent_at,sender_child_id,is_seen FROM child_messages
-                   WHERE conversation_id=%s AND moderation_status='ALLOWED' ORDER BY sent_at DESC LIMIT 1""",
-                (item["conversation_id"],),
-            )
+            last = {
+                "message_text": item.pop("last_message_text"),
+                "message_type": item.pop("last_message_type"),
+                "sent_at": item.pop("last_sent_at"),
+                "sender_child_id": item.pop("last_sender_child_id"),
+                "is_seen": item.pop("last_is_seen"),
+            }
             item["peer_avatar_url"] = _asset_url(item.pop("peer_avatar", None))
-            item["last_message"] = _clean(last)
+            item["last_message"] = _clean(last) if last["sent_at"] is not None else None
             out.append(_clean(item))
-        return jsonify(ok=True, conversations=out)
+        return jsonify(ok=True, conversations=out, has_more=has_more)
 
     @bp.route("/api/mobile/v1/kids/chat/<int:peer_id>", methods=["GET", "POST"])
     @csrf.exempt
@@ -1723,6 +1724,15 @@ def register_mobile_api(bp):
             execute("INSERT INTO likes(post_id,child_id) VALUES(%s,%s)", (post_id, uid))
             liked = True
             record_signal(uid, "SOCIAL", post_id, "LIKE")
+            owner_id = post["child_id"]
+            if owner_id != uid and can_interact(owner_id, uid):
+                actor_name = g.mobile_user.get('full_name') or 'A friend'
+                notify(owner_id, "LIKE", f"{actor_name} liked your post", f"/post/{post_id}", uid)
+                try:
+                    from services.push_notifications import notify_new_like
+                    notify_new_like(owner_id, actor_name, post_id)
+                except Exception:
+                    pass
         count = (fetch_one("SELECT COUNT(*) n FROM likes WHERE post_id=%s", (post_id,)) or {"n": 0})["n"]
         return jsonify(ok=True, liked=liked, likes=count)
 
@@ -1794,10 +1804,118 @@ def register_mobile_api(bp):
         )
         if decision.action == "ALLOW":
             record_signal(uid, "SOCIAL", post_id, "COMMENT")
+            owner_id = post["child_id"]
+            if owner_id != uid and can_interact(owner_id, uid):
+                actor_name = g.mobile_user.get('full_name') or 'A friend'
+                notify(owner_id, "COMMENT", f"{actor_name} commented on your post", f"/post/{post_id}", uid)
+                try:
+                    from services.push_notifications import notify_new_comment
+                    notify_new_comment(owner_id, actor_name, post_id)
+                except Exception:
+                    pass
         record(uid, "COMMENT", row["comment_id"], signals, decision)
         if decision.action == "REVIEW":
             parent_notify(uid, "REVIEW_REQUIRED", "A comment needs review", "/parent/safety/")
         return jsonify(ok=True, status=decision.action, comment_id=row["comment_id"])
+
+    # --- Post/story safe delete (soft-delete + durable R2 media cleanup) ---
+    # Convention: posts has no is_deleted column (unlike child_messages). The
+    # dominant visibility convention (services/social.py feed/story/reel/profile
+    # queries, _media_allowed) is moderation_status='ALLOWED' AND is_safe=TRUE,
+    # and the CHECK on posts.moderation_status only permits
+    # PENDING/ALLOWED/REVIEW/BLOCKED, so soft-delete = BLOCKED + is_safe=FALSE
+    # with moderation_reason='user_deleted' marking an owner/parent delete.
+    def _mobile_soft_delete_post_row(post):
+        """Shared soft-delete + cleanup for owner/parent post deletion.
+
+        Caller must have loaded and authorized the post row. Returns
+        "already_deleted" when the row was already soft-deleted by this flow;
+        otherwise performs the soft-delete, enqueues R2 media references, and
+        hard-deletes engagement rows (likes/comments/saves/story views) that
+        would otherwise dangle visibly.
+        """
+        from services.media_outbox import enqueue_post_media_deletes
+
+        if str(post.get("moderation_reason") or "") == "user_deleted":
+            return "already_deleted"
+        execute(
+            """UPDATE posts
+               SET moderation_status='BLOCKED', is_safe=FALSE,
+                   moderation_reason='user_deleted'
+               WHERE post_id=%s""",
+            (post["post_id"],),
+        )
+        enqueue_post_media_deletes(post, source_id=post["post_id"])
+        execute("DELETE FROM likes WHERE post_id=%s", (post["post_id"],))
+        execute("DELETE FROM comments WHERE post_id=%s", (post["post_id"],))
+        execute("DELETE FROM saved_posts WHERE post_id=%s", (post["post_id"],))
+        execute("DELETE FROM story_views WHERE post_id=%s", (post["post_id"],))
+        return "deleted"
+
+    @bp.route("/api/mobile/v1/kids/posts/<int:post_id>", methods=["DELETE"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_kids_delete_post(post_id):
+        gate = _child_gate()
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        post = fetch_one(
+            """SELECT post_id, child_id, is_story, moderation_reason,
+                      media_path, source_media_path, poster_path, story_music_path
+               FROM posts WHERE post_id=%s""",
+            (post_id,),
+        )
+        if not post:
+            return jsonify(error="not_found"), 404
+        if int(post["child_id"]) != uid:
+            return jsonify(error="forbidden"), 403
+        if _mobile_soft_delete_post_row(post) == "already_deleted":
+            return jsonify(error="already_deleted"), 403
+        return jsonify(ok=True)
+
+    @bp.route("/api/mobile/v2/kids/stories/<int:story_id>", methods=["DELETE"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_kids_delete_story(story_id):
+        gate = _child_gate("stories")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        story = fetch_one(
+            """SELECT post_id, child_id, is_story, moderation_reason,
+                      media_path, source_media_path, poster_path, story_music_path
+               FROM posts WHERE post_id=%s""",
+            (story_id,),
+        )
+        if not story or not story.get("is_story"):
+            return jsonify(error="not_found"), 404
+        if int(story["child_id"]) != uid:
+            return jsonify(error="forbidden"), 403
+        if _mobile_soft_delete_post_row(story) == "already_deleted":
+            return jsonify(error="already_deleted"), 403
+        return jsonify(ok=True)
+
+    @bp.route("/api/mobile/v1/parent/posts/<int:post_id>", methods=["DELETE"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_delete_post(post_id):
+        # No bearer-native parent post delete/block route existed in
+        # mobile/api.py; this is the minimal one: same soft-delete semantics,
+        # gated by the canonical parent-child mapping check. 404 (not 403) on
+        # a failed mapping so post ids cannot be probed across families.
+        pid = int(g.mobile_user["user_id"])
+        post = fetch_one(
+            """SELECT post_id, child_id, moderation_reason,
+                      media_path, source_media_path, poster_path, story_music_path
+               FROM posts WHERE post_id=%s""",
+            (post_id,),
+        )
+        if not post or not owns(pid, int(post["child_id"])):
+            return jsonify(error="not_found"), 404
+        if _mobile_soft_delete_post_row(post) == "already_deleted":
+            return jsonify(error="already_deleted"), 403
+        return jsonify(ok=True)
 
     @bp.route("/api/mobile/v1/kids/posts", methods=["POST"])
     @csrf.exempt
@@ -2918,6 +3036,25 @@ def register_mobile_api(bp):
         if not changed:
             return jsonify(error="follow_request_not_found"), 404
         log(child_id, "PARENT_FOLLOW_ACTION", {"parent_id": int(g.mobile_user["user_id"]), "target_id": target_id, "action": action})
+        if action == "approve":
+            # Kid-side notification only; follow approval itself stays parent-side by design.
+            # Fail-silent: a notification insert must never break the approval itself.
+            # friend_name is resolved once, outside the guarded blocks, so a
+            # failure in one channel cannot silently skip the other.
+            try:
+                target = fetch_one("SELECT full_name FROM users WHERE user_id=%s", (target_id,))
+            except Exception:
+                target = None
+            friend_name = (target or {}).get("full_name") or "A friend"
+            try:
+                notify(child_id, "FRIEND_ADDED", f"{friend_name} is now your friend", f"/profile/{target_id}", target_id)
+            except Exception:
+                pass
+            try:
+                from services.push_notifications import notify_friend_added
+                notify_friend_added(child_id, friend_name)
+            except Exception:
+                pass
         return jsonify(ok=True, action=action)
 
     @bp.route("/api/mobile/v1/parent/notifications", methods=["GET", "POST"])
@@ -3227,7 +3364,10 @@ def register_mobile_api(bp):
                ORDER BY sv.last_viewed_at DESC""",
             (story_id,),
         )
-        return jsonify(ok=True, viewers=_clean(viewers))
+        viewer_rows = _clean(viewers)
+        for viewer in viewer_rows:
+            viewer["avatar_url"] = _asset_url(viewer.pop("profile_picture", None))
+        return jsonify(ok=True, viewers=viewer_rows)
 
     @bp.route("/api/mobile/v2/device/register", methods=["POST"])
     @csrf.exempt

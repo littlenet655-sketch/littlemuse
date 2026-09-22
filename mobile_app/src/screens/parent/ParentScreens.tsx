@@ -853,8 +853,8 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
           </View>
         </View>
 
-        {/* 2x2 Stats Grid */}
-        <Text style={styles.sectionHeaderLabelStandalone}>THIS WEEK'S SAFETY & USAGE</Text>
+        {/* 2x2 Stats Grid — honest labels: screen time is today, quiz is 7-day */}
+        <Text style={styles.sectionHeaderLabelStandalone}>SAFETY & USAGE OVERVIEW</Text>
         <View style={styles.statsGrid2x2}>
           {/* Screen Time Stat */}
           <View style={styles.gridStatCard}>
@@ -862,7 +862,7 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Feather name="clock" size={16} color="#2563EB" />
             </View>
             <Text style={styles.gridStatNumber}>{child.minutes_today}m</Text>
-            <Text style={styles.gridStatLabel}>Used of {limitMinutes}m limit</Text>
+            <Text style={styles.gridStatLabel}>Today · of {limitMinutes}m limit</Text>
             <View style={styles.gridUsageTrack}>
               <View
                 style={[
@@ -890,7 +890,7 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Feather name="award" size={16} color="#7C3AED" />
             </View>
             <Text style={styles.gridStatNumber}>{child.quiz_7d?.accuracy ?? 0}%</Text>
-            <Text style={styles.gridStatLabel}>Quiz Mastery</Text>
+            <Text style={styles.gridStatLabel}>Quiz Mastery · 7 days</Text>
             <Text style={styles.gridStatSub}>{child.quiz_7d?.correct ?? 0} of {child.quiz_7d?.attempted ?? 0} correct</Text>
           </View>
 

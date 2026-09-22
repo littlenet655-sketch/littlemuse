@@ -247,8 +247,13 @@ def notifications():
             if len(parts)>=2 and parts[1].isdigit():post_ids.append(int(parts[1]))
     post_thumbs={}
     if post_ids:
-        rows=fetch_all('SELECT post_id, media_url, thumbnail_url FROM posts WHERE post_id = ANY(%s)',(list(set(post_ids)),))
-        for r in rows:post_thumbs[r['post_id']]=r.get('thumbnail_url') or r.get('media_url')
+        # `posts` has media_path/poster_path (no media_url/thumbnail_url columns);
+        # a thumbnail failure must never 500 the whole notifications page.
+        try:
+            rows=fetch_all('SELECT post_id, media_path, poster_path FROM posts WHERE post_id = ANY(%s)',(list(set(post_ids)),))
+            for r in rows:post_thumbs[r['post_id']]=r.get('poster_path') or r.get('media_path')
+        except Exception:
+            post_thumbs={}
     import datetime
     now=datetime.datetime.now(datetime.timezone.utc) if hasattr(datetime,'timezone') else datetime.datetime.utcnow()
     sections={'today':[],'yesterday':[],'this_week':[],'earlier':[]};items=[]

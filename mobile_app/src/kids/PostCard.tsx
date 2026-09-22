@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
 import type { FeedItem, FeedPage } from '../api/kidsFeed';
@@ -132,9 +132,83 @@ export function PostCard({
   // duplicate toggle requests (double optimistic flips, out-of-order server
   // replies). Keys are action-scoped so a like in flight never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
+  // Instagram-style double-tap to like. Two taps within DOUBLE_TAP_MS on the
+  // media like the post and play a big-heart burst; a lone tap still opens
+  // the post detail after a short delay so the second tap can cancel it.
+  const DOUBLE_TAP_MS = 300;
+  const lastTapRef = useRef(0);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const burstAnim = useRef(new Animated.Value(0)).current;
+  const burstAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const [burstVisible, setBurstVisible] = useState(false);
+  useEffect(
+    () => () => {
+      if (openTimerRef.current) clearTimeout(openTimerRef.current);
+      burstAnimRef.current?.stop();
+    },
+    [],
+  );
   if (!isPubliclyVisible(item)) return null;
   const socialTarget = socialPostTarget(item);
   const previewUrl = isVideo ? item.poster_url : item.media_url;
+
+  function fireHeartBurst() {
+    setBurstVisible(true);
+    burstAnim.setValue(0);
+    burstAnimRef.current?.stop();
+    burstAnimRef.current = Animated.timing(burstAnim, {
+      toValue: 1,
+      duration: 800,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    burstAnimRef.current.start(({ finished }) => {
+      if (finished) setBurstVisible(false);
+    });
+  }
+
+  function handleMediaPress(openOnSingleTap: boolean) {
+    const now = Date.now();
+    const delta = now - lastTapRef.current;
+    // Double-tap-to-like only applies to likeable (social) posts: on other
+    // media a second quick tap must not cancel the pending open.
+    if (socialTarget && delta > 0 && delta < DOUBLE_TAP_MS) {
+      // Double tap: cancel the pending single-tap open, burst, and like.
+      lastTapRef.current = 0;
+      if (openTimerRef.current) {
+        clearTimeout(openTimerRef.current);
+        openTimerRef.current = null;
+      }
+      if (socialTarget) {
+        fireHeartBurst();
+        if (!item.viewer_liked) void onLike();
+      }
+      return;
+    }
+    lastTapRef.current = now;
+    if (!openOnSingleTap || !onOpen) return;
+    if (openTimerRef.current) clearTimeout(openTimerRef.current);
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      onOpen();
+    }, DOUBLE_TAP_MS);
+  }
+
+  const burstAnimatedStyle = {
+    opacity: burstAnim.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 1, 0] }),
+    transform: [
+      { scale: burstAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.2, 1.15, 1] }) },
+    ],
+  };
+
+  function renderHeartBurst() {
+    if (!burstVisible) return null;
+    return (
+      <Animated.View pointerEvents="none" style={[styles.burst, burstAnimatedStyle]}>
+        <FontAwesome name="heart" size={88} color="#FFFFFF" style={styles.burstHeart} />
+      </Animated.View>
+    );
+  }
 
   async function onLike() {
     if (!session || !socialTarget) return;
@@ -212,10 +286,16 @@ export function PostCard({
         ) : null}
       </View>
       {item.title ? <Text style={styles.title}>{item.title}</Text> : null}
-      {item.caption ? <Text style={styles.caption}>{item.caption}</Text> : null}
+      {item.caption ? (
+        <Text style={styles.caption}>
+          <Text style={styles.captionUser}>{item.full_name ?? 'Friend'}</Text>
+          {'  '}
+          {item.caption}
+        </Text>
+      ) : null}
       {isVideo ? (
         inlineVideoPlayback && videoActive && item.media_url ? (
-          <View style={styles.inlineVideo}>
+          <Pressable onPress={() => handleMediaPress(false)} style={styles.inlineVideo} accessibilityRole="button" accessibilityLabel="Video playing">
             <VideoMedia
               source={item.media_url}
               posterUrl={item.poster_url}
@@ -225,22 +305,25 @@ export function PostCard({
               nativeControls={false}
               loop
             />
-          </View>
+            {renderHeartBurst()}
+          </Pressable>
         ) : previewUrl ? (
-          <Pressable onPress={onOpen} disabled={!onOpen} style={styles.videoPoster}>
+          <Pressable onPress={() => handleMediaPress(true)} disabled={!onOpen && !socialTarget} style={styles.videoPoster}>
             <FeedImage uri={previewUrl} aspectHint={item.aspect_ratio} label="Video preview" />
             <View style={styles.playBadge} pointerEvents="none">
               <Feather name="play" size={24} color="#FFFFFF" />
             </View>
+            {renderHeartBurst()}
           </Pressable>
         ) : (
-          <Pressable onPress={onOpen} disabled={!onOpen} style={[styles.mediaBox, { height: FALLBACK_MEDIA_HEIGHT }]}>
+          <Pressable onPress={onOpen} disabled={!onOpen && !socialTarget} style={[styles.mediaBox, { height: FALLBACK_MEDIA_HEIGHT }]}>
             <Text style={styles.videoLabel}>Video</Text>
           </Pressable>
         )
       ) : previewUrl ? (
-        <Pressable onPress={onOpen} disabled={!onOpen}>
+        <Pressable onPress={() => handleMediaPress(true)} disabled={!onOpen && !socialTarget} style={styles.mediaTouch}>
           <FeedImage uri={previewUrl} aspectHint={item.aspect_ratio} label="Post image" />
+          {renderHeartBurst()}
         </Pressable>
       ) : null}
       {socialTarget ? (
@@ -312,6 +395,10 @@ const styles = StyleSheet.create({
   name: { fontWeight: '800', color: colors.ink, fontSize: type.body },
   title: { marginTop: 8, color: colors.ink, fontSize: type.body, fontWeight: '800' },
   caption: { marginTop: 8, color: colors.ink, fontSize: type.body, lineHeight: 20 },
+  captionUser: { fontWeight: '800' },
+  burst: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  burstHeart: { textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
+  mediaTouch: { position: 'relative' },
   mediaBox: { marginTop: 10, width: '100%', backgroundColor: colors.line, overflow: 'hidden' },
   mediaPlaceholder: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   mediaFallback: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: 8, padding: spacing.md },

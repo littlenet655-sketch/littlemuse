@@ -11,9 +11,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      # Defense-in-depth: tools/package_release.py also fails hard on bad
+      # models; this step rejects a pointer-stub checkout before packaging.
+      - name: Verify LFS model artifacts materialized
+        run: |
+          for f in models/littlenet_core_safety_v2.pth models/littlenet_weapons_violence_v3.pth models/littlenet_text_safety/model.safetensors; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING MODEL: $f"
+              exit 1
+            fi
+            if head -c 60 "$f" | grep -q 'git-lfs.github.com/spec/v1'; then
+              echo "LFS POINTER STUB, not a binary: $f"
+              exit 1
+            fi
+          done
+          echo "LFS models OK"
       - name: Build and verify clean release package
         run: |
           python tools/package_release.py

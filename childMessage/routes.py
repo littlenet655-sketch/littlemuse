@@ -123,19 +123,28 @@ def send_text(child_id):
     context_risk = contextual_chat_risk(recent, text)
     needs_contextual_eval = any(t in text.lower() for t in high_risk_triggers) or d.action == 'REVIEW' or context_risk['suspicious']
     from services.ai import get_ai_client
-    ai_client = get_ai_client()
+    ai_client = None
     if needs_contextual_eval:
         if context_risk['suspicious'] and d.action == 'ALLOW':
             final_decision=Decision('REVIEW',50.0,'multi-turn grooming pattern requires review')
             sig['contextual_cue_families']=context_risk['cue_families']
             sig['contextual_reason_code']=context_risk['reason_code']
-        ai_res = ai_client.evaluate_chat_safety(recent, session['user_id'], child_id, text)
-        if ai_res.action == 'BLOCK':
-            parent_notify(session['user_id'],'MESSAGE_BLOCKED',f"AI detected {ai_res.primary_category}",'/parent/safety/')
-            return jsonify(blocked=True,error="This message can't be sent for safety.",reason=ai_res.reason_code),400
-        if ai_res.action == 'REVIEW' and d.action == 'ALLOW':
-            contextual_risk=max(float(d.risk),float(ai_res.risk_score)*100.0)
-            final_decision=Decision('REVIEW',contextual_risk,f'contextual safety review: {ai_res.reason_code}')
+        # Fail closed: an AI outage must never 500 the send and must never
+        # downgrade to ALLOW — hold the message for parent review instead.
+        ai_res=None
+        try:
+            ai_client=get_ai_client()
+            ai_res=ai_client.evaluate_chat_safety(recent, session['user_id'], child_id, text)
+        except Exception as exc:
+            log(session['user_id'],'MESSAGE_AI_EVAL_FAILED',{'to':child_id,'error':type(exc).__name__})
+            final_decision=Decision('REVIEW',max(float(d.risk),70.0),'AI safety unavailable - parent review')
+        if ai_res is not None:
+            if ai_res.action == 'BLOCK':
+                parent_notify(session['user_id'],'MESSAGE_BLOCKED',f"AI detected {ai_res.primary_category}",'/parent/safety/')
+                return jsonify(blocked=True,error="This message can't be sent for safety.",reason=ai_res.reason_code),400
+            if ai_res.action == 'REVIEW' and d.action == 'ALLOW':
+                contextual_risk=max(float(d.risk),float(ai_res.risk_score)*100.0)
+                final_decision=Decision('REVIEW',contextual_risk,f'contextual safety review: {ai_res.reason_code}')
     final_action=final_decision.action
     row=execute("INSERT INTO child_messages(conversation_id,sender_child_id,receiver_child_id,message_type,message_text,moderation_status) VALUES(%s,%s,%s,'TEXT',%s,%s) RETURNING child_message_id",(cid,session['user_id'],child_id,text,'ALLOWED' if final_action=='ALLOW' else 'REVIEW'),returning=True)
     record(session['user_id'],'MESSAGE',row['child_message_id'],sig,final_decision)

@@ -18,5 +18,5 @@
 -r requirements-core.txt
 numpy==1.26.4
 torch>=2.2,<2.8
-transformers>=4.45,<5
+transformers>=5.0  # v5 verified end-to-end with littlenet_text_safety (checkpoint saved under transformers 5.0.0; 4.x breaks predict())
 detoxify==0.5.2

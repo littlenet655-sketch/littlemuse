@@ -57,6 +57,59 @@ export function faceLoginFailureMessage(error: unknown): string {
   return errorText(error);
 }
 
+/** Kid-friendly liveness challenge guide: big emoji + simple steps per action. */
+function challengeGuide(action: FaceChallengeResponse['action']): { emoji: string; title: string; steps: string[] } {
+  switch (action) {
+    case 'TURN_LEFT':
+      return {
+        emoji: '⬅️',
+        title: 'Turn your head LEFT!',
+        steps: [
+          '1. Look at the camera',
+          '2. Slowly turn your head to YOUR left',
+          '3. Hold it there — the photo takes itself!',
+        ],
+      };
+    case 'TURN_RIGHT':
+      return {
+        emoji: '➡️',
+        title: 'Turn your head RIGHT!',
+        steps: [
+          '1. Look at the camera',
+          '2. Slowly turn your head to YOUR right',
+          '3. Hold it there — the photo takes itself!',
+        ],
+      };
+    case 'BLINK':
+    default:
+      return {
+        emoji: '👀',
+        title: 'Blink your eyes!',
+        steps: [
+          '1. Look at the camera',
+          '2. Close both eyes, then open them',
+          '3. The photo takes itself — no button needed!',
+        ],
+      };
+  }
+}
+
+/** Big, friendly challenge instruction card a child can follow at a glance. */
+function ChallengeHero({ action }: { action: FaceChallengeResponse['action'] }) {
+  const guide = challengeGuide(action);
+  return (
+    <View style={styles.challengeHero}>
+      <Text style={styles.challengeEmoji}>{guide.emoji}</Text>
+      <Text style={styles.challengeTitle}>{guide.title}</Text>
+      {guide.steps.map((step) => (
+        <Text key={step} style={styles.challengeStep}>
+          {step}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 /** Replay-resistant kids face login with interactive challenge-response. */
 export function FaceLoginScreen({ navigation, route }: AuthScreenProps<'FaceLogin'>) {
   const { signIn } = useAuth();
@@ -163,16 +216,13 @@ export function FaceLoginScreen({ navigation, route }: AuthScreenProps<'FaceLogi
             <Button label="Start secure face check" loading={busy} disabled={busy} onPress={() => void startChallenge()} />
           ) : (
             <>
-              <Notice
-                tone="info"
-                message={challenge.action === 'BLINK' ? 'Challenge: close both eyes, then take the photo.' : challenge.action === 'TURN_LEFT' ? 'Challenge: turn your head left, then take the photo.' : 'Challenge: turn your head right, then take the photo.'}
-              />
+              <ChallengeHero action={challenge.action} />
               <CameraCapture
                 label="Capture challenge photo"
                 busyLabel="Checking Face…"
                 busy={busy}
                 livenessAction={challenge.action}
-                instruction="Google ML Kit will automatically scan your face and detect the challenge action. Photo captures automatically."
+                instruction="Look at the camera and do the action above. The phone watches your face and takes the photo by itself — you don't need to press anything!"
                 validatePhoto={(photo) => precheckFaceChallenge(photo, challenge.action)}
                 onCapture={onCapture}
               />
@@ -286,7 +336,7 @@ export function FaceEnrollScreen(_props: ChildScreenProps<'FaceEnroll'>) {
             ]}
           />
 
-          <Notice tone="info" message="Good light, look straight at the camera, one face only. Spoof photos and groups are rejected." />
+          <Notice tone="info" message="Good light, look straight at the camera, only you in the frame. Printed photos or friends in the frame won't work." />
           {error ? <GateNotice error={error} /> : null}
           {checking ? <Notice tone="ok" message="Face setup updated. Checking what is next…" /> : null}
 
@@ -295,7 +345,7 @@ export function FaceEnrollScreen(_props: ChildScreenProps<'FaceEnroll'>) {
             busyLabel="Enrolling Face…"
             busy={busy}
             livenessAction="BLINK"
-            instruction="Google ML Kit will scan your face and ask you to blink naturally to confirm liveness."
+            instruction="Look at the camera and blink naturally when asked. The phone checks it's really you and saves your face key — no photo is kept!"
             onCapture={onCapture}
           />
 
@@ -330,6 +380,19 @@ const styles = StyleSheet.create({
   heroLogo: { width: 60, height: 60, borderRadius: 16 },
   heroBrandName: { color: colors.ink, fontSize: 26, fontWeight: '900', letterSpacing: -0.5, marginTop: 4 },
   heroSubtitle: { color: colors.muted, fontSize: 13, textAlign: 'center', marginTop: 4, lineHeight: 18, maxWidth: 300 },
+  challengeHero: {
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  challengeEmoji: { fontSize: 44, marginBottom: spacing.xs },
+  challengeTitle: { color: colors.ink, fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: spacing.xs },
+  challengeStep: { color: colors.ink, fontSize: 14, fontWeight: '600', textAlign: 'center', lineHeight: 20 },
   signupBox: {
     flexDirection: 'row',
     alignItems: 'center',

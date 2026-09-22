@@ -46,6 +46,19 @@ function timeLabel(createdAt?: string): string {
   return shortAgo(Date.now() - t);
 }
 
+/** Instagram-style time bucket for section grouping: Today / This week / Earlier. */
+function timeBucket(createdAt?: string): 'Today' | 'This week' | 'Earlier' {
+  if (!createdAt) return 'Earlier';
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) return 'Earlier';
+  const ageMs = Date.now() - t;
+  if (ageMs < 0) return 'Today'; // clock skew: treat future timestamps as today
+  const DAY = 24 * 60 * 60 * 1000;
+  if (ageMs < DAY) return 'Today';
+  if (ageMs < 7 * DAY) return 'This week';
+  return 'Earlier';
+}
+
 /** Compact inline action label for a notification destination. */
 function actionLabel(item: NotificationItem): string | null {
   const dest = notificationDestination(item.target_url);
@@ -74,11 +87,24 @@ export function NotificationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   const unread = items.filter((n) => !n.is_read).length;
 
   const sections = useMemo(() => {
-    const fresh = items.filter((n) => !n.is_read);
-    const earlier = items.filter((n) => n.is_read);
+    // Instagram-style grouping: Today / This week / Earlier. Unread state is
+    // conveyed per-row (highlighted background), not by section, so a read
+    // notification from today stays under "Today" instead of jumping sections.
+    const buckets: Record<'Today' | 'This week' | 'Earlier', NotificationItem[]> = {
+      Today: [],
+      'This week': [],
+      Earlier: [],
+    };
+    const sorted = [...items].sort((a, b) => {
+      const ta = Date.parse(a.created_at ?? '');
+      const tb = Date.parse(b.created_at ?? '');
+      return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+    });
+    for (const n of sorted) buckets[timeBucket(n.created_at)].push(n);
     const out: { title: string; data: NotificationItem[] }[] = [];
-    if (fresh.length) out.push({ title: 'New', data: fresh });
-    if (earlier.length) out.push({ title: 'Earlier', data: earlier });
+    for (const title of ['Today', 'This week', 'Earlier'] as const) {
+      if (buckets[title].length) out.push({ title, data: buckets[title] });
+    }
     return out;
   }, [items]);
 

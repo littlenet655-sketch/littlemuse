@@ -302,3 +302,66 @@ describe('parentAuthGate authorization window', () => {
     }
   });
 });
+
+describe('parentAuthGate preparation (pre-prompt)', () => {
+  it('reports already_authorized when the window is valid, without re-querying', async () => {
+    freshGate();
+    assert.deepStrictEqual(await gate.requireParentAuth(), { ok: true });
+    const checksBefore = bridge.calls.check;
+    assert.deepStrictEqual(await gate.prepareParentAuth(), { state: 'already_authorized' });
+    assert.equal(bridge.calls.check, checksBefore);
+  });
+
+  it('reports ready with status without firing the system prompt', async () => {
+    freshGate();
+    const prep = await gate.prepareParentAuth();
+    assert.equal(prep.state, 'ready');
+    if (prep.state === 'ready') {
+      assert.equal(prep.status.canAuthenticate, true);
+    }
+    assert.equal(bridge.calls.authenticate, 0);
+    assert.equal(gate.isParentAuthorized(), false);
+  });
+
+  it('reports no_credential without prompting when no screen lock exists', async () => {
+    freshGate();
+    bridge.checkParentDeviceAuth = async () => {
+      bridge.calls.check++;
+      return {
+        biometricAvailable: false,
+        biometricEnrolled: false,
+        deviceCredentialAvailable: false,
+        canAuthenticate: false,
+      };
+    };
+    const prep = await gate.prepareParentAuth();
+    assert.equal(prep.state, 'no_credential');
+    assert.equal(bridge.calls.authenticate, 0);
+    assert.equal(gate.isParentAuthorized(), false);
+  });
+
+  it('reports query_failed when the capability check throws (fail closed)', async () => {
+    freshGate();
+    bridge.checkParentDeviceAuth = async () => {
+      throw new Error('service down');
+    };
+    assert.deepStrictEqual(await gate.prepareParentAuth(), { state: 'query_failed' });
+    assert.equal(gate.isParentAuthorized(), false);
+  });
+
+  it('falls back to friendly copy when a native lockout carries no message', async () => {
+    freshGate();
+    bridge.authenticateParentDevice = async () => {
+      bridge.calls.authenticate++;
+      return { success: false, error: 'lockout' };
+    };
+    const outcome = await gate.requireParentAuth();
+    assert.equal(outcome.ok, false);
+    assert.ok(!outcome.ok && outcome.reason === 'failed', 'expected a failed outcome');
+    if (!outcome.ok && outcome.reason === 'failed') {
+      assert.equal(outcome.error, 'lockout');
+      assert.equal(outcome.message, gate.PARENT_AUTH_ERROR_COPY.lockout);
+    }
+    assert.equal(gate.isParentAuthorized(), false);
+  });
+});
