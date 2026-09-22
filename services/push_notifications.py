@@ -33,11 +33,16 @@ def register_device_token(
         return False
 
     try:
+        # One physical Expo token has exactly one current LittleNet owner.
+        # Re-registering after an account switch atomically transfers ownership
+        # instead of leaving the old account able to push private notifications
+        # to the same device.
         execute(
             """INSERT INTO user_device_tokens (user_id, platform, push_token, device_identifier, created_at, last_seen_at, revoked_at)
                VALUES (%s, %s, %s, %s, NOW(), NOW(), NULL)
-               ON CONFLICT (user_id, push_token)
-               DO UPDATE SET platform = EXCLUDED.platform,
+               ON CONFLICT (push_token)
+               DO UPDATE SET user_id = EXCLUDED.user_id,
+                             platform = EXCLUDED.platform,
                              device_identifier = COALESCE(EXCLUDED.device_identifier, user_device_tokens.device_identifier),
                              last_seen_at = NOW(),
                              revoked_at = NULL""",
