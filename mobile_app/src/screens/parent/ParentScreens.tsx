@@ -2803,7 +2803,7 @@ const styles = StyleSheet.create({
   reviewVideoBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   sensitivePreview: { position: 'relative', overflow: 'hidden', borderRadius: 14, marginTop: spacing.md },
   sensitivePlaceholder: { backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center' },
-  sensitiveOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.48)', padding: 20 },
+  sensitiveOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.48)', padding: 20 },
   sensitiveOverlayTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', marginTop: 8 },
   sensitiveOverlayText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 4 },
   reviewImage: { width: '100%', height: 280, borderRadius: 12, backgroundColor: colors.line, marginVertical: spacing.sm },
