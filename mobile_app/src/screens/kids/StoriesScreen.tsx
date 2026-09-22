@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
 import { fetchStoryViewers, type StoryViewer } from '../../api/kidsUpload';
+import { deleteStory } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -200,6 +201,26 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'Stories'>) {
   const previous = () => setIndex((value) => Math.max(0, value - 1));
   const expiryLabel = isOwnStory ? expiresInLabel(current.created_at) : null;
 
+  function confirmDeleteStory() {
+    if (!isOwnStory || !session?.token || !current?.post_id) return;
+    const storyId = current.post_id;
+    Alert.alert('Delete this story?', 'This removes it immediately and schedules its private media for deletion.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void deleteStory(session.token, storyId)
+            .then(() => {
+              setStories((rows) => rows.filter((row) => row.post_id !== storyId));
+              setIndex(0);
+            })
+            .catch(setError);
+        },
+      },
+    ]);
+  }
+
   // Instagram parity: swipe down anywhere on the viewer to close it. Only a
   // deliberate downward swipe claims the gesture — plain taps still reach the
   // tap zones below.
@@ -262,6 +283,11 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'Stories'>) {
               >
                 <Feather name="eye" size={14} color="#FFFFFF" />
                 <Text style={styles.viewersText}>{viewers.length}</Text>
+              </Pressable>
+            ) : null}
+            {isOwnStory ? (
+              <Pressable onPress={confirmDeleteStory} style={styles.deleteStory} accessibilityRole="button" accessibilityLabel="Delete story">
+                <Feather name="trash-2" size={15} color="#FFFFFF" />
               </Pressable>
             ) : null}
             <Pressable onPress={() => navigation.navigate('CreateTab', { kind: 'story' })} style={styles.create}>
@@ -377,6 +403,7 @@ const styles = StyleSheet.create({
   expiry: { color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: '600', marginTop: 1 },
   viewersBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14 },
   viewersText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  deleteStory: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(220,38,38,0.78)', alignItems: 'center', justifyContent: 'center' },
   create: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   createText: { color: colors.surface, fontWeight: '800', fontSize: 13 },
   close: { padding: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
