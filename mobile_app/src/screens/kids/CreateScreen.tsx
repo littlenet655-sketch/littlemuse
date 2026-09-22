@@ -59,9 +59,9 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
   );
 }
 
-export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+export function CreateScreen({ navigation, route }: ChildScreenProps<'CreateTab'>) {
   const { session } = useAuth();
-  const [kind, setKind] = useState<Kind>('post');
+  const [kind, setKind] = useState<Kind>(route.params?.kind ?? 'post');
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
@@ -75,6 +75,16 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<UploadSession | null>(null);
+
+  useEffect(() => {
+    if (route.params?.kind) {
+      setKind(route.params.kind);
+      setMedia(null);
+      resetPipelineState();
+      setStatus('');
+      setError(null);
+    }
+  }, [route.params?.kind]);
 
   // Never leave a native upload running after the screen goes away.
   useEffect(() => () => {
