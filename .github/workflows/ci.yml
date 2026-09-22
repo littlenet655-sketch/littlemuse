@@ -74,7 +74,7 @@ jobs:
           dbmate --no-dump-schema --migrations-dir db/migrations status
       - name: Run migration-critical backend tests
         run: python -m pytest -q tests/test_react_native_contract.py tests/test_phase2_upload_and_tags.py tests/test_ai_hardening.py tests/test_ai_safety_contract.py
-      - name: Run Agent-A state machine and face suites
+      - name: Run Agent-A state-machine regression suites
         run: python -m pytest -q tests/test_agent_a_state_machine_and_face.py
       - name: Run Agent-A targeted PostgreSQL concurrency and lease suites
         run: python -m pytest -q tests/test_agent_a_disposable_postgres.py
@@ -135,8 +135,14 @@ jobs:
           exit $fail
       - name: Install security scanners
         run: python -m pip install --upgrade pip pip-audit bandit
-      - name: Audit web/runtime dependencies
+      - name: Audit core web/runtime dependencies
         run: pip-audit -r requirements-core.txt --progress-spinner off
+      - name: Audit extended AI/text/safety dependencies
+        continue-on-error: true
+        run: |
+          pip-audit -r requirements-text.txt --progress-spinner off
+          pip-audit -r requirements-safety.txt --progress-spinner off
+          pip-audit -r requirements-ai.txt --progress-spinner off
       - name: Bandit application scan
         run: >-
           bandit -r admin auth child childMessage parent quiz safety services uploadPost mobile
