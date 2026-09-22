@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { login } from '../api/auth';
@@ -37,9 +37,7 @@ const MODES: {
   },
 ];
 
-// Admin sign-in stays available through the API, but it is not a peer login
-// choice for parents and children: only kids/parent appear as mode pills.
-const PILL_MODES = MODES.filter((m) => m.value !== 'admin');
+const PILL_MODES = MODES;
 
 export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
   return (
@@ -58,18 +56,39 @@ export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
           <Text style={styles.heroBody}>Parents verify first. Kids explore, create, and connect with safety built in.</Text>
         </View>
         <View style={styles.authActions}>
-          <Button label="Log in" onPress={() => navigation.navigate('Login')} />
-          <Button label="Parent sign-up" variant="secondary" onPress={() => navigation.navigate('ParentRegister')} />
-          <Button label="Kids face login" variant="secondary" onPress={() => navigation.navigate('FaceLogin')} />
+          <Text style={styles.rolePrompt}>Choose how you're entering LittleNet</Text>
+          {MODES.map((item) => (
+            <Pressable
+              key={item.value}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.label} sign in`}
+              style={styles.roleCard}
+              onPress={() => navigation.navigate('Login', { role: item.value })}
+            >
+              <View style={styles.roleIcon}>
+                <Feather name={item.icon} size={22} color={colors.brand} />
+              </View>
+              <View style={styles.roleCopy}>
+                <Text style={styles.roleTitle}>
+                  {item.value === 'admin' ? 'Moderator / Admin' : item.label}
+                </Text>
+                <Text style={styles.roleSubtitle}>{item.subtitle}</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={colors.muted} />
+            </Pressable>
+          ))}
+          <Button label="Create Parent Account" variant="secondary" onPress={() => navigation.navigate('ParentRegister')} />
+          <Button label="Kids Face Login" variant="secondary" onPress={() => navigation.navigate('FaceLogin')} />
         </View>
       </ScrollView>
     </Screen>
   );
 }
 
-export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
+export function LoginScreen({ navigation, route }: AuthScreenProps<'Login'>) {
   const { signIn } = useAuth();
-  const [mode, setMode] = useState<LoginMode>('kids');
+  const requestedRole = route.params?.role;
+  const [mode, setMode] = useState<LoginMode>(requestedRole ?? 'kids');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -81,6 +100,13 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
    * synchronously at the top of submit().
    */
   const submitBusyRef = useRef(false);
+
+  useEffect(() => {
+    if (requestedRole) {
+      setMode(requestedRole);
+      setError('');
+    }
+  }, [requestedRole]);
 
   const currentSubtitle =
     MODES.find((m) => m.value === mode)?.subtitle ?? 'A safe, AI-guided social world for children';
@@ -295,7 +321,30 @@ const styles = StyleSheet.create({
   wordmark: { color: colors.ink, fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   heroTitle: { color: colors.ink, fontSize: type.hero, lineHeight: 30, fontWeight: '800', textAlign: 'center', marginTop: spacing.md },
   heroBody: { color: colors.muted, fontSize: type.body, lineHeight: 21, textAlign: 'center', marginTop: spacing.sm, maxWidth: 310 },
-  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 12 },
+  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 10 },
+  rolePrompt: { color: colors.ink, fontSize: 15, fontWeight: '800', textAlign: 'center', marginBottom: 2 },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 72,
+    padding: 14,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  roleIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleCopy: { flex: 1 },
+  roleTitle: { color: colors.ink, fontSize: 15, fontWeight: '900' },
+  roleSubtitle: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
   modePillContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
