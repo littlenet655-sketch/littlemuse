@@ -10,18 +10,12 @@
     },
     "preview": {
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://netlittle2--littlenet-web-web.modal.run"
-      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true,
-      "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://netlittle2--littlenet-web-web.modal.run"
-      }
+      "autoIncrement": true
     }
   }
 }
