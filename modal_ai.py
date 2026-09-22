@@ -38,6 +38,9 @@ image = (
         "ultralytics>=8.3,<9",
         "opencv-python-headless==4.11.0.86",
         "scenedetect-headless>=0.7,<0.8",
+        # Burned-in phone/handle/URL screening for image uploads. CPU-only,
+        # no system OCR binary required; video-frame OCR remains disabled.
+        "rapidocr-onnxruntime>=1.4,<2",
         "Flask==3.1.3",
         "python-dotenv==1.2.2",
         "Pillow==12.3.0",
@@ -58,6 +61,8 @@ image = (
             "LITTLENET_DEVICE": "cuda",
             "LITTLENET_MODEL_CACHE": "/cache/models",
             "LITTLENET_ENABLE_TRAINED_IMAGE_ENSEMBLE": "1",
+            "LITTLENET_ENABLE_OCR": "1",
+            "LITTLENET_ENABLE_OCR_VIDEO_FRAMES": "0",
             "LITTLENET_TRAINED_IMAGE_V2_PATH": "/cache/models/littlenet_core_safety_v2.pth",
             "LITTLENET_TRAINED_IMAGE_V3_PATH": "/cache/models/littlenet_weapons_violence_v3.pth",
             # Text model resolves the same way as the image ensemble: the volume
@@ -283,6 +288,19 @@ def trained_image_preflight():
             report["error"] = f"{type(exc).__name__}: {exc}"
     else:
         report["loadable"] = False
+
+    # OCR is part of the production image-safety boundary. Deployment must
+    # fail before serving if its CPU backend is absent.
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        ocr = RapidOCR()
+        report["ocr"] = {"backend": "rapidocr-onnxruntime", "loadable": ocr is not None}
+    except Exception as exc:
+        report["ocr"] = {
+            "backend": "rapidocr-onnxruntime",
+            "loadable": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return report
 
 
@@ -507,8 +525,12 @@ def main(
     if trained_image_preflight_only:
         report = trained_image_preflight.remote()
         print(f"trained-image-preflight {json.dumps(report, sort_keys=True)}")
-        if not report.get("available") or not report.get("loadable"):
-            raise RuntimeError(f"LittleNet trained image ensemble is not ready: {report}")
+        if (
+            not report.get("available")
+            or not report.get("loadable")
+            or not (report.get("ocr") or {}).get("loadable")
+        ):
+            raise RuntimeError(f"LittleNet trained image/OCR safety stack is not ready: {report}")
         return
     if trained_text_preflight_only:
         report = trained_text_preflight.remote()
