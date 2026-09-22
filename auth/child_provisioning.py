@@ -12,6 +12,9 @@ from safety.policy import decide
 from safety.text_service import check_text
 from services.identity import validate_name, validate_username
 
+MIN_CHILD_AGE = 6
+MAX_CHILD_AGE = 16
+
 
 def create_child_for_verified_parent(parent_id, form):
     parent = fetch_one(
@@ -41,8 +44,10 @@ def create_child_for_verified_parent(parent_id, form):
         age = int(form.get('age'))
     except (TypeError, ValueError):
         raise ValueError('Enter the child age.')
-    if not 4 <= age <= 18:
-        raise ValueError('Child age must be between 4 and 18.')
+    if not MIN_CHILD_AGE <= age <= MAX_CHILD_AGE:
+        raise ValueError(
+            f'Child age must be between {MIN_CHILD_AGE} and {MAX_CHILD_AGE}.'
+        )
 
     password = form.get('password') or ''
     if len(password) < 8:
