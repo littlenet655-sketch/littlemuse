@@ -112,8 +112,12 @@ def request_password_reset(identifier: str):
             """
             SELECT pcm.parent_email, u.email AS parent_user_email, u.full_name AS parent_name
             FROM parent_child_map pcm
-            LEFT JOIN users u ON u.user_id = pcm.parent_id
-            WHERE pcm.child_id = %s AND (pcm.approved = TRUE OR pcm.approval_status = 'APPROVED')
+            JOIN users u ON u.user_id = COALESCE(pcm.verified_parent_id, pcm.parent_id)
+            WHERE pcm.child_id = %s
+              AND pcm.approved = TRUE
+              AND pcm.approval_status = 'APPROVED'
+              AND u.role = 'PARENT'
+              AND u.account_status = 'ACTIVE'
             ORDER BY pcm.map_id DESC LIMIT 1
             """,
             (user["user_id"],),
@@ -298,17 +302,10 @@ def parent_reset_child_password(parent_id: int, child_id: int, new_password: str
     if len(new_pwd) < 8:
         return False, "Child's new password must be at least 8 characters long."
 
-    # Validate parent ownership
-    mapping = fetch_one(
-        """
-        SELECT map_id FROM parent_child_map
-        WHERE child_id = %s AND (parent_id = %s OR verified_parent_id = %s)
-          AND (approved = TRUE OR approval_status = 'APPROVED')
-        LIMIT 1
-        """,
-        (child_id, parent_id, parent_id),
-    )
-    if not mapping:
+    # Reuse the canonical ownership gate so password reset cannot accept a
+    # pending/stale guardian mapping that Parent Mode itself would reject.
+    from parent.service import owns
+    if not owns(parent_id, child_id):
         return False, "Unauthorized: You can only reset passwords for your own approved children."
 
     new_hash = bcrypt.hashpw(new_pwd.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
