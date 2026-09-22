@@ -264,6 +264,8 @@ def api_login():
 # construction while ensuring `/api/mobile/v1/*` exists in the real Flask app.
 from mobile.api import register_mobile_api
 from mobile.admin_api import register_mobile_admin_api
+from mobile.stitch_api import register_mobile_stitch_api
 
 register_mobile_api(api_bp)
+register_mobile_stitch_api(api_bp)
 register_mobile_admin_api(api_bp)
