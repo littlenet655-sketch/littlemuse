@@ -100,6 +100,20 @@ export interface ActivityEvent {
   created_at?: string;
 }
 
+export interface ParentViewingInsights {
+  range_days: number;
+  summary: {
+    impressions: number;
+    reel_impressions: number;
+    watched_ms: number;
+    completions: number;
+    replays: number;
+    avg_reel_watch_ms: number;
+  };
+  categories: Array<{ category: string; views: number; watched_ms: number }>;
+  signals: Array<{ signal: string; count: number }>;
+}
+
 export interface AdminUser {
   user_id: number;
   username: string;
@@ -176,6 +190,10 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
 
 export function fetchParentActivity(token: string, childId: number): Promise<{ ok: boolean; events: ActivityEvent[] }> {
   return apiRequest(routes.parentActivity(childId), {}, token);
+}
+
+export function fetchParentInsights(token: string, childId: number): Promise<{ ok: boolean } & ParentViewingInsights> {
+  return apiRequest(routes.parentInsights(childId), {}, token);
 }
 
 /** Parent sets a new password for their linked child (backend enforces 8+ chars). */
