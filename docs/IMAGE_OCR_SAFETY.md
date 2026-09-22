@@ -1,64 +1,56 @@
 # Image OCR Safety (burned-in text screening)
 
-`safety/visual_service.py::check_image` can screen burned-in text (phone
-numbers, social handles, URLs, grooming language rendered into an image)
-through optical character recognition, then route the extracted text through
-the **same** `check_text` + PII policy used for user-typed text. No policy
-logic is duplicated in the OCR stage.
+`safety/visual_service.py::check_image` screens burned-in text such as phone
+numbers, social handles, URLs, and unsafe language through OCR, then routes the
+extracted text through the same text-moderation and PII policy used for typed
+content. OCR never replaces the trained image/YOLO evidence; it can only add
+safety evidence.
 
-## Enabling OCR (requires installing a backend)
+## Production configuration
 
-**No OCR dependency ships in `requirements-*.txt`.** OCR is OFF by default
-(`LITTLENET_ENABLE_OCR` unset). To enable it:
+Production image moderation ships `rapidocr-onnxruntime` in the LittleNet AI
+image and enables `LITTLENET_ENABLE_OCR=1`. Ordinary image uploads are
+moderated by the scale-to-zero Modal CPU function
+`littlenet-ai.moderate_image_upload_cpu`, which calls the shared
+`check_image()` implementation.
 
-1. Install **one** backend package in the image-moderation environment:
-   - `rapidocr-onnxruntime` (preferred: no system binary needed), or
-   - `easyocr`, or
-   - `pytesseract` **plus** the `tesseract` system binary.
-2. Set `LITTLENET_ENABLE_OCR=1`.
-3. Restart the worker so the guarded import is re-attempted.
+The trained-image deployment preflight imports and initializes RapidOCR.
+Deployment is blocked if that backend cannot load.
 
-The stage tries backends in the order rapidocr → easyocr → pytesseract and
-uses the first that imports and initializes.
+Alternative local development backends remain supported in this order:
+`rapidocr-onnxruntime`, `easyocr`, then `pytesseract` plus the Tesseract
+system binary.
 
-## Failure posture (fail closed)
+## Bounded processing
 
-- **Flag on, no backend installed:** the stage degrades gracefully — it logs
-  once, records `ocr_unavailable` in signal errors, and marks the image as a
-  partial safety failure (→ REVIEW). It never silently pretends OCR ran.
-- **OCR errors / timeouts:** recorded as `ocr_failed` / `ocr_timeout`,
-  partial safety evidence only. An OCR failure can push an image to REVIEW at
-  most; it never weakens or bypasses the visual decision, and it never
-  escalates the image to a total safety failure on its own.
-- **Bounded processing:** the image is downscaled (max 1024px) before OCR and
-  the OCR call is capped by `LITTLENET_OCR_TIMEOUT_SECONDS` (default 30s).
-- **Video frames:** per-frame OCR is off unless `LITTLENET_ENABLE_OCR_VIDEO_FRAMES=1`
-  is also set, so frame sampling (up to 60 frames) stays within its time budget.
+- Images are downscaled to at most 1024 px before OCR.
+- OCR is bounded by `LITTLENET_OCR_TIMEOUT_SECONDS` (30 seconds by default).
+- `LITTLENET_ENABLE_OCR_VIDEO_FRAMES=0` remains the production default so
+  sampled video frames do not multiply OCR cost.
+- OCR output is capped and only redacted text is retained in moderation
+  evidence.
 
-## How detections are honored
+## Failure posture
 
-- OCR text → `text_service.check_text`: scores merge by **max** (visual
-  evidence never lowered); deterministic hard-block flags (grooming,
-  self-harm, severe abuse, dangerous challenge, sexual) propagate, so
-  `policy.decide` hard-blocks burned-in predatory text.
-- OCR text → `pii_service.scan_pii`: when PII is detected with
-  `policy_action == BLOCK` (e.g. a burned-in phone number), the image signals
-  get `deterministic_ocr_pii=True` and `policy.decide` returns
-  `BLOCK / "burned-in contact/PII text detected in image (OCR)"`.
-- Only the **redacted** OCR text (`ocr_redacted_text`, ≤500 chars) is kept in
-  moderation evidence; raw PII is not persisted.
+- Missing/unavailable OCR while the stage is enabled records
+  `ocr_unavailable` and marks partial safety failure.
+- OCR errors/timeouts record `ocr_failed` / `ocr_timeout`.
+- OCR failure never weakens another detector's decision and never creates an
+  unsafe ALLOW.
+- Extracted contact/PII that maps to BLOCK sets
+  `deterministic_ocr_pii=True`, so the shared policy blocks the image.
+- Deterministic grooming, self-harm, severe-abuse, dangerous-challenge and
+  sexual text flags are propagated into the image safety decision.
 
-## Tier limitation
+## Privacy
 
-OCR runs in the **local** `check_image` path. When the Modal CPU tier or the
-remote AI server handles an image, OCR is that tier's responsibility and is
-not run locally. Extending OCR to the Modal worker image is future work and
-must follow the same fail-closed contract above.
+Only the redacted OCR representation (`ocr_redacted_text`, maximum 500
+characters) is stored with moderation evidence. Raw extracted PII is not
+persisted.
 
 ## Tests
 
-`tests/test_image_ocr_safety.py` covers: PII text merged from OCR routes to a
-hard BLOCK via `policy.decide`; deterministic text flags propagate; visual
-scores are never weakened; OCR errors degrade to partial evidence; the stage
-is a no-op when the flag is off; and graceful degradation when no backend is
-installed (synthetic PIL fixtures stand in for a real OCR engine).
+`tests/test_image_ocr_safety.py` covers PII hard-blocking, deterministic text
+flags, max-score merging, fail-closed OCR errors, the disabled-stage behavior,
+and graceful backend failure. `tests/test_react_native_contract.py` also
+locks the production Modal dependency/feature-flag/preflight contract.
