@@ -81,7 +81,7 @@ child/            Child feed/discovery/profile logic
 childMessage/     Approved-only messaging
 parent/           Parent dashboard and controls
 quiz/             Learning and quiz gates
-safety/           AI safety, face and moderation services
+safety/           AI safety and moderation services
 services/         Media, controls, usage, queue and shared services
 database/         PostgreSQL schema and migrations
 uploadPost/       Existing post/reel/story web pipeline
