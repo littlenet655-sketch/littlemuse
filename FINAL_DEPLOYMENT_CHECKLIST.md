@@ -13,7 +13,7 @@ Pre-deploy checklist for the fully-fixed tree. Nothing below has been executed a
 
 - [ ] `CREATE EXTENSION IF NOT EXISTS vector;`
 - [ ] `python tools/init_db.py` (baseline; idempotent, refuses destructive content)
-- [ ] `dbmate --no-dump-schema --migrations-dir db/migrations up` → expect 21 applied, 0 pending
+- [ ] `dbmate --no-dump-schema --migrations-dir db/migrations up` → expect the current migration set applied with 0 pending
 - [ ] Re-run `dbmate up` → expect no-op (idempotency check)
 - [ ] Back up before first production migration.
 
@@ -22,13 +22,13 @@ Pre-deploy checklist for the fully-fixed tree. Nothing below has been executed a
 - [ ] Private R2 buckets for quarantine + published media; signed-URL TTLs as configured.
 - [ ] Confirm direct-upload presign flow works end-to-end in staging before enabling.
 - [ ] Confirm the media worker (Modal or local) processes `PROCESSING` jobs: BLOCK / REVIEW / ALLOW paths.
-- [ ] Confirm `capture_r2_delete_targets` coverage if post deletion is later added (gap 3 — not in this tree).
+- [ ] Confirm native post/story deletion removes database visibility immediately and queues/reconciles private R2 cleanup.
 
 ## 4. Backend deploy
 
 - [ ] Install `requirements.txt` (+ `requirements-ai/safety/modal` as needed for the worker tier).
 - [ ] Run the full pytest suite against a staging DB before promoting.
-- [ ] Verify 238 Flask routes register (`create_app()` smoke).
+- [ ] Verify the real Flask app boots with no duplicate endpoints and the mobile route-map regression tests pass.
 - [ ] Confirm rate limits, CSRF exemptions, and bearer auth on `/api/mobile/*`.
 
 ## 5. Mobile release
