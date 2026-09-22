@@ -30,7 +30,7 @@ const MODES: {
     subtitle: 'Parent supervision, screen-time & safety controls',
   },
   {
-    label: 'Admin',
+    label: 'Safety Moderator',
     icon: 'shield',
     value: 'admin',
     subtitle: 'Safety moderator & platform admin sign-in',
