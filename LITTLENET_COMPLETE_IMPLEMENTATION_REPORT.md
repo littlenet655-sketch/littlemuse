@@ -2,7 +2,7 @@
 
 **Project:** LittleNet — Child-Centric Social Platform with AI-Based Content Filtering  
 **Project type:** Major/final-year college project  
-**Current implementation:** Flask + PostgreSQL web application with Android WebView wrapper  
+**Current implementation:** React Native / Expo mobile client + Flask API + PostgreSQL  
 **Verification date:** 08 September 2026
 
 ## 1. Project purpose
@@ -14,7 +14,7 @@ The current implementation is intentionally focused on the college-project scope
 ## 2. Current architecture
 
 ```text
-Child / Parent / Admin browser or Android WebView
+Child / Parent / Admin React Native client
                      |
                      v
               Flask application
@@ -49,7 +49,7 @@ Implemented account protections include:
 - parent-first child management/approval
 - approved parent-child mapping
 - child Face Login/liveness flow
-- guardian/adult liveness checks for sensitive activation flows
+- parent email-OTP activation plus Android system device authentication for Parent Mode
 - live account-status validation on protected routes
 
 A parent must have an ACTIVE account and an approved mapping to access protected child information through the canonical ownership check.
@@ -202,14 +202,14 @@ Database calls use parameterized values. Dynamic SQL usage is covered by a dedic
 
 ## 13. Android application
 
-The Android project under `android/` is a WebView wrapper around the same LittleNet HTTPS backend. It provides the mobile container needed for the college APK while keeping authentication, moderation, relationships and parent controls server-side.
+The Android client is the React Native / Expo project under `mobile_app/`. It calls the same HTTPS Flask APIs while keeping moderation, relationships, parent controls, and database authority server-side.
 
 The current `main` commit `304f35052e033726b00e9b7e229141b42d32fd6c` was successfully compiled in GitHub Actions.
 
 Verified artifact:
 
 - package: `com.littlenet.app`
-- artifact: `LittleNet-debug-apk`
+- release workflow: `.github/workflows/release-mobile.yml` (EAS preview APK, credential-gated)
 - artifact ZIP size: 2,212,589 bytes
 - digest: `sha256:f38cc4e79a14bcf7de405e2d735a5869f11716cf6aab853809ebbfb2c0c43f65`
 
@@ -217,16 +217,16 @@ Verified artifact:
 
 For the current merged baseline:
 
-- Python tests: **331 passed, 1 skipped**
+- backend regression count is taken from the current GitHub Actions run; do not reuse historical counts
 - preflight: **PASS**
 - route audit: **130 routes, 0 errors**
 - template audit: **76 templates, 0 errors**
-- scope check: **53/53 PASS**
+- route/source/security audits are enforced by CI; use only the current run as evidence
 - dynamic SQL audit: **PASS**
 - Python security scan: **PASS**
 - secret scan: **PASS**
 - MediaPipe asset integrity: **PASS**
-- Android APK build: **PASS**
+- Android Expo export is CI-validated; final APK evidence must come from the current EAS release workflow
 - clean submission-package workflow: **PASS**
 - disposable PostgreSQL Child/Parent/Admin role smoke: **PASS**
 
@@ -234,14 +234,14 @@ The ordinary test job skips the real-PostgreSQL smoke because it needs a databas
 
 ## 15. Deployment status
 
-The repository includes a Modal deployment workflow that can deploy web + AI services, apply database upgrades, run preflight, verify `/healthz` and `/readyz`, run a browser smoke test, and build an APK against the verified live URL.
+The repository includes a Modal deployment workflow that can deploy web + AI services, apply database upgrades, run preflight, verify `/healthz` and `/readyz`, run a browser smoke test, and validate the live APIs; the separate EAS release workflow builds an APK against the configured HTTPS URL.
 
 The latest post-merge deployment did not execute because the GitHub repository currently lacks:
 
 - `MODAL_TOKEN_ID`
 - `MODAL_TOKEN_SECRET`
 
-The workflow failed at credential verification before any deployment command ran. Therefore the repository/source/APK are verified, but the exact current `main` commit must not be claimed as live until the Modal workflow is rerun successfully after those secrets are configured.
+The workflow failed at credential verification before any deployment command ran. Therefore the repository/source are verified, but the exact current `main` commit must not be claimed as live until the Modal workflow is rerun successfully after those secrets are configured.
 
 ## 16. Known limitations and honest viva framing
 
@@ -253,6 +253,6 @@ The workflow failed at credential verification before any deployment command ran
 
 ## 17. Final college-project status
 
-LittleNet now has a coherent college-submission implementation with working social features, parental supervision, moderation policy, role authorization, Face Login/liveness, learning features, database persistence, Admin/Moderator controls, automated tests, security audits and a current-commit Android APK.
+LittleNet now has a coherent college-submission implementation with working social features, parental supervision, moderation policy, role authorization, Face Login/liveness, learning features, database persistence, Admin/Moderator controls, automated tests, security audits and a credential-gated current-commit Android release workflow.
 
 For final submission, the remaining external release step is to configure the Modal GitHub Actions credentials and obtain a fully green live-deployment evidence run. The academic report/PPT should use the same locked scope described here and should not present speech transcription as an active feature.
