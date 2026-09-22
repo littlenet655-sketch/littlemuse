@@ -2743,17 +2743,23 @@ def register_mobile_api(bp):
         try:
             enroll(child_id, path)
             b_key = secrets.token_hex(32)
-            execute(
+            persisted = execute(
                 """UPDATE face_profiles
                    SET biometric_key=COALESCE(face_profiles.biometric_key, %s), updated_at=NOW()
-                   WHERE child_id=%s""",
+                   WHERE child_id=%s
+                   RETURNING biometric_key""",
                 (b_key, child_id),
-            )
+                returning=True,
+            ) or {}
+            # Re-enrollment must return the key actually stored in PostgreSQL.
+            # If an existing key was preserved by COALESCE, returning the newly
+            # generated candidate would make later device challenge signatures fail.
+            persisted_key = persisted.get("biometric_key") or b_key
             return jsonify(
                 ok=True,
                 child_id=child_id,
                 face_enrolled=True,
-                biometric_key=b_key,
+                biometric_key=persisted_key,
                 quiz_required=bool(needs_onboarding_quiz(child_id)),
             )
         except Exception as exc:

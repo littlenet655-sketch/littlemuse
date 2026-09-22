@@ -144,3 +144,27 @@ def test_parent_child_face_enroll_failure_and_cleanup(client):
         # Ensure temp file was cleaned up even when enroll raised
         assert len(recorded_path) == 1
         assert not os.path.exists(recorded_path[0])
+
+
+def test_parent_child_face_reenroll_returns_persisted_biometric_key(client):
+    headers = _parent_headers(101)
+    existing_key = "a" * 64
+
+    with patch("mobile.api.fetch_one", return_value={"user_id": 101, "role": "PARENT", "account_status": "ACTIVE"}), \
+         patch("mobile.api.owns", return_value=True), \
+         patch("mobile.api.enroll", return_value=True), \
+         patch("mobile.api.execute", return_value={"biometric_key": existing_key}) as execute, \
+         patch("mobile.api.needs_onboarding_quiz", return_value=False):
+
+        res = client.post(
+            "/api/mobile/v1/parent/children/202/face/enroll",
+            headers=headers,
+            data={"photo": _dummy_image_file()},
+            content_type="multipart/form-data",
+        )
+
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["biometric_key"] == existing_key
+    assert execute.call_args.kwargs["returning"] is True
+    assert "RETURNING biometric_key" in execute.call_args.args[0]

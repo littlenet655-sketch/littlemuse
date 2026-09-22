@@ -123,8 +123,12 @@ class RealAppAcceptanceE2ETest(unittest.TestCase):
             'identity_attack': 0.0, 'insult': 0.0, 'threat': 0.0, 'sexual_explicit': 0.0
         }
         # Do NOT mock evaluate - run real evaluate() through the full moderation engine
+        # The trained-text tier is disabled here via its own kill-switch: it has
+        # dedicated regression coverage (tests/test_trained_text_regressions.py),
+        # while this E2E is about the chat send/receive/reply/persist flow.
         with patch("safety.remote_client.enabled", return_value=False), \
-             patch("safety.text_service._detox_scores", return_value=clean_scores):
+             patch("safety.text_service._detox_scores", return_value=clean_scores), \
+             patch.dict(os.environ, {"LITTLENET_ENABLE_TRAINED_TEXT": "0"}):
             # 1. A sends safe message
             res = self.client.post(
                 f'/api/mobile/v1/kids/chat/{self.bid}',
