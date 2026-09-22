@@ -4,7 +4,7 @@ Use this order so the demo follows the locked current project instead of older a
 
 | Demo screen / action | What is happening | AI / service to mention |
 |---|---|---|
-| Parent signup | Email ownership and adult guardian onboarding | OTP + live camera + server-side anti-spoof/adult verification |
+| Parent signup | Email ownership and guardian onboarding; Parent Mode is device-auth gated | Email OTP + Android biometric/PIN gate |
 | Parent creates child | Parent-first account and initial controls | PostgreSQL transaction + email confirmation |
 | Kids Home | Safe Feed/Stories/Clips plus Learn | Parent Controls + compulsory quiz gate |
 | Find friends | Non-global school/network discovery | PostgreSQL authorization rules |
@@ -16,10 +16,9 @@ Use this order so the demo follows the locked current project instead of older a
 | Approved-only chat | Two-parent-approved friends only; supported text/media are moderated | social authorization + safety policy |
 | Screen time + quiet hours | Server-owned limits and lockouts | usage/control services + PostgreSQL |
 | Child login | Child password login plus compulsory onboarding quiz | Auth routes + quiz service |
-| Live Safety | Camera frames sampled without retaining normal frames | fail-closed visual moderation |
 | Admin moderation | Review signals/audit and removal actions | moderation events + audit log |
 | Learning | Age-group quizzes/challenges | seeded PostgreSQL quiz data |
-| Android app | WebView uses the same verified HTTPS backend | same Flask + AI safety APIs |
+| Android app | React Native / Expo client uses the same verified HTTPS backend | bearer-auth Flask + AI safety APIs |
 
 ## One-sentence architecture answer
 
