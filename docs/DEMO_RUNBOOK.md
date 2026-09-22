@@ -12,7 +12,7 @@
 
 1. Parent login and dashboard summaries.
 2. Child detail, screen usage, and weekly quiz summary.
-3. Child face-first login and any required quiz gate.
+3. Child password login and the required onboarding/recurring quiz gate.
 4. Kids feed, discover, reels, stories, and profile.
 5. Upload the prepared safe image through direct upload.
 6. Show PROCESSING and the resulting ALLOWED profile/feed refresh.
@@ -27,7 +27,7 @@
 
 - Backend unavailable: confirm the non-secret base URL and `/api/mobile/v1/health`; do not point the app at an unapproved production environment.
 - Login rejected: confirm the live account is ACTIVE and the selected role matches; do not bypass verification.
-- Child remains gated: complete the face or quiz step reported by `/api/mobile/v1/me`.
+- Child remains gated: complete the quiz step reported by `/api/mobile/v1/me`.
 - Upload stalled: use the existing status/redrive contract; do not publish quarantine bytes manually.
 - REVIEW preview unavailable: retain the event and retry the authorized delivery path; never make the bucket public.
 - Controls appear stale: pull-to-refresh the Child/Parent screen. The next protected Child request is authoritative.
