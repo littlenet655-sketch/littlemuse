@@ -4,7 +4,7 @@
 # safety.text_service.check_text() on registration metadata (child name,
 # school, class, location, bio) before allowing account creation. That
 # currently pulls in the *entire* requirements-ai.txt stack transitively
-# (nudenet, ultralytics/YOLO, faster-whisper, deepface, tensorflow) even
+# (NudeNet and Ultralytics/YOLO) even
 # though none of those models are used for text. That couples basic parent
 # onboarding to a multi-GB install and several unrelated model downloads
 # that have nothing to do with checking a name field.
@@ -17,7 +17,7 @@
 #
 -r requirements-core.txt
 numpy==1.26.4
-torch>=2.2,<2.8
+torch>=2.13,<2.14
 transformers>=5.0  # v5 verified end-to-end with littlenet_text_safety (checkpoint saved under transformers 5.0.0; 4.x breaks predict())
 detoxify==0.5.2
 # Declared dependency of detoxify==0.5.2 (requires sentencepiece>=0.1.94);
