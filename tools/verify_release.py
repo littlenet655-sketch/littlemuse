@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import sys
 import zipfile
 
@@ -18,6 +19,20 @@ required = [
     '.github/workflows/react-native.yml', '.github/workflows/release-mobile.yml',
     '.github/workflows/deploy-modal.yml',
 ]
+
+# Known model binaries: exact sizes + SHA-256 of the verified artifacts.
+# Legit sidecars (e.g. tokenizer_config.json at 322 bytes) are not in this
+# map and must never trip the stub tripwire.
+MODEL_BINARIES = {
+    'models/littlenet_core_safety_v2.pth': (
+        16335485, '8a9ccfbfd5f59b65143bb90131750db75ff54b895e82d31af04b1e2ccafd431c'),
+    'models/littlenet_weapons_violence_v3.pth': (
+        16327011, 'f028ddfa0264ad9570ec6411666143eb57ec9f9159ca218dd6e27f2c413591e8'),
+    'models/littlenet_text_safety/model.safetensors': (
+        541351212, '7eb1f37efdd95a1f363ed76377e65e512c2f986140a50fea404cdcd5598fe875'),
+}
+# Only these suffixes are binary weight artifacts subject to the stub tripwire.
+STUB_TRIPWIRE_SUFFIXES = {'.pth', '.safetensors', '.bin'}
 errors = []
 with zipfile.ZipFile(ZIP) as z:
     names = z.namelist()
@@ -34,10 +49,33 @@ with zipfile.ZipFile(ZIP) as z:
             errors.append(f'forbidden duplicate Android root: {name}')
         if p.suffix in {'.pyc', '.pyo', '.jks', '.keystore', '.apk', '.aab'}:
             errors.append(f'forbidden build/sensitive suffix: {name}')
-        # Pointer-stub tripwire: real model artifacts are megabytes; an LFS
-        # pointer stub is ~130 bytes of text.
-        if p.parts and p.parts[0] == 'models' and z.getinfo(name).file_size < 1000:
+        # Pointer-stub tripwire: real model weight artifacts are megabytes; an
+        # LFS pointer stub is ~130 bytes of text. Restricted to known binary
+        # weight suffixes so legit small sidecars (e.g. tokenizer_config.json)
+        # never trip it. Binary entries additionally fail the exact
+        # size + SHA-256 check below.
+        if (p.parts and p.parts[0] == 'models'
+                and p.suffix in STUB_TRIPWIRE_SUFFIXES
+                and z.getinfo(name).file_size < 1000):
             errors.append(f'model entry too small, possible LFS pointer stub: {name}')
+
+    # Exact integrity check for the known model binaries.
+    for mname, (expected_size, expected_sha) in MODEL_BINARIES.items():
+        if mname not in names:
+            continue  # already reported above as a missing required file
+        info = z.getinfo(mname)
+        if info.file_size != expected_size:
+            errors.append(
+                f'model binary size mismatch: {mname} is {info.file_size} bytes, '
+                f'expected {expected_size}')
+        with z.open(mname) as fh:
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: fh.read(1 << 20), b''):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_sha:
+            errors.append(
+                f'model binary hash mismatch: {mname} sha256 {digest.hexdigest()}, '
+                f'expected {expected_sha}')
 
 print('RELEASE_FILES', len(names), 'ERRORS', len(errors))
 for error in errors:
