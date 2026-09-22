@@ -1,6 +1,6 @@
 # LittleNet Final E2E Matrix
 
-_Last re-audited: 20 September 2026_
+_Last re-audited: 22 September 2026_
 
 Status values:
 
@@ -15,15 +15,15 @@ Automated unit/integration tests are recorded separately from live/device journe
 | Validation | State |
 |---|---|
 | PostgreSQL/pgvector bootstrap + migrations | AUTOMATED_TESTED |
-| Backend regression | AUTOMATED_TESTED on base main; current re-audit branch must pass before merge |
-| Python security | AUTOMATED_TESTED on base main |
-| Gitleaks | AUTOMATED_TESTED on base main |
+| Backend regression | AUTOMATED_TESTED on current main |
+| Python security | AUTOMATED_TESTED on current main |
+| Gitleaks | AUTOMATED_TESTED on current main |
 | Role PostgreSQL E2E | AUTOMATED_TESTED |
-| React Native typecheck/tests/export | AUTOMATED_TESTED on base main |
-| Expo dependency check | AUTOMATED_TESTED on base main |
+| React Native typecheck/tests/export | AUTOMATED_TESTED on current main |
+| Expo dependency check | AUTOMATED_TESTED on current main |
 | R2 private media contracts | AUTOMATED_TESTED |
 | Recommendation/feed contracts | AUTOMATED_TESTED |
-| Reel player/JIT credential contracts | implemented in current re-audit branch; CI pending |
+| Reel player/JIT credential contracts | AUTOMATED_TESTED on current main |
 | Cloudflare Stream private adapter | implemented in current re-audit branch; LIVE UNVERIFIED |
 
 ## Monday critical journey
@@ -33,9 +33,8 @@ Automated unit/integration tests are recorded separately from live/device journe
 | Fresh APK install/launch | UNVERIFIED | EAS workflow now waits for/downloads preview APK | build + Android install |
 | Parent registration | UNVERIFIED CURRENT DEPLOY | API/contracts implemented | unique clean live account |
 | Resend OTP delivered + verified | UNVERIFIED CURRENT DEPLOY | secure OTP + delivery lifecycle implemented | live webhook + real inbox |
-| Guardian live-face | UNVERIFIED | automated face/state contracts | physical camera |
-| Child creation + face enrollment | UNVERIFIED | ownership/gate contracts | physical camera |
-| Child face login | UNVERIFIED | authentication contracts | physical camera |
+| Parent creates child account | UNVERIFIED LIVE/DEVICE | ownership/creation contracts | current deployment + APK |
+| Child password login | UNVERIFIED LIVE/DEVICE | authentication contracts | current deployment + APK |
 | Quiz gate | UNVERIFIED DEVICE | backend/mobile contracts | current APK |
 | Feed renders | UNVERIFIED DEVICE | feed/session/recommendation tests | current APK |
 | Reels render/play | UNVERIFIED DEVICE | bounded player/JIT/buffer tests | physical decoder/network |
