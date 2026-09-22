@@ -4,8 +4,24 @@ from database.connection import fetch_one,fetch_all,execute
 def profile_exists(cid):return bool(fetch_one('SELECT 1 FROM child_profiles WHERE child_id=%s',(cid,)))
 def get_child_profile(cid):return fetch_one('SELECT * FROM child_profiles WHERE child_id=%s',(cid,))
 def create_child_profile(cid,form):
-    m=fetch_one('SELECT parent_id FROM parent_child_map WHERE child_id=%s',(cid,)); dob=form.get('date_of_birth') or None
-    execute('''INSERT INTO child_profiles(child_id,parent_id,full_name,date_of_birth,school_name,location,current_class,bio) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(child_id) DO UPDATE SET full_name=EXCLUDED.full_name,date_of_birth=EXCLUDED.date_of_birth,school_name=EXCLUDED.school_name,location=EXCLUDED.location,current_class=EXCLUDED.current_class,bio=EXCLUDED.bio,updated_at=NOW()''',(cid,(m or {}).get('parent_id'),form.get('full_name','').strip(),dob,form.get('school_name'),form.get('location'),form.get('current_class'),form.get('bio')))
+    """Create/update child-editable public profile fields.
+
+    School/class/location/DOB are parent-managed identity context because they
+    influence child discovery. Child profile edits must never be able to forge
+    that relationship context. Parent provisioning writes those fields directly.
+    """
+    m=fetch_one("""SELECT parent_id FROM parent_child_map
+                   WHERE child_id=%s AND approved=TRUE AND approval_status='APPROVED'
+                   ORDER BY map_id LIMIT 1""",(cid,))
+    execute(
+        """INSERT INTO child_profiles(child_id,parent_id,full_name,bio)
+           VALUES(%s,%s,%s,%s)
+           ON CONFLICT(child_id) DO UPDATE SET
+             full_name=EXCLUDED.full_name,
+             bio=EXCLUDED.bio,
+             updated_at=NOW()""",
+        (cid,(m or {}).get('parent_id'),form.get('full_name','').strip(),form.get('bio')),
+    )
 
 def is_following(a,b):
     """Friendship is symmetric and active only after both parent approvals."""
@@ -41,6 +57,7 @@ def discoverable_child_ids(cid):
           SELECT cp.school_name,cp.current_class,pcm.parent_id
           FROM child_profiles cp
           LEFT JOIN parent_child_map pcm ON pcm.child_id=cp.child_id
+            AND pcm.approved=TRUE AND pcm.approval_status='APPROVED'
           WHERE cp.child_id=%s LIMIT 1
         ), approved_friends AS (
           SELECT following_child_id friend_id FROM followers
@@ -49,9 +66,13 @@ def discoverable_child_ids(cid):
           SELECT child_id FROM followers
             WHERE following_child_id=%s AND approved=TRUE AND approval_stage='ACTIVE'
         ), pending_peers AS (
-          SELECT following_child_id peer_id FROM followers WHERE child_id=%s AND approved=FALSE
+          SELECT following_child_id peer_id FROM followers
+            WHERE child_id=%s AND approved=FALSE
+              AND approval_stage IN ('REQUESTED','SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')
           UNION
-          SELECT child_id FROM followers WHERE following_child_id=%s AND approved=FALSE
+          SELECT child_id FROM followers
+            WHERE following_child_id=%s AND approved=FALSE
+              AND approval_stage IN ('REQUESTED','SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')
         ), network AS (
           SELECT DISTINCT CASE WHEN f.child_id=af.friend_id THEN f.following_child_id ELSE f.child_id END candidate_id
           FROM approved_friends af
@@ -62,6 +83,7 @@ def discoverable_child_ids(cid):
         FROM users u
         JOIN child_profiles cp ON cp.child_id=u.user_id
         LEFT JOIN parent_child_map pcm ON pcm.child_id=u.user_id
+          AND pcm.approved=TRUE AND pcm.approval_status='APPROVED'
         WHERE u.role='CHILD' AND u.account_status='ACTIVE' AND u.user_id<>%s
           AND u.user_id NOT IN (
              SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
@@ -99,6 +121,7 @@ def discoverable_children(cid,search_term=None,limit=30):
     return fetch_all('''WITH viewer AS (
           SELECT cp.school_name,cp.current_class,pcm.parent_id
           FROM child_profiles cp LEFT JOIN parent_child_map pcm ON pcm.child_id=cp.child_id
+            AND pcm.approved=TRUE AND pcm.approval_status='APPROVED'
           WHERE cp.child_id=%s LIMIT 1
         )
         SELECT u.user_id,u.full_name,u.username,cp.profile_picture,
@@ -116,6 +139,7 @@ def discoverable_children(cid,search_term=None,limit=30):
         FROM users u
         JOIN child_profiles cp ON cp.child_id=u.user_id
         LEFT JOIN parent_child_map pcm ON pcm.child_id=u.user_id
+          AND pcm.approved=TRUE AND pcm.approval_status='APPROVED'
         WHERE u.user_id=ANY(%s)
           AND (%s='' OR u.full_name ILIKE %s OR u.username ILIKE %s)
         ORDER BY CASE
