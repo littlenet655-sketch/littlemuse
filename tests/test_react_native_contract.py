@@ -74,6 +74,6 @@ def test_real_flask_app_exposes_native_social_routes_once():
         "/api/mobile/v1/kids/chat/<int:peer_id>/share",
         "/api/mobile/v1/parent/child/<int:child_id>/viewing-insights",
     ]:
-        assert expected in rules
+        assert rules.count(expected) == 1
     assert rules.count("/api/mobile/v1/kids/posts/<int:post_id>") == 1
 
