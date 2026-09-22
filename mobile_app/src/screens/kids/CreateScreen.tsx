@@ -59,9 +59,10 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
   );
 }
 
-export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>) {
   const { session } = useAuth();
-  const [kind, setKind] = useState<Kind>('post');
+  const requestedKind = (route.params as { createKind?: Kind } | undefined)?.createKind;
+  const [kind, setKind] = useState<Kind>(requestedKind ?? 'post');
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
@@ -75,6 +76,18 @@ export function CreateScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<UploadSession | null>(null);
+
+  // Story/reel entry points can preselect the composer mode without duplicating
+  // the upload UI. A normal Create-tab visit still defaults to a post.
+  useEffect(() => {
+    if (requestedKind && requestedKind !== kind && !busy) {
+      setKind(requestedKind);
+      setMedia(null);
+      resetPipelineState();
+      setStatus('');
+      setError(null);
+    }
+  }, [requestedKind]);
 
   // Never leave a native upload running after the screen goes away.
   useEffect(() => () => {
