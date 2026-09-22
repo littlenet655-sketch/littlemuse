@@ -3085,7 +3085,49 @@ def register_mobile_api(bp):
                ORDER BY created_at DESC LIMIT 100""",
             (child_id,),
         )
-        return jsonify(ok=True, events=_clean(rows))
+        impression_summary = fetch_one(
+            """SELECT
+                   COUNT(*)::int AS views_7d,
+                   COUNT(*) FILTER (WHERE surface='REELS')::int AS reels_watched_7d,
+                   COUNT(*) FILTER (WHERE surface='REELS' AND completed=TRUE)::int AS reels_completed_7d,
+                   COALESCE(SUM(watched_ms),0)::bigint AS watched_ms_7d,
+                   COALESCE(SUM(watched_ms) FILTER (WHERE surface='REELS'),0)::bigint AS reel_watched_ms_7d,
+                   COALESCE(SUM(replay_count),0)::int AS replay_count_7d
+               FROM content_impressions
+               WHERE child_id=%s AND created_at >= NOW() - INTERVAL '7 days'""",
+            (child_id,),
+        ) or {}
+        top_categories = fetch_all(
+            """SELECT category,
+                      COUNT(*)::int AS views,
+                      COALESCE(SUM(watched_ms),0)::bigint AS watched_ms
+               FROM (
+                 SELECT COALESCE(NULLIF(p.content_category,''),'Other') AS category, ci.watched_ms
+                   FROM content_impressions ci
+                   JOIN posts p ON ci.source_type='SOCIAL' AND p.post_id=ci.source_id
+                  WHERE ci.child_id=%s AND ci.created_at >= NOW() - INTERVAL '7 days'
+                 UNION ALL
+                 SELECT COALESCE(NULLIF(cat.display_name,''),'Other') AS category, ci.watched_ms
+                   FROM content_impressions ci
+                   JOIN curated_content cc ON ci.source_type='CURATED' AND cc.content_id=ci.source_id
+                   JOIN content_categories cat ON cat.category_id=cc.category_id
+                  WHERE ci.child_id=%s AND ci.created_at >= NOW() - INTERVAL '7 days'
+               ) x
+               GROUP BY category
+               ORDER BY COALESCE(SUM(watched_ms),0) DESC, COUNT(*) DESC, category ASC
+               LIMIT 5""",
+            (child_id, child_id),
+        )
+        insights = {
+            "views_7d": int(impression_summary.get("views_7d") or 0),
+            "reels_watched_7d": int(impression_summary.get("reels_watched_7d") or 0),
+            "reels_completed_7d": int(impression_summary.get("reels_completed_7d") or 0),
+            "watch_minutes_7d": round(int(impression_summary.get("watched_ms_7d") or 0) / 60000.0, 1),
+            "reel_watch_minutes_7d": round(int(impression_summary.get("reel_watched_ms_7d") or 0) / 60000.0, 1),
+            "replay_count_7d": int(impression_summary.get("replay_count_7d") or 0),
+            "top_categories": _clean(top_categories),
+        }
+        return jsonify(ok=True, events=_clean(rows), insights=insights)
 
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")
