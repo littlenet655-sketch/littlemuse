@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
+import { deleteOwnStory } from '../../api/kidsSocial';
 import { fetchStoryViewers, type StoryViewer } from '../../api/kidsUpload';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground } from '../../query/client';
+import { invalidateSocialCaches } from '../../query/keys';
 import { Avatar, StoryRing, TimeAgo, shortAgo } from '../../ui/social';
 import { Button, EmptyState, ErrorState, LoadingState, Screen } from '../../ui/components';
 import { colors, spacing } from '../../ui/tokens';
@@ -194,11 +196,36 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
   if (error) return <Screen><ErrorState message="Could not load stories." onRetry={() => void load()} /></Screen>;
-  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab')} /></Screen>;
+  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab', { kind: 'story' })} /></Screen>;
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
   const expiryLabel = isOwnStory ? expiresInLabel(current.created_at) : null;
+
+  function confirmDeleteStory() {
+    if (!session?.token || !current?.post_id || !isOwnStory) return;
+    const storyId = current.post_id;
+    Alert.alert(
+      'Delete this story?',
+      'It will disappear from LittleNet and its private media will be scheduled for secure deletion.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deleteOwnStory(session.token, storyId)
+              .then(async () => {
+                setStories((rows) => rows.filter((row) => row.post_id !== storyId));
+                setIndex(0);
+                await invalidateSocialCaches([storyId]);
+              })
+              .catch((err: unknown) => setError(err));
+          },
+        },
+      ],
+    );
+  }
 
   // Instagram parity: swipe down anywhere on the viewer to close it. Only a
   // deliberate downward swipe claims the gesture — plain taps still reach the
@@ -264,7 +291,17 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 <Text style={styles.viewersText}>{viewers.length}</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={() => navigation.navigate('CreateTab')} style={styles.create}>
+            {isOwnStory ? (
+              <Pressable
+                onPress={confirmDeleteStory}
+                style={styles.deleteStory}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this story"
+              >
+                <Feather name="trash-2" size={14} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
+            <Pressable onPress={() => navigation.navigate('CreateTab', { kind: 'story' })} style={styles.create}>
               <Text style={styles.createText}>＋ Story</Text>
             </Pressable>
             <Pressable
@@ -378,6 +415,7 @@ const styles = StyleSheet.create({
   viewersBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14 },
   viewersText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   create: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  deleteStory: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(220,38,38,0.75)', alignItems: 'center', justifyContent: 'center' },
   createText: { color: colors.surface, fontWeight: '800', fontSize: 13 },
   close: { padding: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
   media: { flex: 1, justifyContent: 'center', alignItems: 'center' },
