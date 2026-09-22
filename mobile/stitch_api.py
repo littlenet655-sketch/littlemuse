@@ -86,7 +86,7 @@ def register_mobile_stitch_api(bp):
     # canonical mobile API so registering it cannot create duplicate Flask
     # URL rules.
 
-    @bp.route('/api/mobile/v1/kids/chat/<int:peer_id>/share', methods=['POST'])
+    @bp.route('/api/mobile/v1/kids/chat/<int:peer_id>/share', methods=['POST'], endpoint='stitch_kids_share_post')
     @csrf.exempt
     @limiter.limit('30 per minute')
     @_require_mobile('CHILD')
@@ -120,7 +120,7 @@ def register_mobile_stitch_api(bp):
         notify(peer_id, 'MESSAGE', f"{g.mobile_user.get('full_name') or 'A friend'} shared a post with you", f'/chat/{uid}/', uid)
         return jsonify(ok=True, message_id=int(row['child_message_id']))
 
-    @bp.route('/api/mobile/v1/kids/saved')
+    @bp.route('/api/mobile/v1/kids/saved', endpoint='stitch_kids_saved')
     @_require_mobile('CHILD')
     def mobile_kids_saved():
         blocked = _gate()
@@ -150,7 +150,7 @@ def register_mobile_stitch_api(bp):
             learning=[],
         )
 
-    @bp.route('/api/mobile/v1/kids/profiles/<int:target_id>')
+    @bp.route('/api/mobile/v1/kids/profiles/<int:target_id>', endpoint='stitch_kids_other_profile')
     @_require_mobile('CHILD')
     def mobile_kids_other_profile(target_id):
         blocked = _gate()
@@ -178,7 +178,7 @@ def register_mobile_stitch_api(bp):
             posts=[_post_json(row, uid) for row in visible_profile_posts(uid, target_id, 30)],
         )
 
-    @bp.route('/api/mobile/v1/kids/profiles/<int:target_id>/actions', methods=['POST'])
+    @bp.route('/api/mobile/v1/kids/profiles/<int:target_id>/actions', methods=['POST'], endpoint='stitch_kids_profile_action')
     @csrf.exempt
     @limiter.limit('60 per minute')
     @_require_mobile('CHILD')
@@ -212,7 +212,7 @@ def register_mobile_stitch_api(bp):
             return jsonify(error='invalid_action'), 400
         return jsonify(ok=True, action=action)
 
-    @bp.route('/api/mobile/v1/kids/reports', methods=['GET', 'POST'])
+    @bp.route('/api/mobile/v1/kids/reports', methods=['GET', 'POST'], endpoint='stitch_kids_reports')
     @csrf.exempt
     @limiter.limit('30 per minute')
     @_require_mobile('CHILD')
@@ -263,7 +263,7 @@ def register_mobile_stitch_api(bp):
         parent_notify(uid, 'REPORT_SUBMITTED', 'A LittleNet safety report was submitted and is being reviewed.', '/parent/safety/')
         return jsonify(ok=True, report_id=int(row['report_id']), status='OPEN'), 201
 
-    @bp.route('/api/mobile/v1/kids/safety')
+    @bp.route('/api/mobile/v1/kids/safety', endpoint='stitch_kids_safety')
     @_require_mobile('CHILD')
     def mobile_kids_safety():
         blocked = _gate()
