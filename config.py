@@ -6,8 +6,16 @@ load_dotenv()
 
 
 class Config:
-    BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:5000")
-    _PRODUCTION = BASE_URL.startswith("https://")
+    BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:5000").strip().rstrip("/")
+    _ENVIRONMENT = os.getenv("LITTLENET_ENV", "").strip().lower()
+    _PRODUCTION = _ENVIRONMENT in {"production", "prod"} or BASE_URL.startswith("https://")
+    if _PRODUCTION and (
+        not BASE_URL.startswith("https://")
+        or "localhost" in BASE_URL.lower()
+        or "127.0.0.1" in BASE_URL
+        or "placeholder.invalid" in BASE_URL.lower()
+    ):
+        raise RuntimeError("Production BASE_URL must be an explicit public HTTPS URL")
     ENABLE_DEV_OTP = os.getenv("ENABLE_DEV_OTP", "0").strip().lower() in {"1", "true", "yes", "on"}
     if _PRODUCTION and ENABLE_DEV_OTP:
         raise RuntimeError("ENABLE_DEV_OTP must never be enabled in production")
@@ -27,7 +35,7 @@ class Config:
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1" if BASE_URL.startswith("https://") else "0") == "1"
+    SESSION_COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1" if _PRODUCTION else "0") == "1"
     WTF_CSRF_SSL_STRICT = False
     WTF_CSRF_TIME_LIMIT = None
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
