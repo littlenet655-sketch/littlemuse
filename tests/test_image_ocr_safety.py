@@ -88,9 +88,12 @@ def test_benign_ocr_text_never_weakens_visual_evidence():
     assert result.get("deterministic_ocr_pii") is not True
 
 
-def test_unmoderated_ocr_text_is_partial_evidence_only():
+def test_unmoderated_ocr_text_is_partial_evidence_only(monkeypatch):
     # Text models unavailable + no deterministic hits: REVIEW at most, and it
     # must not escalate the image to a total safety failure by itself.
+    # Force the trained text model off so this tests the unmoderated path
+    # even when the artifact is staged in the repo.
+    monkeypatch.setenv("LITTLENET_ENABLE_TRAINED_TEXT", "0")
     result = _apply_ocr_evidence(_base_result(), BENIGN_TEXT)
     assert result["total_safety_failure"] is False
     assert result["partial_safety_failure"] is True

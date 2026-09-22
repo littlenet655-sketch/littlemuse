@@ -342,7 +342,14 @@ def check_text(text:str):
                     tts = timed_call('trained_text', lambda: _trained_text.predict(text), timeout_seconds('trained_text', 60))
                     sexual = max(sexual, float(tts.get('sexual_score', 0) or 0))
                     toxicity = max(toxicity, float(tts.get('toxicity_score', 0) or 0))
-                    severe = max(severe, float(tts.get('violence_score', 0) or 0))
+                    # Model violence_score is a probability, virtually never
+                    # exactly 0 (e.g. 0.0003 for benign text). Folding it raw
+                    # into the lexical `severe` flag would make every message
+                    # truthy-severe and hard-block all chat. Threshold it:
+                    # only a confident model signal joins the severe tier.
+                    trained_violence = float(tts.get('violence_score', 0) or 0)
+                    if trained_violence >= 0.60:
+                        severe = max(severe, trained_violence)
                     if tts.get('partial_safety_failure'):
                         # The classifier returned scores no bucket could
                         # interpret (e.g. unknown labels): fail closed to
