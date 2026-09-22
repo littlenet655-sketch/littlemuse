@@ -6,7 +6,7 @@
 
 ## 1. Scope lock
 
-LittleNet is a child-safe social and learning platform implemented with Flask, PostgreSQL, HTML/CSS/JavaScript, AI-assisted safety checks, Face Login/liveness, Parent Mode, Admin/Moderator Mode, and an Android WebView wrapper.
+LittleNet is a child-safe social and learning platform implemented with Flask/PostgreSQL services, a React Native/Expo Android client, AI-assisted safety checks, child Face Login, Parent Mode, and Admin/Moderator Mode.
 
 The current college build intentionally uses this moderation scope:
 
@@ -34,7 +34,7 @@ The `main` CI run for commit `304f35052e033726b00e9b7e229141b42d32fd6c` complete
 - dynamic SQL audit: **PASS**
 - JavaScript syntax checks: **PASS**
 - Android XML/source check: **PASS**
-- MediaPipe liveness asset integrity: **PASS**
+- Child face challenge/enrollment contract tests: **PASS**
 - Python security scan: **PASS**
 - Gitleaks secret scan: **PASS**
 
@@ -112,7 +112,7 @@ Current hardening verifies that:
 - the daily limit and strict-mode decision are evaluated server-side
 - quiet-hours enforcement is server-side
 
-## 8. Face Login and parent liveness
+## 8. Child Face Login and Parent device authentication
 
 Current safety rules require positive evidence rather than inference from image dimensions.
 
@@ -159,7 +159,7 @@ Current artifact:
 - artifact digest: `sha256:f38cc4e79a14bcf7de405e2d735a5869f11716cf6aab853809ebbfb2c0c43f65`
 - source commit: `304f35052e033726b00e9b7e229141b42d32fd6c`
 
-The APK is configured to load the LittleNet HTTPS backend through the Android WebView wrapper and supports the mobile web camera/file flows exposed by that wrapper.
+The React Native/Expo APK is configured to call the LittleNet HTTPS mobile API directly; it does not use a WebView wrapper.
 
 ## 11. Submission ZIP verification
 
@@ -197,7 +197,7 @@ For the final demonstration, use deterministic, pre-checked examples:
 5. approved child-to-child messaging
 6. revoke/block relationship -> old conversation can no longer be used
 7. screen-time/quiet-hours enforcement
-8. Face Login/liveness flow
+8. Child Face Login + Parent device-auth flow
 9. Admin/Moderator review/audit view
 10. Android APK loading the same LittleNet backend
 
