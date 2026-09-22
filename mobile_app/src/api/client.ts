@@ -98,6 +98,7 @@ export const routes = {
   otherProfile: (targetId: number) => `/api/mobile/v1/kids/profiles/${targetId}`,
   profileActions: (targetId: number) => `/api/mobile/v1/kids/profiles/${targetId}/actions`,
   postDetail: (postId: number) => `/api/mobile/v1/kids/posts/${postId}`,
+  deleteStory: (storyId: number) => `/api/mobile/v2/kids/stories/${storyId}`,
   like: (postId: number) => `/api/mobile/v1/kids/posts/${postId}/like`,
   save: (postId: number) => `/api/mobile/v1/kids/posts/${postId}/save`,
   comments: (postId: number) => `/api/mobile/v1/kids/posts/${postId}/comments`,
