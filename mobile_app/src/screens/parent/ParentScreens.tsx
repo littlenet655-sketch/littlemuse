@@ -8,6 +8,7 @@ import {
   extendChildScreenTime,
   fetchFollowRequests,
   fetchParentActivity,
+  fetchParentInsights,
   fetchParentControls,
   fetchParentDashboard,
   fetchParentNotifications,
@@ -1952,6 +1953,11 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
     queryFn: () => fetchParentActivity(session?.token ?? '', childId ?? 0),
     enabled: Boolean(session && childId),
   });
+  const insightsQuery = useQuery({
+    queryKey: ['parent', 'insights', childId ?? 0],
+    queryFn: () => fetchParentInsights(session?.token ?? '', childId ?? 0),
+    enabled: Boolean(session && childId),
+  });
 
   if (!childId) {
     return (
@@ -1997,14 +2003,45 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
         contentContainerStyle={styles.refreshScrollContent}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}
         ListHeaderComponent={
-          <SubScreenHero
-            kicker={child?.full_name ?? 'Child'}
-            title="Activity History"
-            subtitle="Chronological log of account, safety, and screen time events."
-            icon="activity"
-            iconColor="#7C3AED"
-            iconBg="#F5F3FF"
-          />
+          <>
+            <SubScreenHero
+              kicker={child?.full_name ?? 'Child'}
+              title="Activity & Viewing Insights"
+              subtitle="Chronological account events plus a privacy-preserving 7-day view of content habits."
+              icon="activity"
+              iconColor="#7C3AED"
+              iconBg="#F5F3FF"
+            />
+            {insightsQuery.isPending ? (
+              <Card><LoadingState message="Summarizing viewing patterns…" /></Card>
+            ) : insightsQuery.isError ? (
+              <Card><Notice message="Viewing insights are temporarily unavailable. Activity history is still available below." /></Card>
+            ) : (
+              <>
+                <View style={styles.metrics}>
+                  <Metric value={String(insightsQuery.data?.summary.reel_impressions ?? 0)} label="Reels viewed" icon="film" iconColor="#7C3AED" bgTone="#F5F3FF" />
+                  <Metric value={String(insightsQuery.data?.summary.completions ?? 0)} label="Completed" icon="check-circle" iconColor="#059669" bgTone="#ECFDF5" />
+                  <Metric value={String(insightsQuery.data?.summary.replays ?? 0)} label="Replays" icon="repeat" iconColor="#D97706" bgTone="#FFFBEB" />
+                </View>
+                <Card>
+                  <Text style={styles.sectionHeaderLabel}>TOP CONTENT CATEGORIES · LAST 7 DAYS</Text>
+                  {(insightsQuery.data?.categories ?? []).length ? (
+                    (insightsQuery.data?.categories ?? []).map((row) => (
+                      <View key={row.category} style={styles.rowBetween}>
+                        <Text style={styles.rowTitle}>{row.category}</Text>
+                        <Text style={styles.muted}>{row.views} views</Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.muted}>No viewing history yet.</Text>
+                  )}
+                  <Text style={[styles.muted, { marginTop: spacing.sm }]}>
+                    Total watched: {Math.round((insightsQuery.data?.summary.watched_ms ?? 0) / 60000)} min · Average Reel watch: {Math.round((insightsQuery.data?.summary.avg_reel_watch_ms ?? 0) / 1000)} sec
+                  </Text>
+                </Card>
+              </>
+            )}
+          </>
         }
         ListEmptyComponent={
           query.isPending ? (
