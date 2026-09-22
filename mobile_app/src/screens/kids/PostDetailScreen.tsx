@@ -81,7 +81,6 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
           body="We couldn't open this post because it is missing its details. Go back and choose it again."
         />
         <Button label="Back" variant="secondary" onPress={() => nav.goBack()} />
-        {ownPost ? <Button label={busy ? "Deleting…" : "Delete post"} variant="secondary" onPress={confirmDelete} disabled={busy} /> : null}
       </Screen>
     );
   }
@@ -189,6 +188,14 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
             <Button label="Share" variant="secondary" onPress={() => void openShare()} />
           </View>
           <Button label="Safety actions" variant="secondary" onPress={() => { setSafetyOpen((value) => !value); setSafetyError(''); }} />
+          {ownPost ? (
+            <Button
+              label={busy ? 'Deleting…' : 'Delete post'}
+              variant="secondary"
+              onPress={confirmDelete}
+              disabled={busy}
+            />
+          ) : null}
         </Card>
         {safetyOpen ? <Card>
           <Text style={styles.safetyTitle}>What would you like to do?</Text>
