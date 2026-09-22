@@ -47,6 +47,8 @@ jobs:
           cache: npm
           cache-dependency-path: mobile_app/package-lock.json
       - run: npm ci
+      - name: Block high/critical production dependency advisories
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm test
       - run: npm run export:android
