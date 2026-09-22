@@ -3087,6 +3087,67 @@ def register_mobile_api(bp):
         )
         return jsonify(ok=True, events=_clean(rows))
 
+    @bp.route("/api/mobile/v1/parent/insights/<int:child_id>")
+    @_require_mobile("PARENT")
+    def mobile_parent_insights(child_id):
+        """Seven-day viewing summary for a linked child.
+
+        Uses aggregate impression data only; parents see categories and usage
+        patterns, never recommendation internals or another family's activity.
+        """
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+
+        summary = fetch_one(
+            """SELECT COUNT(*)::int AS impressions,
+                      COUNT(*) FILTER (WHERE surface='REELS')::int AS reel_impressions,
+                      COALESCE(SUM(watched_ms),0)::bigint AS watched_ms,
+                      COUNT(*) FILTER (WHERE completed=TRUE)::int AS completions,
+                      COALESCE(SUM(replay_count),0)::int AS replays,
+                      COALESCE(ROUND(AVG(watched_ms) FILTER (WHERE surface='REELS')),0)::int AS avg_reel_watch_ms
+                 FROM content_impressions
+                WHERE child_id=%s AND shown_at >= NOW() - INTERVAL '7 days'""",
+            (child_id,),
+        ) or {}
+
+        categories = fetch_all(
+            """SELECT category, COUNT(*)::int AS views,
+                      COALESCE(SUM(watched_ms),0)::bigint AS watched_ms
+                 FROM (
+                    SELECT COALESCE(NULLIF(p.content_category,''),'Other') AS category,
+                           ci.watched_ms
+                      FROM content_impressions ci
+                      JOIN posts p
+                        ON ci.source_type='SOCIAL' AND p.post_id=ci.source_id
+                     WHERE ci.child_id=%s
+                       AND ci.shown_at >= NOW() - INTERVAL '7 days'
+                    UNION ALL
+                    SELECT COALESCE(cat.display_name,'Other') AS category,
+                           ci.watched_ms
+                      FROM content_impressions ci
+                      JOIN curated_content cc
+                        ON ci.source_type='CURATED' AND cc.content_id=ci.source_id
+                      JOIN content_categories cat ON cat.category_id=cc.category_id
+                     WHERE ci.child_id=%s
+                       AND ci.shown_at >= NOW() - INTERVAL '7 days'
+                 ) viewed
+                GROUP BY category
+                ORDER BY views DESC, watched_ms DESC
+                LIMIT 5""",
+            (child_id, child_id),
+        )
+
+        signals = fetch_all(
+            """SELECT signal, COUNT(*)::int AS count
+                 FROM recommendation_signals
+                WHERE child_id=%s AND created_at >= NOW() - INTERVAL '7 days'
+                  AND signal IN ('LIKE','SAVE','COMMENT','SHARE','REEL_COMPLETION','REEL_REPLAY','NOT_INTERESTED')
+                GROUP BY signal ORDER BY count DESC, signal ASC""",
+            (child_id,),
+        )
+        return jsonify(ok=True, range_days=7, summary=_clean(summary), categories=_clean(categories), signals=_clean(signals))
+
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")
     def mobile_admin_dashboard():
