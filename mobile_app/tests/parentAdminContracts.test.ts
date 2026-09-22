@@ -163,9 +163,23 @@ describe('parent dashboard and controls contracts', () => {
     assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/notifications');
     assert.equal(method(1), 'POST');
 
-    nextPayload = { ok: true, events: [] };
-    await fetchParentActivity('parent-tok', 7);
+    nextPayload = {
+      ok: true,
+      events: [],
+      insights: {
+        views_7d: 12,
+        reels_watched_7d: 8,
+        reels_completed_7d: 5,
+        watch_minutes_7d: 18.5,
+        reel_watch_minutes_7d: 12.5,
+        replay_count_7d: 2,
+        top_categories: [{ category: 'STEM', views: 5, watched_ms: 300000 }],
+      },
+    };
+    const activity = await fetchParentActivity('parent-tok', 7);
     assert.equal(seen[2]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/activity/7');
+    assert.equal(activity.insights.reels_watched_7d, 8);
+    assert.equal(activity.insights.top_categories[0]?.category, 'STEM');
   });
 
   it('propagates parent 403/404 with user-safe messages', async () => {
