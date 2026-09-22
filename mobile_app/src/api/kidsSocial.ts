@@ -140,3 +140,11 @@ export function fetchBlockedUsers(token: string): Promise<{ ok: boolean; blocked
 export function fetchMutedUsers(token: string): Promise<{ ok: boolean; muted_users: BlockedUserItem[] }> {
   return get(routes.mutedUsers, token);
 }
+
+export function deletePost(token: string, postId: number): Promise<{ ok: boolean }> {
+  return apiRequest(routes.deletePost(postId), { method: 'DELETE' }, token);
+}
+
+export function deleteStory(token: string, storyId: number): Promise<{ ok: boolean }> {
+  return apiRequest(routes.deleteStory(storyId), { method: 'DELETE' }, token);
+}
