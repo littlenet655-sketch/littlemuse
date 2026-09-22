@@ -50,8 +50,18 @@ export function markNotificationsRead(token: string, ids?: number[]): Promise<{ 
   return postJson(routes.notificationsRead, ids ? { notification_ids: ids } : {}, token);
 }
 
-export function fetchConversations(token: string): Promise<{ ok: boolean; conversations: ConversationItem[] }> {
-  return get(routes.conversations, token);
+export interface ConversationPage {
+  ok: boolean;
+  conversations: ConversationItem[];
+  has_more: boolean;
+}
+
+export function fetchConversations(token: string, limit = 20, offset = 0): Promise<ConversationPage> {
+  const p = new URLSearchParams({
+    limit: String(Math.max(1, Math.min(limit, 50))),
+    offset: String(Math.max(0, offset)),
+  });
+  return get(`${routes.conversations}?${p.toString()}`, token);
 }
 
 export function fetchChat(token: string, peerId: number, limit = 30, beforeId?: number): Promise<{ ok: boolean; peer: Record<string, unknown>; messages: ChatMessage[]; peer_typing?: boolean }> {
