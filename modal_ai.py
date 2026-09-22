@@ -27,8 +27,8 @@ image = (
     .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "libgomp1")
     .pip_install(
         "numpy==1.26.4",
-        "torch>=2.2,<2.8",
-        "torchvision>=0.17,<0.23",
+        "torch>=2.13,<2.14",
+        "torchvision>=0.28,<0.29",
         "transformers>=5.0",  # v5 verified end-to-end with littlenet_text_safety
         "detoxify==0.5.2",
         # Declared dep of detoxify==0.5.2 (sentencepiece>=0.1.94); its
