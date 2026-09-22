@@ -11,12 +11,7 @@ import { BrandHeader, Button, DisabledFeature, EmptyState, ErrorState, GateNotic
 import { ApiError } from '../../api/client';
 import { colors } from '../../ui/tokens';
 
-/**
- * Client-side window size. The backend conversations endpoint returns the
- * full list with no cursor/limit params, so the list is windowed locally:
- * only the first page renders, and more rows append as the user scrolls.
- * This keeps initial render cheap even with many conversations.
- */
+/** Server page size. Conversation pagination is authoritative on the backend. */
 const PAGE_SIZE = 20;
 
 function sentAtMs(c: ConversationItem): number {
@@ -35,7 +30,8 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [query, setQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const myId = session?.user.user_id;
 
@@ -44,11 +40,9 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
     if (mode === 'first') setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await fetchConversations(session.token);
-      // Backend returns the full conversation list (no cursor params); dedupe
-      // defensively so repeats never render twice.
+      const res = await fetchConversations(session.token, PAGE_SIZE, 0);
       setItems(dedupeConversations(res.conversations ?? []));
-      setVisibleCount(PAGE_SIZE);
+      setHasMore(Boolean(res.has_more));
       setError(null);
     } catch (err) {
       setError(err);
@@ -62,8 +56,7 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
     if (focused && foreground) void load(loading ? 'first' : 'refresh');
   }, [session?.token, focused, foreground]);
 
-  // Most-recent-first, like Instagram's inbox. The backend does not ORDER BY,
-  // so sorting happens here before windowing.
+  // Keep newest first defensively even though the paginated backend already orders rows.
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => sentAtMs(b) - sentAtMs(a));
   }, [items]);
@@ -74,9 +67,20 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
     return sorted.filter((c) => (c.peer_name ?? '').toLowerCase().includes(q));
   }, [sorted, q]);
 
-  // Windowing only applies to the unfiltered list; search shows all matches.
-  const visible = q ? filtered : filtered.slice(0, visibleCount);
-  const hasMore = !q && visibleCount < filtered.length;
+  async function loadMore() {
+    if (!session || !foreground || q || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetchConversations(session.token, PAGE_SIZE, items.length);
+      setItems((current) => dedupeConversations([...current, ...(res.conversations ?? [])]));
+      setHasMore(Boolean(res.has_more));
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   if (loading) return <Screen><LoadingState message="Loading messages…" /></Screen>;
   if (error instanceof ApiError && error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Messages" /></Screen>;
@@ -85,14 +89,14 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   return (
     <Screen>
       <FlatList
-        data={visible}
+        data={filtered}
         keyExtractor={(c) => `c:${c.conversation_id}`}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load('refresh')} />}
         initialNumToRender={PAGE_SIZE}
         maxToRenderPerBatch={PAGE_SIZE}
         onEndReachedThreshold={0.5}
         onEndReached={() => {
-          if (hasMore) setVisibleCount((n) => n + PAGE_SIZE);
+          if (!q && hasMore) void loadMore();
         }}
         ListHeaderComponent={(
           <>
@@ -119,7 +123,7 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
             body={q ? `No chats with "${query.trim()}".` : 'Make an approved friend to start chatting.'}
           />
         )}
-        ListFooterComponent={hasMore ? (
+        ListFooterComponent={loadingMore ? (
           <View style={styles.moreWrap}>
             <ActivityIndicator size="small" color={colors.muted} />
           </View>
