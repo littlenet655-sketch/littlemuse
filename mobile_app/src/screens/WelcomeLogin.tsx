@@ -58,8 +58,26 @@ export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
           <Text style={styles.heroBody}>Parents verify first. Kids explore, create, and connect with safety built in.</Text>
         </View>
         <View style={styles.authActions}>
-          <Button label="Log in" onPress={() => navigation.navigate('Login')} />
-          <Button label="Parent sign-up" variant="secondary" onPress={() => navigation.navigate('ParentRegister')} />
+          <Text style={styles.rolePrompt}>Choose how you are entering LittleNet</Text>
+          {MODES.map((item) => (
+            <Pressable
+              key={item.value}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.label} entry`}
+              onPress={() => navigation.navigate('Login', { mode: item.value })}
+              style={styles.roleCard}
+            >
+              <View style={styles.roleIcon}>
+                <Feather name={item.icon} size={20} color={colors.brand} />
+              </View>
+              <View style={styles.roleCopy}>
+                <Text style={styles.roleTitle}>{item.label}</Text>
+                <Text style={styles.roleSubtitle}>{item.subtitle}</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.muted} />
+            </Pressable>
+          ))}
+          <Button label="New parent? Create verified account" variant="secondary" onPress={() => navigation.navigate('ParentRegister')} />
           <Button label="Kids face login" variant="secondary" onPress={() => navigation.navigate('FaceLogin')} />
         </View>
       </ScrollView>
@@ -67,9 +85,9 @@ export function WelcomeScreen({ navigation }: AuthScreenProps<'Welcome'>) {
   );
 }
 
-export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
+export function LoginScreen({ navigation, route }: AuthScreenProps<'Login'>) {
   const { signIn } = useAuth();
-  const [mode, setMode] = useState<LoginMode>('kids');
+  const [mode, setMode] = useState<LoginMode>((route.params?.mode as LoginMode | undefined) ?? 'kids');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -295,7 +313,23 @@ const styles = StyleSheet.create({
   wordmark: { color: colors.ink, fontSize: 32, fontWeight: '900', letterSpacing: -1 },
   heroTitle: { color: colors.ink, fontSize: type.hero, lineHeight: 30, fontWeight: '800', textAlign: 'center', marginTop: spacing.md },
   heroBody: { color: colors.muted, fontSize: type.body, lineHeight: 21, textAlign: 'center', marginTop: spacing.sm, maxWidth: 310 },
-  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 12 },
+  authActions: { paddingHorizontal: spacing.md, marginTop: spacing.sm, gap: 10 },
+  rolePrompt: { color: colors.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', marginBottom: 2 },
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 72,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: colors.surface,
+  },
+  roleIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' },
+  roleCopy: { flex: 1 },
+  roleTitle: { color: colors.ink, fontSize: 15, fontWeight: '800' },
+  roleSubtitle: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 2 },
   modePillContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
