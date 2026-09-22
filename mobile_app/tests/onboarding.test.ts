@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { routes, ApiError } from '../src/api/client';
 import { childNextRoute, resetsDisplayState, screenForGate, shouldRefreshOnboardingForGate } from '../src/navigation/gates';
 
@@ -50,5 +51,24 @@ describe('onboarding navigation', () => {
     assert.equal(resetsDisplayState(2), 'available');
     assert.equal(resetsDisplayState(1), 'available');
     assert.equal(resetsDisplayState(0), 'exhausted');
+  });
+});
+
+
+describe('entry and OTP UX contracts', () => {
+  it('offers explicit child, parent, and moderator/admin entry roles', () => {
+    const source = readFileSync('src/screens/WelcomeLogin.tsx', 'utf8');
+    assert.ok(source.includes("navigation.navigate('Login', { role: item.value })"));
+    assert.ok(source.includes("Moderator / Admin"));
+    assert.ok(source.includes("Kids Mode"));
+    assert.ok(source.includes("Parent Mode"));
+  });
+
+  it('renders a six-cell OTP with a centered active cursor and numeric sanitization', () => {
+    const source = readFileSync('src/screens/ParentOnboarding.tsx', 'utf8');
+    assert.ok(source.includes("Array.from({ length: 6 }"));
+    assert.ok(source.includes("styles.otpCursor"));
+    assert.ok(source.includes("value.replace(/\\D/g, '').slice(0, 6)"));
+    assert.ok(source.includes('textContentType="oneTimeCode"'));
   });
 });
