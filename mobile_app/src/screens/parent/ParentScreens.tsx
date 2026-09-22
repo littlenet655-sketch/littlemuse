@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useVideoPlayer } from 'expo-video';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -36,6 +37,7 @@ import { useIsOnline } from '../../query/client';
 import { parentKeys } from '../../query/keys';
 import { BrandHeader, Button, Card, EmptyState, ErrorState, Field, LoadingState, Notice, OfflineBanner, Screen, errorText } from '../../ui/components';
 import { Avatar, CategoryBadge, TimeAgo } from '../../ui/social';
+import { NativeVideoView } from '../../ui/nativeViews';
 import { colors, radius, spacing, type } from '../../ui/tokens';
 
 type FeatherIconName = keyof typeof Feather.glyphMap;
@@ -1204,10 +1206,88 @@ export function ParentSafetyScreen({ navigation }: ParentScreenProps<'ParentSafe
   );
 }
 
-function ReviewMedia({ preview, token }: { preview?: ReviewPreview | null; token: string }) {
-  const imageUrl = (preview?.media_type ?? '').toUpperCase() === 'IMAGE' ? preview?.media_url : preview?.poster_url;
-  if (imageUrl) return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
-  if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
+function ReviewVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.muted = true;
+    instance.loop = false;
+  });
+  return (
+    <View style={styles.reviewVideoWrap}>
+      <NativeVideoView player={player} style={styles.reviewVideo} contentFit="contain" nativeControls />
+      <View style={styles.reviewVideoBadge} pointerEvents="none">
+        <Feather name="lock" size={12} color="#FFFFFF" />
+        <Text style={styles.reviewVideoBadgeText}>Private review preview</Text>
+      </View>
+    </View>
+  );
+}
+
+function ReviewMedia({
+  preview,
+  token,
+  riskScore,
+}: {
+  preview?: ReviewPreview | null;
+  token: string;
+  riskScore?: number;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const mediaType = (preview?.media_type ?? '').toUpperCase();
+  const highRisk = Number(riskScore ?? 0) >= 50;
+
+  if (mediaType === 'VIDEO' && preview?.media_url) {
+    if (highRisk && !revealed) {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Reveal potentially sensitive review video"
+          onPress={() => setRevealed(true)}
+          style={styles.sensitivePreview}
+        >
+          {preview.poster_url ? (
+            <Image source={{ uri: preview.poster_url, headers: { Authorization: `Bearer ${token}` } }} blurRadius={22} resizeMode="cover" style={styles.reviewImage} />
+          ) : (
+            <View style={[styles.reviewImage, styles.sensitivePlaceholder]}>
+              <Feather name="film" size={34} color="#FFFFFF" />
+            </View>
+          )}
+          <View style={styles.sensitiveOverlay}>
+            <Feather name="eye" size={20} color="#FFFFFF" />
+            <Text style={styles.sensitiveOverlayTitle}>Sensitive review video</Text>
+            <Text style={styles.sensitiveOverlayText}>Tap to reveal for your private parent decision.</Text>
+          </View>
+        </Pressable>
+      );
+    }
+    return <ReviewVideo uri={preview.media_url} />;
+  }
+
+  const imageUrl = mediaType === 'IMAGE' ? preview?.media_url : preview?.poster_url;
+  if (imageUrl) {
+    return (
+      <Pressable
+        disabled={!highRisk || revealed}
+        accessibilityRole={highRisk && !revealed ? 'button' : undefined}
+        accessibilityLabel={highRisk && !revealed ? 'Reveal potentially sensitive review image' : undefined}
+        onPress={() => setRevealed(true)}
+        style={styles.sensitivePreview}
+      >
+        <Image
+          source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }}
+          blurRadius={highRisk && !revealed ? 22 : 0}
+          resizeMode="cover"
+          style={styles.reviewImage}
+        />
+        {highRisk && !revealed ? (
+          <View style={styles.sensitiveOverlay}>
+            <Feather name="eye" size={20} color="#FFFFFF" />
+            <Text style={styles.sensitiveOverlayTitle}>Sensitive review image</Text>
+            <Text style={styles.sensitiveOverlayText}>Tap to reveal for your private parent decision.</Text>
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  }
   return null;
 }
 
@@ -1244,7 +1324,7 @@ export function ParentReviewScreen({ navigation, route }: ParentScreenProps<'Par
           </View>
           <Text style={styles.reviewChildTitle}>{event.full_name ?? 'Your Child'}</Text>
 
-          <ReviewMedia preview={event.preview} token={session?.token ?? ''} />
+          <ReviewMedia preview={event.preview} token={session?.token ?? ''} riskScore={Number(event.risk_score ?? 0)} />
 
           {event.preview?.caption ? (
             <View style={styles.quotedContentBox}>
@@ -2717,6 +2797,15 @@ const styles = StyleSheet.create({
     borderColor: '#A7F3D0',
   },
   safeText: { color: '#047857', fontWeight: '800', fontSize: 11 },
+  reviewVideoWrap: { marginTop: spacing.md, height: 300, borderRadius: 14, overflow: 'hidden', backgroundColor: '#020617' },
+  reviewVideo: { width: '100%', height: '100%' },
+  reviewVideoBadge: { position: 'absolute', left: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.66)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  reviewVideoBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  sensitivePreview: { position: 'relative', overflow: 'hidden', borderRadius: 14, marginTop: spacing.md },
+  sensitivePlaceholder: { backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  sensitiveOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.48)', padding: 20 },
+  sensitiveOverlayTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', marginTop: 8 },
+  sensitiveOverlayText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 4 },
   reviewImage: { width: '100%', height: 280, borderRadius: 12, backgroundColor: colors.line, marginVertical: spacing.sm },
   toggle: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: spacing.md, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', paddingVertical: spacing.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginHorizontal: spacing.md },
