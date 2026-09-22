@@ -24,7 +24,7 @@ uploads = modal.Volume.from_name("littlenet-uploads", create_if_missing=True)
 model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
 web_secret = modal.Secret.from_name(
     "littlenet-web-secrets",
-    required_keys=["DATABASE_URL", "SECRET_KEY", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
+    required_keys=["DATABASE_URL", "SECRET_KEY", "BASE_URL", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
 )
 email_secret = modal.Secret.from_name("littlenet-email")
 r2_secret = modal.Secret.from_name(
@@ -47,6 +47,7 @@ web_image = (
     .env(
         {
             "COOKIE_SECURE": "1",
+            "LITTLENET_ENV": "production",
             "LITTLENET_DEVICE": "cpu",
             "LITTLENET_ENABLE_PRESIDIO": "1",
             "LITTLENET_PRESIDIO_SPACY_MODEL": "en_core_web_sm",
