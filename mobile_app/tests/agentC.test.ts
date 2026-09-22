@@ -129,6 +129,13 @@ describe('agentC feed pagination/dedupe/refresh', () => {
     assert.ok(source.includes('refreshCuratedReelPlayback(token, postId)'));
   });
 
+  it('routes story creation directly into story composer mode', () => {
+    const storiesSource = readFileSync('src/screens/kids/StoriesScreen.tsx', 'utf8');
+    const createSource = readFileSync('src/screens/kids/CreateScreen.tsx', 'utf8');
+    assert.ok(storiesSource.includes("navigate('CreateTab', { kind: 'story' })"));
+    assert.ok(createSource.includes("const requestedKind = route.params?.kind"));
+  });
+
   it('selects one foreground reel and bounds adjacent loading', () => {
     assert.equal(shouldPlayReel(2, 2, true), true);
     assert.equal(shouldPlayReel(1, 2, true), false);
