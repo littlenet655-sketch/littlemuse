@@ -1,5 +1,5 @@
 -r requirements-text.txt
-torchvision>=0.17,<0.23
+torchvision>=0.28,<0.29
 nudenet>=3.4,<4
 ultralytics>=8.3,<9
 opencv-python-headless==4.11.0.86
