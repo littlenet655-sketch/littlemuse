@@ -1,3 +1,5 @@
+> **HISTORICAL VERIFICATION SNAPSHOT — NOT CURRENT RELEASE STATUS.** This file records an earlier tested baseline and is retained for traceability. For the current React Native architecture, parent email-OTP + Android device-auth flow, trained-model release gates, and present validation requirements, use `BUILD_STATUS.md`, `KNOWN_LIMITATIONS.md`, and the latest GitHub Actions run for the current commit.
+
 # LittleNet — Final Test Results (merged tree)
 
 **Date:** 2026-09-21. All runs on the final merged tree (commit B working tree), not on crew baselines.
