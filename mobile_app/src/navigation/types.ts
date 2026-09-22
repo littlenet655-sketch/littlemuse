@@ -16,7 +16,7 @@ export type ChildStackParamList = {
   KidsTabs: { tab?: string } | undefined;
   FeedTab: undefined;
   DiscoverTab: undefined;
-  CreateTab: undefined;
+  CreateTab: { kind?: 'post' | 'reel' | 'story' } | undefined;
   ReelsTab: undefined;
   ProfileTab: undefined;
   Stories: undefined;
