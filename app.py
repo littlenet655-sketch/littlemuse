@@ -33,7 +33,7 @@ def create_app():
         return flask_app.config.get('SESSION_COOKIE_SECURE', False)
 
     app.session_interface.get_cookie_secure = _dynamic_cookie_secure
-    if Config.BASE_URL.startswith('https://'):
+    if Config._PRODUCTION:
         if Config.SECRET_KEY=='change-me-before-demo' or len(Config.SECRET_KEY)<32:
             raise RuntimeError('Production SECRET_KEY must be a random value of at least 32 characters')
         if Config.AI_SERVICE_URL and not Config.AI_SHARED_SECRET:
@@ -289,7 +289,7 @@ def create_app():
         response.headers.setdefault('X-Content-Type-Options','nosniff')
         response.headers.setdefault('X-Frame-Options','DENY')
         response.headers.setdefault('Referrer-Policy','same-origin')
-        response.headers.setdefault('Permissions-Policy','camera=(self), microphone=(self), geolocation=()')
+        response.headers.setdefault('Permissions-Policy','camera=(self), microphone=(), geolocation=()')
         # Allow media delivery from Cloudflare R2 (*.r2.cloudflarestorage.com)
         try:
             from services.object_storage import normalize_r2_origin
@@ -298,7 +298,7 @@ def create_app():
             r2_origin = ''
         img_src = "'self' data: blob:" + (f' {r2_origin}' if r2_origin else '')
         media_src = "'self' blob:" + (f' {r2_origin}' if r2_origin else '')
-        response.headers.setdefault('Content-Security-Policy', f"default-src 'self'; img-src {img_src}; media-src {media_src}; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        response.headers.setdefault('Content-Security-Policy', f"default-src 'self'; img-src {img_src}; media-src {media_src}; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
         if request.is_secure:response.headers.setdefault('Strict-Transport-Security','max-age=31536000; includeSubDomains')
         return response
 
