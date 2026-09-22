@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
+import { useVideoPlayer } from 'expo-video';
 import {
   approveFaceDeferral,
   enrollChildFaceByParent,
@@ -35,6 +36,7 @@ import { useIsOnline } from '../../query/client';
 import { parentKeys } from '../../query/keys';
 import { BrandHeader, Button, Card, EmptyState, ErrorState, Field, LoadingState, Notice, OfflineBanner, Screen, errorText } from '../../ui/components';
 import { Avatar, CategoryBadge, TimeAgo } from '../../ui/social';
+import { NativeVideoView } from '../../ui/nativeViews';
 import { colors, radius, spacing, type } from '../../ui/tokens';
 
 type FeatherIconName = keyof typeof Feather.glyphMap;
@@ -905,6 +907,40 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
           </View>
         </View>
 
+        {/* Privacy-preserving viewing insights: aggregate behavior only, never private message/search content. */}
+        <Text style={styles.sectionHeaderLabelStandalone}>VIEWING INSIGHTS · 7 DAYS</Text>
+        <Card>
+          <View style={styles.viewingMetricsRow}>
+            <View style={styles.viewingMetric}>
+              <Text style={styles.viewingMetricValue}>{child.viewing_7d?.watched_minutes ?? 0}m</Text>
+              <Text style={styles.viewingMetricLabel}>Watch time</Text>
+            </View>
+            <View style={styles.viewingMetric}>
+              <Text style={styles.viewingMetricValue}>{child.viewing_7d?.reels?.views ?? 0}</Text>
+              <Text style={styles.viewingMetricLabel}>Reels viewed</Text>
+            </View>
+            <View style={styles.viewingMetric}>
+              <Text style={styles.viewingMetricValue}>{child.viewing_7d?.reels?.completion_rate ?? 0}%</Text>
+              <Text style={styles.viewingMetricLabel}>Reel completion</Text>
+            </View>
+          </View>
+          <Text style={[styles.menuTitle, { marginTop: 14 }]}>Top content interests</Text>
+          <View style={styles.viewingCategoryWrap}>
+            {(child.viewing_7d?.top_categories ?? []).length ? (
+              child.viewing_7d.top_categories.map((item) => (
+                <View key={item.category} style={styles.viewingCategoryPill}>
+                  <Text style={styles.viewingCategoryText}>{item.category} · {item.watched_minutes}m</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.muted}>Not enough viewing history yet. Insights appear as safe Feed/Reels impressions accumulate.</Text>
+            )}
+          </View>
+          <Text style={[styles.muted, { marginTop: 10 }]}>
+            Aggregated supervision only — LittleNet does not show parents private message text or individual search terms here.
+          </Text>
+        </Card>
+
         {/* Quick Management Tiles */}
         <Text style={styles.sectionHeaderLabelStandalone}>MANAGE CHILD CONTROLS</Text>
         <View style={styles.actionTilesGroup}>
@@ -1203,10 +1239,81 @@ export function ParentSafetyScreen({ navigation }: ParentScreenProps<'ParentSafe
   );
 }
 
+function ReviewVideo({ url, token }: { url: string; token: string }) {
+  const player = useVideoPlayer(
+    { uri: url, headers: { Authorization: `Bearer ${token}` } },
+    (instance) => {
+      instance.muted = true;
+      instance.loop = false;
+    },
+  );
+
+  return (
+    <View style={styles.reviewVideo}>
+      <NativeVideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="contain"
+        nativeControls
+      />
+    </View>
+  );
+}
+
 function ReviewMedia({ preview, token }: { preview?: ReviewPreview | null; token: string }) {
-  const imageUrl = (preview?.media_type ?? '').toUpperCase() === 'IMAGE' ? preview?.media_url : preview?.poster_url;
-  if (imageUrl) return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
-  if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
+  const [revealed, setRevealed] = useState(false);
+  const mediaType = (preview?.media_type ?? '').toUpperCase();
+  const isVideo = mediaType === 'VIDEO';
+  const coverUrl = isVideo ? preview?.poster_url : preview?.media_url;
+
+  if (!preview?.media_url && !coverUrl) return null;
+
+  if (!revealed) {
+    return (
+      <View style={styles.reviewRevealWrap}>
+        {coverUrl ? (
+          <Image
+            source={{ uri: coverUrl, headers: { Authorization: `Bearer ${token}` } }}
+            resizeMode="cover"
+            blurRadius={24}
+            style={styles.reviewImage}
+          />
+        ) : (
+          <View style={[styles.reviewImage, styles.reviewRevealPlaceholder]}>
+            <Feather name={isVideo ? 'film' : 'image'} size={30} color="#64748B" />
+          </View>
+        )}
+        <View style={styles.reviewRevealOverlay}>
+          <Feather name="eye-off" size={22} color="#FFFFFF" />
+          <Text style={styles.reviewRevealTitle}>Sensitive private preview</Text>
+          <Text style={styles.reviewRevealBody}>Reveal only when you are ready to inspect this quarantined item.</Text>
+          <Button label="Reveal preview" onPress={() => setRevealed(true)} />
+        </View>
+      </View>
+    );
+  }
+
+  if (isVideo && preview?.media_url) {
+    return (
+      <View>
+        <ReviewVideo url={preview.media_url} token={token} />
+        <Button label="Hide preview" variant="secondary" onPress={() => setRevealed(false)} />
+      </View>
+    );
+  }
+
+  if (preview?.media_url) {
+    return (
+      <View>
+        <Image
+          source={{ uri: preview.media_url, headers: { Authorization: `Bearer ${token}` } }}
+          resizeMode="contain"
+          style={styles.reviewImage}
+        />
+        <Button label="Hide preview" variant="secondary" onPress={() => setRevealed(false)} />
+      </View>
+    );
+  }
   return null;
 }
 
@@ -2257,6 +2364,19 @@ function RiskBadge({ score }: { score?: number | string | null }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  viewingMetricsRow: { flexDirection: 'row', gap: 8 },
+  viewingMetric: { flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, padding: 10, backgroundColor: '#F8FAFC' },
+  viewingMetricValue: { color: colors.ink, fontSize: 18, fontWeight: '900' },
+  viewingMetricLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  viewingCategoryWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  viewingCategoryPill: { backgroundColor: '#EEF2FF', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 },
+  viewingCategoryText: { color: '#4338CA', fontSize: 11, fontWeight: '800' },
+  reviewVideo: { width: '100%', height: 320, backgroundColor: '#000000', borderRadius: 14, overflow: 'hidden', marginTop: 12, marginBottom: 10 },
+  reviewRevealWrap: { position: 'relative', overflow: 'hidden', borderRadius: 14, marginTop: 12, marginBottom: 10, backgroundColor: '#0F172A' },
+  reviewRevealPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#E2E8F0' },
+  reviewRevealOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.72)', gap: 8 },
+  reviewRevealTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '900', textAlign: 'center' },
+  reviewRevealBody: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, textAlign: 'center', marginBottom: 4 },
   refreshScrollContent: { flexGrow: 1, paddingBottom: spacing.xl },
   formScrollContent: { flexGrow: 1, paddingBottom: spacing.xl },
   body: { color: colors.ink, fontSize: type.body, lineHeight: 22, marginTop: spacing.xs },
