@@ -100,6 +100,16 @@ export interface ActivityEvent {
   created_at?: string;
 }
 
+export interface ViewingInsights {
+  views_7d: number;
+  reels_watched_7d: number;
+  reels_completed_7d: number;
+  watch_minutes_7d: number;
+  reel_watch_minutes_7d: number;
+  replay_count_7d: number;
+  top_categories: Array<{ category: string; views: number; watched_ms: number }>;
+}
+
 export interface AdminUser {
   user_id: number;
   username: string;
@@ -174,7 +184,7 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
   return apiRequest(routes.parentNotifications, body({}), token);
 }
 
-export function fetchParentActivity(token: string, childId: number): Promise<{ ok: boolean; events: ActivityEvent[] }> {
+export function fetchParentActivity(token: string, childId: number): Promise<{ ok: boolean; events: ActivityEvent[]; insights: ViewingInsights }> {
   return apiRequest(routes.parentActivity(childId), {}, token);
 }
 
