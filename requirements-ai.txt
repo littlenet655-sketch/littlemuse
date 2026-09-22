@@ -1,9 +1,6 @@
 -r requirements-text.txt
 torchvision>=0.17,<0.23
 nudenet>=3.4,<4
-deepface>=0.0.93,<0.1
-tensorflow>=2.16,<2.19
-tf-keras>=2.16,<2.19
 ultralytics>=8.3,<9
 opencv-python-headless==4.11.0.86
 scenedetect-headless>=0.7,<0.8
