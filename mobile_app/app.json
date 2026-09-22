@@ -34,14 +34,14 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "LittleNet uses the camera for live face checks."
+          "cameraPermission": "LittleNet uses the camera only when you choose to capture content for a post, Story, or Reel."
         }
       ],
       [
         "expo-image-picker",
         {
           "photosPermission": "LittleNet uses a selected photo only when you choose to create a post.",
-          "cameraPermission": "LittleNet uses the camera for live face checks and content you choose to create.",
+          "cameraPermission": "LittleNet uses the camera only for content you choose to create.",
           "microphonePermission": false
         }
       ],
