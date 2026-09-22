@@ -10,6 +10,7 @@ import {
   fetchAdminReviews,
   fetchAdminUsers,
   fetchParentActivity,
+  fetchParentInsights,
   fetchParentControls,
   fetchParentDashboard,
   fetchParentNotifications,
@@ -60,12 +61,15 @@ describe('Agent D Parent contracts', () => {
     response = { ok: true, events: [] };
     await fetchParentSafety('tok');
     await fetchParentActivity('tok', 22);
+    response = { ok: true, range_days: 7, summary: { impressions: 0, reel_impressions: 0, watched_ms: 0, completions: 0, replays: 0, avg_reel_watch_ms: 0 }, categories: [], signals: [] };
+    await fetchParentInsights('tok', 22);
     response = { ok: true, notifications: [] };
     await fetchParentNotifications('tok');
     assert.deepEqual(seen.map((call) => new URL(call.url).pathname), [
       '/api/mobile/v1/parent/dashboard',
       '/api/mobile/v1/parent/safety',
       '/api/mobile/v1/parent/activity/22',
+      '/api/mobile/v1/parent/insights/22',
       '/api/mobile/v1/parent/notifications',
     ]);
     assert.ok(seen.every((call) => new Headers(call.init.headers).get('Authorization') === 'Bearer tok'));
