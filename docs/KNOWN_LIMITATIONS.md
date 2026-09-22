@@ -1,13 +1,13 @@
 # LittleNet Known Limitations
 
-_Last re-audited: 20 September 2026_
+_Last re-audited: 22 September 2026_
 
 This file records only limitations that are still real on the current React Native/Flask architecture. Historical audit notes are not release evidence.
 
 ## Requires live configuration or physical-device evidence
 
 - **Fresh Android APK install:** the repository can build/export Android and the EAS workflow now waits for a current-HEAD preview APK, but a successful physical install/launch still has to be recorded.
-- **Guardian and child face journeys:** source and automated contracts exist; a current APK still needs valid-face, no-face, multiple-face, retry, enrollment and login evidence on Android hardware.
+- **Current authentication on device:** parent email-OTP and Android biometric/PIN Parent Mode gating, plus child password login and quiz gating, are implemented; the complete current APK journey still requires physical-device evidence.
 - **Cross-user publication:** publication invalidation and feed eligibility are tested in source, but Child A upload -> ALLOW -> Child B visibility still needs a two-device/two-account run.
 - **Physical Reel playback:** one-active-player logic, buffering policy, JIT playback credentials and telemetry are implemented; TTFF/rebuffer/background-resume claims still require current-device measurements.
 - **Push delivery:** Expo push integration is implemented, but physical device-token delivery remains unverified.
