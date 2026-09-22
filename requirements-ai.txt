@@ -7,3 +7,6 @@ tf-keras>=2.16,<2.19
 ultralytics>=8.3,<9
 opencv-python-headless==4.11.0.86
 scenedetect-headless>=0.7,<0.8
+
+# Burned-in image text/contact screening used by safety.visual_service.
+rapidocr-onnxruntime>=1.4,<2
