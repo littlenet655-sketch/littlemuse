@@ -81,6 +81,13 @@ def _validate_report_target(viewer_id: int, target_type: str, target_id: int):
 
 
 def register_mobile_stitch_api(bp):
+    # The canonical API blueprint can be imported through more than one app/test
+    # construction path. Registration is intentionally idempotent so a second
+    # call cannot duplicate URL rules or overwrite Flask endpoint mappings.
+    if getattr(bp, "_littlenet_stitch_registered", False):
+        return
+    bp._littlenet_stitch_registered = True
+
     # Post detail is defined by mobile.api.register_mobile_api().  Keep this
     # stitch module limited to endpoints that are otherwise absent from the
     # canonical mobile API so registering it cannot create duplicate Flask
