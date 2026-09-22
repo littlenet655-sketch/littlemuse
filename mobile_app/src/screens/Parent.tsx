@@ -55,7 +55,7 @@ export function CreateChildScreen({ navigation }: ParentScreenProps<'CreateChild
     if (username.trim().length < 3) problems.username = 'Pick at least 3 characters.';
     if (!fullName.trim()) problems.fullName = 'Enter the child\u2019s name.';
     const ageNumber = Number(age);
-    if (!Number.isInteger(ageNumber) || ageNumber < 4 || ageNumber > 18) problems.age = 'Age must be 4–18.';
+    if (!Number.isInteger(ageNumber) || ageNumber < 6 || ageNumber > 16) problems.age = 'Age must be 6–16.';
     if (password.length < 8) problems.password = 'At least 8 characters.';
     if (Object.keys(problems).length) {
       setFieldErrors(problems);
@@ -135,7 +135,7 @@ export function CreateChildScreen({ navigation }: ParentScreenProps<'CreateChild
               error={fieldErrors.fullName}
             />
             <Field
-              label="Child Age (4–18)"
+              label="Child Age (6–16)"
               placeholder="e.g. 10"
               keyboardType="number-pad"
               value={age}
