@@ -39,3 +39,15 @@ def test_replit_contract_points_to_single_stack():
     assert 'mobile_app/' in docs
     assert 'React Native' in docs
     assert 'EXPO_PUBLIC_API_BASE_URL' in docs
+
+
+def test_production_image_ocr_is_shipped_enabled_and_preflighted():
+    modal_ai = text("modal_ai.py")
+    req = text("requirements-ai.txt")
+    docs = text("docs/IMAGE_OCR_SAFETY.md")
+    assert "rapidocr-onnxruntime" in modal_ai
+    assert "rapidocr-onnxruntime" in req
+    assert '"LITTLENET_ENABLE_OCR": "1"' in modal_ai
+    assert '"LITTLENET_ENABLE_OCR_VIDEO_FRAMES": "0"' in modal_ai
+    assert 'report["ocr"]' in modal_ai
+    assert "future work" not in docs.lower()
