@@ -51,6 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     invalidateParentAuth();
     const token = sessionRef.current?.token ?? null;
+    if (token) {
+      // Best-effort: revoke the push token server-side so this device
+      // stops receiving notifications after sign-out.
+      void import('../push/notifications').then((m) => m.unregisterPushToken(token));
+    }
     sessionRef.current = null;
     setSession(null);
     setStatus('signedOut');
@@ -121,6 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const next = await persistLoginResponse(secureStoreBackend, response);
       applySession(next);
       setStatus('signedIn');
+      // Best-effort push registration: never blocks or breaks sign-in.
+      void import('../push/notifications').then((m) => m.registerPushToken(next.token));
     },
     [applySession],
   );

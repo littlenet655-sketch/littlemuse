@@ -117,6 +117,8 @@ export const routes = {
   conversations: '/api/mobile/v1/kids/messages',
   chat: (peerId: number) => `/api/mobile/v1/kids/chat/${peerId}`,
   sharePost: (peerId: number) => `/api/mobile/v1/kids/chat/${peerId}/share`,
+  deviceRegister: '/api/mobile/v2/device/register',
+  deviceUnregister: '/api/mobile/v2/device/unregister',
 } as const;
 
 type UnauthorizedHandler = () => void;

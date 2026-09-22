@@ -31,7 +31,24 @@ for p in route_files:
                 isinstance(call,ast.Call) and isinstance(call.func,ast.Name) and call.func.id=='_pending_parent'
                 for call in ast.walk(n)
             )
-            if not is_public and not has_pending_parent_guard and not any(x in decos for x in {'child_required','parent_required','admin_required','login_required'}):
+            # Token-guardian OTP step: requires the short-lived session token
+            # set by the first verification step to equal the URL token
+            # (``session.get('pending_token_verification') != token`` ->
+            # redirect), plus a re-check that the parent row and child data
+            # still exist. Treat that session-bound pre-auth guard as
+            # equivalent to the normal decorators.
+            has_token_session_guard=any(
+                isinstance(call,ast.Call)
+                and isinstance(call.func,ast.Attribute)
+                and isinstance(call.func.value,ast.Name)
+                and call.func.value.id=='session'
+                and call.func.attr=='get'
+                and call.args
+                and isinstance(call.args[0],ast.Constant)
+                and call.args[0].value=='pending_token_verification'
+                for call in ast.walk(n)
+            )
+            if not is_public and not has_pending_parent_guard and not has_token_session_guard and not any(x in decos for x in {'child_required','parent_required','admin_required','login_required'}):
                 errors.append(f'unguarded {rel}:{n.name} {route}')
             if route!='/parent/deleted-posts/' and any(x in route for x in ['/delete','/block','/mute','/follow-action','/review/','/safety-level','/submit','/send-','/share-']) and 'GET' in methods:
                 errors.append(f'mutating GET {rel}:{route}')

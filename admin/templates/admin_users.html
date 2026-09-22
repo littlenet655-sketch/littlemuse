@@ -58,7 +58,7 @@
           {{ 'Activate' if u.account_status == 'SUSPENDED' else 'Suspend' }}
         </button>
       </form>
-      <form method="post" action="/admin/user/{{ u.user_id }}/" style="margin: 0;" onsubmit="return confirm('Are you sure you want to permanently delete this {{ u.role.lower() }} account (@{{ u.username }})? This action cannot be undone and will delete all associated data.');">
+      <form method="post" action="/admin/user/{{ u.user_id }}/" style="margin: 0;" data-confirm="Are you sure you want to permanently delete this {{ u.role.lower() }} account (@{{ u.username }})? This action cannot be undone and will delete all associated data.">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn danger" name="action" value="DELETE" style="font-size: 12px; padding: 6px 14px; border-radius: 8px; background: #DC2626; color: #FFFFFF;">
           Delete

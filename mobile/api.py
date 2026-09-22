@@ -3244,6 +3244,19 @@ def register_mobile_api(bp):
         ok = register_device_token(uid, platform, token, device_id)
         return jsonify(ok=ok)
 
+    @bp.route("/api/mobile/v2/device/unregister", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile()
+    def mobile_device_unregister():
+        uid = int(g.mobile_user["user_id"])
+        data = _json_dict()
+        token = str(data.get("push_token") or "").strip()
+        if not token:
+            return jsonify(error="push_token_required"), 400
+        from services.push_notifications import revoke_device_token
+        ok = revoke_device_token(uid, token)
+        return jsonify(ok=ok)
+
     @bp.route("/api/mobile/v2/curated/media/<int:content_id>")
     @_require_mobile("CHILD")
     def mobile_curated_media(content_id):
