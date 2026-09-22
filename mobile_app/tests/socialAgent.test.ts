@@ -8,6 +8,8 @@ import { setUnauthorizedHandler } from '../src/api/client';
 import {
   addComment,
   blockUser,
+  deletePost,
+  deleteStory,
   fetchBlockedUsers,
   fetchComments,
   fetchConnectionRequests,
@@ -183,6 +185,19 @@ describe('like / save / comment contract', () => {
   });
 });
 
+
+  it('deletes owner posts and stories through bearer-native routes', async () => {
+    stubFetch();
+    nextPayload = { ok: true };
+    await deletePost('tok', 21);
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/posts/21');
+    assert.equal(String(seen[0]?.init.method).toUpperCase(), 'DELETE');
+
+    await deleteStory('tok', 34);
+    assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v2/kids/stories/34');
+    assert.equal(String(seen[1]?.init.method).toUpperCase(), 'DELETE');
+  });
+
 describe('chat contract', () => {
   it('fetches a page with limit and before_id cursor', async () => {
     stubFetch();
@@ -212,11 +227,12 @@ describe('chat contract', () => {
     assert.equal(res.message_id, 77);
   });
 
-  it('lists conversations', async () => {
+  it('lists conversations with real backend pagination', async () => {
     stubFetch();
-    nextPayload = { ok: true, conversations: [] };
-    await fetchConversations('tok');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/messages');
+    nextPayload = { ok: true, conversations: [], has_more: true };
+    const page = await fetchConversations('tok', 20, 40);
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/messages?limit=20&offset=40');
+    assert.equal(page.has_more, true);
   });
 });
 
