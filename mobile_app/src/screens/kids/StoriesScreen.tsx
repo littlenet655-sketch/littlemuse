@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
 import { fetchStoryViewers, type StoryViewer } from '../../api/kidsUpload';
+import { deleteOwnStory } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -198,6 +199,32 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
+
+  function confirmDeleteStory() {
+    if (!session?.token || !current?.post_id || !isOwnStory) return;
+    Alert.alert(
+      'Delete this story?',
+      'It will be removed immediately and its private media will be queued for secure deletion.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deleteOwnStory(session.token, current.post_id)
+              .then(() => {
+                setStories((rows) => rows.filter((row) => row.post_id !== current.post_id));
+                setIndex(0);
+                setViewersOpen(false);
+              })
+              .catch((err: unknown) => {
+                setError(err);
+              });
+          },
+        },
+      ],
+    );
+  }
   const expiryLabel = isOwnStory ? expiresInLabel(current.created_at) : null;
 
   // Instagram parity: swipe down anywhere on the viewer to close it. Only a
@@ -253,6 +280,16 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               </View>
               {expiryLabel ? <Text style={styles.expiry}>{expiryLabel}</Text> : null}
             </View>
+            {isOwnStory ? (
+              <Pressable
+                onPress={confirmDeleteStory}
+                style={styles.deleteStoryBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this story"
+              >
+                <Feather name="trash-2" size={14} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
             {isOwnStory && viewers ? (
               <Pressable
                 onPress={() => setViewersOpen((v) => !v)}
@@ -264,7 +301,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 <Text style={styles.viewersText}>{viewers.length}</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={() => navigation.navigate('CreateTab')} style={styles.create}>
+            <Pressable onPress={() => navigation.navigate('KidsTabs', { tab: 'CreateTab', createKind: 'story' })} style={styles.create}>
               <Text style={styles.createText}>＋ Story</Text>
             </Pressable>
             <Pressable
@@ -376,6 +413,7 @@ const styles = StyleSheet.create({
   timestamp: { color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: '600' },
   expiry: { color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: '600', marginTop: 1 },
   viewersBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14 },
+  deleteStoryBtn: { alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(220,38,38,0.68)' },
   viewersText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   create: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   createText: { color: colors.surface, fontWeight: '800', fontSize: 13 },
