@@ -53,6 +53,14 @@ export function fetchPostDetail(token: string, postId: number): Promise<{ ok: bo
   return get(routes.postDetail(postId), token);
 }
 
+export function deleteOwnPost(token: string, postId: number): Promise<{ ok: boolean }> {
+  return apiRequest(routes.postDetail(postId), { method: 'DELETE' }, token);
+}
+
+export function deleteOwnStory(token: string, storyId: number): Promise<{ ok: boolean }> {
+  return apiRequest(routes.deleteStory(storyId), { method: 'DELETE' }, token);
+}
+
 export function toggleLike(token: string, postId: number): Promise<{ ok: boolean; liked: boolean; likes: number }> {
   return postJson(routes.like(postId), {}, token);
 }
