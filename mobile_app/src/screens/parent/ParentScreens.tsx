@@ -2374,7 +2374,7 @@ const styles = StyleSheet.create({
   reviewVideo: { width: '100%', height: 320, backgroundColor: '#000000', borderRadius: 14, overflow: 'hidden', marginTop: 12, marginBottom: 10 },
   reviewRevealWrap: { position: 'relative', overflow: 'hidden', borderRadius: 14, marginTop: 12, marginBottom: 10, backgroundColor: '#0F172A' },
   reviewRevealPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#E2E8F0' },
-  reviewRevealOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.72)', gap: 8 },
+  reviewRevealOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.72)', gap: 8 },
   reviewRevealTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '900', textAlign: 'center' },
   reviewRevealBody: { color: '#CBD5E1', fontSize: 12, lineHeight: 18, textAlign: 'center', marginBottom: 4 },
   refreshScrollContent: { flexGrow: 1, paddingBottom: spacing.xl },
