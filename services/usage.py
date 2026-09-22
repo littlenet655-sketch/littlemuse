@@ -56,8 +56,15 @@ def _notice_once(child_id, activity_type, parent_type, message, remaining):
     if seen:return
     execute('INSERT INTO activity_logs(child_id,activity_type,activity_data) VALUES(%s,%s,%s::jsonb)',(child_id,activity_type,json.dumps({'remaining_minutes':remaining})))
     execute('''INSERT INTO parent_notifications(parent_id,child_id,notification_type,notification_message,target_url)
-               SELECT parent_id,%s,%s,%s,'/parent/time-limit/?child_id='||%s
-               FROM parent_child_map WHERE child_id=%s AND parent_id IS NOT NULL''',(child_id,parent_type,message,child_id,child_id))
+               SELECT pcm.parent_id,%s,%s,%s,'/parent/time-limit/?child_id='||%s
+               FROM parent_child_map pcm
+               JOIN users p ON p.user_id=pcm.parent_id
+               WHERE pcm.child_id=%s
+                 AND pcm.parent_id IS NOT NULL
+                 AND pcm.approved=TRUE
+                 AND pcm.approval_status='APPROVED'
+                 AND p.role='PARENT'
+                 AND p.account_status='ACTIVE' ''',(child_id,parent_type,message,child_id,child_id))
 
 
 def lock_state(child_id):
