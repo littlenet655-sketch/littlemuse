@@ -34,14 +34,14 @@ r2_secret = modal.Secret.from_name(
 
 web_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "curl", "ca-certificates")
+    .apt_install("ffmpeg", "curl", "ca-certificates", "tesseract-ocr")
     .run_commands(
         "curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.34.1/dbmate-linux-amd64",
         "chmod +x /usr/local/bin/dbmate",
         "dbmate --version",
     )
     .pip_install_from_requirements(str(ROOT / "requirements-core.txt"))
-    .pip_install("presidio-analyzer>=2.2,<3", "spacy>=3.8,<4")
+    .pip_install("presidio-analyzer>=2.2,<3", "spacy>=3.8,<4", "pytesseract>=0.3.13,<0.4")
     .run_commands("python -m spacy download en_core_web_sm")
     .workdir("/root/littlenet")
     .env(
@@ -49,6 +49,7 @@ web_image = (
             "COOKIE_SECURE": "1",
             "LITTLENET_DEVICE": "cpu",
             "LITTLENET_ENABLE_PRESIDIO": "1",
+            "LITTLENET_ENABLE_OCR": "1",
             "LITTLENET_PRESIDIO_SPACY_MODEL": "en_core_web_sm",
             "LITTLENET_RESEND_FROM_EMAIL": "no-reply@littlenet.in",
             "LITTLENET_RESEND_DOMAIN_VERIFIED": "1",
