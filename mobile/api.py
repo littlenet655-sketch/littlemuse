@@ -998,7 +998,10 @@ def register_mobile_api(bp):
             data = _json_dict()
             current = get_child_profile(uid) or {}
             merged = dict(current)
-            for key in ("full_name", "school_name", "location", "current_class", "bio", "date_of_birth"):
+            parent_managed = {"school_name", "location", "current_class", "date_of_birth"}
+            if any(key in data for key in parent_managed):
+                return jsonify(error="profile_field_parent_managed"), 400
+            for key in ("full_name", "bio"):
                 if key in data:
                     merged[key] = data.get(key)
             public_text = " ".join(str(merged.get(k) or "") for k in ("full_name", "school_name", "location", "current_class", "bio"))
