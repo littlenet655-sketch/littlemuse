@@ -212,11 +212,15 @@ describe('chat contract', () => {
     assert.equal(res.message_id, 77);
   });
 
-  it('lists conversations', async () => {
+  it('lists conversations with server pagination', async () => {
     stubFetch();
-    nextPayload = { ok: true, conversations: [] };
-    await fetchConversations('tok');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/messages');
+    nextPayload = { ok: true, conversations: [], has_more: true };
+    const res = await fetchConversations('tok', 20, 40);
+    assert.equal(
+      seen[0]?.url,
+      'https://backend.test.invalid/api/mobile/v1/kids/messages?limit=20&offset=40',
+    );
+    assert.equal(res.has_more, true);
   });
 });
 
