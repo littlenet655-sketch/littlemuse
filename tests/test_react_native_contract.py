@@ -39,3 +39,26 @@ def test_replit_contract_points_to_single_stack():
     assert 'mobile_app/' in docs
     assert 'React Native' in docs
     assert 'EXPO_PUBLIC_API_BASE_URL' in docs
+
+def test_native_social_stitch_routes_are_registered_once():
+    auth_api=text("auth/api.py")
+    stitch=text("mobile/stitch_api.py")
+    assert "from mobile.stitch_api import register_mobile_stitch_api" in auth_api
+    assert "register_mobile_stitch_api(api_bp)" in auth_api
+    assert "/api/mobile/v1/kids/saved" in stitch
+    assert "/api/mobile/v1/kids/profiles/<int:target_id>" in stitch
+    assert "/api/mobile/v1/kids/profiles/<int:target_id>/actions" in stitch
+    assert "/api/mobile/v1/kids/reports" in stitch
+    assert "/api/mobile/v1/kids/chat/<int:peer_id>/share" in stitch
+    # Post detail already lives in mobile/api.py; stitch registration must not
+    # add a second Flask rule for the same URL.
+    assert "/api/mobile/v1/kids/posts/<int:post_id>" not in stitch
+
+
+def test_parent_viewing_insights_uses_bearer_mobile_alias():
+    client=text("mobile_app/src/api/client.ts")
+    api=text("mobile/api.py")
+    assert "/api/mobile/v1/parent/child/<int:child_id>/viewing-insights" in api
+    assert "/api/mobile/v1/parent/child/${childId}/viewing-insights" in client
+    assert "parentViewingInsights: (childId: number) => `/api/parent/child/" not in client
+
