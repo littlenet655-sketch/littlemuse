@@ -51,7 +51,7 @@ from childMessage.service import conversation, conversations_page, is_peer_typin
 from config import Config
 from database.connection import execute, execute_count, fetch_all, fetch_one, get_db_connection
 from extensions import csrf, limiter
-from parent.service import children, owns, pending_follows
+from parent.service import children, owns, pending_follows, viewing_insights
 from quiz.service import (
     age_group,
     complete_required_feed_quiz,
@@ -2699,6 +2699,20 @@ def register_mobile_api(bp):
                 child["quiz_7d"] = {"attempted": attempted, "correct": correct, "accuracy": round(correct * 100 / attempted) if attempted else 0}
             except Exception:
                 child["quiz_7d"] = {"attempted": 0, "correct": 0, "accuracy": 0}
+            try:
+                child["viewing_7d"] = viewing_insights(pid, cid, 7) or {
+                    "days": 7, "total_views": 0, "watched_minutes": 0.0,
+                    "feed": {"views": 0, "watched_minutes": 0.0, "completed": 0, "completion_rate": 0.0, "replays": 0, "liked": 0, "saved": 0},
+                    "reels": {"views": 0, "watched_minutes": 0.0, "completed": 0, "completion_rate": 0.0, "replays": 0, "liked": 0, "saved": 0},
+                    "top_categories": [],
+                }
+            except Exception:
+                child["viewing_7d"] = {
+                    "days": 7, "total_views": 0, "watched_minutes": 0.0,
+                    "feed": {"views": 0, "watched_minutes": 0.0, "completed": 0, "completion_rate": 0.0, "replays": 0, "liked": 0, "saved": 0},
+                    "reels": {"views": 0, "watched_minutes": 0.0, "completed": 0, "completion_rate": 0.0, "replays": 0, "liked": 0, "saved": 0},
+                    "top_categories": [],
+                }
             if child.get("profile_picture"):
                 child["avatar_url"] = _asset_url(child.get("profile_picture"))
         try:
