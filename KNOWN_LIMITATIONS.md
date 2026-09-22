@@ -1,29 +1,30 @@
-# LittleNet — Known Limitations
+# LittleNet — Current Known Limitations
 
-Things this tree does **not** do, classified from the contract audit (2026-09-21). None of them is a release blocker under the project's rule (no visible mobile feature calls a missing or broken contract), but each is real work for a later milestone.
+_Last re-audited: 22 September 2026._
 
-## Functional gaps (backend work needed)
+This file lists only limitations that remain after the final React Native/mobile API hardening pass. Older gaps such as conversation pagination, social notifications, native post/story deletion, story avatar normalization, and child face authentication are not current gaps.
 
-1. **Kids messages lack pagination** — `GET /api/mobile/v1/kids/messages` returns all conversations; per-chat reads already paginate. Fine at small scale; add `limit`/`before_id` before large pilots.
-2. **No LIKE/COMMENT/FOLLOW notifications** — the actions work, but the content owner is never notified. `NotificationsScreen` shows MESSAGE/PARENT_CONTROLS/SCREEN_TIME types only.
-3. **No bearer-native post/story deletion** — deletion exists only as session-cookie web routes. The native app has no delete affordance at all (by design for now); adding one requires `DELETE /api/mobile/v1/kids/posts/<id>` plus R2 cleanup wiring.
-4. **No bearer parent learning-report endpoint** — the report is web-HTML only (`quiz/routes.py`); no mobile call site exists.
-5. **Push delivery still needs Firebase/APNs credentials** — push device registration is wired end-to-end (the app requests permission, takes the Expo push token via the EAS projectId, and registers it with `POST /api/mobile/v2/device/register` on sign-in / `POST /api/mobile/v2/device/unregister` on sign-out; `mobile_app/src/push/notifications.ts`, `mobile_app/src/auth/AuthProvider.tsx`). Actual token delivery to a physical device remains unverified until Firebase/APNs credentials exist.
+## External/live verification still required
 
-## Quality / performance improvements
+1. **Production credentials and deployment evidence** — Neon/PostgreSQL, private R2, Modal, Resend and Expo/EAS credentials are intentionally not stored in Git. The source is wired for them, but the final live preflight must be run after those secrets are configured.
+2. **Physical Android validation** — React Native typecheck/tests/export pass in CI, but the final APK still needs installation and the full Parent → Child → upload → moderation → second-child journey on a real Android device.
+3. **Push delivery** — Expo device-token registration/unregistration and backend notification dispatch are implemented; physical push receipt still needs Firebase/APNs/EAS credentials and a real device.
+4. **Cross-user publication evidence** — source contracts cover publication invalidation and feed eligibility, but a live two-account run should prove Child A ALLOW content appears for eligible Child B.
+5. **Real-device Reel measurements** — one-active-player, buffering/retry, signed playback and background behavior are implemented; TTFF/rebuffer metrics require a real network/device measurement.
+6. **Optional Cloudflare Stream** — private Stream integration remains opt-in. R2 is the current safe fallback; do not enable Stream until its credentials and live playback path are verified.
 
-6. **Story viewer payload uses raw `profile_picture`** — renders defensively on the client; should resolve to `avatar_url` server-side.
-7. **Feed/home posts omit media width/height/aspect-ratio** — client falls back to local measurement; server should persist dimensions at processing time.
-8. **Kids home is v1-only** — works; a v2 home route would be a consistency improvement.
-9. **`update_time_limit` staleness** — could not reproduce server-side (read-after-write, no cache); if observed, it is likely the client's dashboard-invalidation race.
+## Evidence limitations, not missing product features
 
-## Test-environment limitations
+- The historical `audit/ui_final/` screenshot archive predates the final password-only authentication and latest UI hardening. Current code is the source of truth until a fresh screenshot capture is made from the release APK.
+- Do not claim a production moderation-accuracy percentage until the labelled held-out benchmark protocol has been executed and retained.
+- Do not claim Instagram/YouTube-scale capacity from local profilers alone; production scale requires staged load evidence.
 
-10. `tests/test_message_review_visibility.py` E2E pair errors in sandboxes where the disposable DB is only reachable via localhost (the file's own anti-footgun guard). The DB-free contract half passes.
-11. Gradle `assembleDebug` could not run in this sandbox (blocked localhost TCP for the Gradle daemon) — see FINAL_TEST_RESULTS.md.
-12. Physical-device and live-production verification were not performed (no device, no prod credentials) — see PHYSICAL_DEVICE_CHECKLIST.md.
+## Intentionally out of scope
 
-## Deliberately retained (not limitations)
+- unrestricted user-generated audio or voice messaging;
+- group chat;
+- advanced story/reel editing;
+- standalone child signup;
+- child or guardian face authentication.
 
-- Compatibility fallbacks, private-R2 fallback for Stream, migration history, safety checks, and physical-device docs were kept on purpose.
-- `POST /api/mobile/v1/kids/posts` returns **410** (not removed) so old clients get a directed error instead of a silent 404.
+These are scope decisions, not incomplete implementation.
