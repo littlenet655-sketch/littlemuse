@@ -471,3 +471,17 @@ def test_recommendation_action_validates_action_and_curated(monkeypatch):
     )
     assert resp.status_code == 200
     assert recorded and recorded[0][1:] == ("CURATED", 7, "HIDE")
+
+def test_parent_notification_helpers_require_approved_active_guardian_mapping():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    social = (root / "services/social.py").read_text(encoding="utf-8")
+    usage = (root / "services/usage.py").read_text(encoding="utf-8")
+    media = (root / "services/media_processor.py").read_text(encoding="utf-8")
+    for body in (social, usage, media):
+        assert "approval_status='APPROVED'" in body
+        assert "account_status='ACTIVE'" in body
+    assert "pcm.approved=TRUE" in social
+    assert "pcm.approved=TRUE" in usage
+    assert "p.approved=TRUE" in media
+
