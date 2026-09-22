@@ -7,3 +7,6 @@ tf-keras>=2.16,<2.19
 ultralytics>=8.3,<9
 opencv-python-headless==4.11.0.86
 scenedetect-headless>=0.7,<0.8
+
+# Burned-in text/PII screening for images (CPU OCR, no system binary).
+rapidocr-onnxruntime>=1.4,<2
