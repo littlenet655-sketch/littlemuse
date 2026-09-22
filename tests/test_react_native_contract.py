@@ -62,3 +62,18 @@ def test_parent_viewing_insights_uses_bearer_mobile_alias():
     assert "/api/mobile/v1/parent/child/${childId}/viewing-insights" in client
     assert "parentViewingInsights: (childId: number) => `/api/parent/child/" not in client
 
+def test_real_flask_app_exposes_native_social_routes_once():
+    from app import app as flask_app
+
+    rules=[rule.rule for rule in flask_app.url_map.iter_rules()]
+    for expected in [
+        "/api/mobile/v1/kids/saved",
+        "/api/mobile/v1/kids/profiles/<int:target_id>",
+        "/api/mobile/v1/kids/profiles/<int:target_id>/actions",
+        "/api/mobile/v1/kids/reports",
+        "/api/mobile/v1/kids/chat/<int:peer_id>/share",
+        "/api/mobile/v1/parent/child/<int:child_id>/viewing-insights",
+    ]:
+        assert expected in rules
+    assert rules.count("/api/mobile/v1/kids/posts/<int:post_id>") == 1
+
