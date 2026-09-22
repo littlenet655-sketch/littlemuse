@@ -194,7 +194,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
   if (error) return <Screen><ErrorState message="Could not load stories." onRetry={() => void load()} /></Screen>;
-  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('CreateTab')} /></Screen>;
+  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => navigation.navigate('KidsTabs', { tab: 'CreateTab', createKind: 'story' })} /></Screen>;
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
