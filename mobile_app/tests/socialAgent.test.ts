@@ -8,6 +8,8 @@ import { setUnauthorizedHandler } from '../src/api/client';
 import {
   addComment,
   blockUser,
+  deleteOwnPost,
+  deleteOwnStory,
   fetchBlockedUsers,
   fetchComments,
   fetchConnectionRequests,
@@ -144,6 +146,20 @@ describe('block / mute / report contract', () => {
     nextPayload = { ok: true, reports: [] };
     await fetchReports('tok');
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/reports');
+  });
+});
+
+describe('owner delete contract', () => {
+  it('deletes own posts and stories through the guarded native routes', async () => {
+    stubFetch();
+    nextPayload = { ok: true };
+    await deleteOwnPost('tok', 12);
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/posts/12');
+    assert.equal(seen[0]?.init.method, 'DELETE');
+
+    await deleteOwnStory('tok', 13);
+    assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v2/kids/stories/13');
+    assert.equal(seen[1]?.init.method, 'DELETE');
   });
 });
 
