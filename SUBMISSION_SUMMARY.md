@@ -18,10 +18,10 @@ Team: ATHMIYA D, PRAGNA G SHENOY, ROHINI L GOWDA and SANGEETHA M. Project guide:
 - NudeNet + Falconsai NSFW + CLIP + OpenImages-capable YOLO visual safety
 - Detoxify/text safety and PII protection
 - video frame sampling; video audio is stripped before persistence because active speech/audio moderation is outside the locked build
-- DeepFace/MediaPipe-based face/liveness safety paths
+- DeepFace-backed child face identity plus Android system-authenticated Parent Mode
 - compulsory age-banded quiz gate, Parent Controls, screen time and quiet hours
 - private R2 media authorization and PostgreSQL audit/history
-- Android WebView source and automated live-backed APK release workflow
+- React Native/Expo Android source and automated live-backed APK release workflow
 - CI security/source gates and clean submission ZIP packaging
 
 ## Live deployment status — do not overclaim
@@ -38,7 +38,7 @@ After the live deployment passes, GitHub Actions generates **`LittleNet-live-ver
 
 ## Correct viva demo order
 
-1. Parent registration → OTP → live camera/liveness/adult verification.
+1. Parent registration → email OTP → ACTIVE; Parent Mode then requires Android system authentication.
 2. Parent creates/confirms a child and shows Parent Controls.
 3. Child face enrollment/login and compulsory onboarding/scroll quiz gate.
 4. Safe text/image/video post.
