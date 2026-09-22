@@ -6,7 +6,7 @@
 
 ## 1. One-line explanation
 
-> LittleNet is a supervised child-focused social and learning platform where server-side moderation, approved relationships, Parent Mode controls, Face Login/liveness, and Admin/Moderator review work together to reduce unsafe content and interactions.
+> LittleNet is a supervised child-focused social and learning platform where server-side moderation, approved relationships, Parent Mode controls, Child Face Login/liveness, and Admin/Moderator review work together to reduce unsafe content and interactions.
 
 ## 2. Screen → route → implementation map
 
@@ -91,7 +91,7 @@ Explain that parent access requires an ACTIVE parent account plus an approved pa
 
 ### Step 5 — Face/liveness + Admin + APK (about 1 minute)
 
-- Explain that guardian/adult verification requires exactly one face and positive liveness evidence.
+- Explain that parent activation uses email OTP; Parent Mode is protected by Android system authentication, while child Face Login uses live-camera challenge evidence.
 - Show the Admin/Moderator screen with moderation/audit evidence.
 - Show the Android APK and explain that it was built from the same source and points to the HTTPS backend.
 
@@ -143,7 +143,7 @@ The backend stores usage sessions and calculates current daily usage. Missing/st
 
 ### Q11. What is special about the face/liveness hardening?
 
-The system no longer treats image dimensions or missing face metadata as proof. Adult/guardian verification requires exactly one face and explicit positive liveness evidence. Age-boundary logic also avoids rounding 17.x into an adult result.
+The system never uses image dimensions as identity proof. Child Face Login requires live-camera challenge evidence and a replay-resistant server nonce. Parent activation is email-OTP based and Parent Mode uses Android system authentication; no parent age-estimation/selfie gate is part of the final flow.
 
 ### Q12. Why Flask + PostgreSQL?
 
@@ -182,7 +182,7 @@ Prefer:
 - “This is a verified college submission candidate.”
 - “We use sampled video-frame moderation.”
 - “Uncertain/partial failures go to parent review.”
-- “The current APK is CI-built from the verified source.”
+- “The current source/export is CI-verified; I only call an APK verified after the current EAS build and physical smoke pass.”
 - “The final hosted redeploy needs the Modal GitHub Actions credentials restored.”
 
 ## 8. Current evidence snapshot
@@ -191,7 +191,7 @@ Baseline commit: `304f35052e033726b00e9b7e229141b42d32fd6c`
 
 Current APK artifact:
 
-- name: `LittleNet-debug-apk`
+- name: `littlenet-current-main-apk` after the EAS release workflow completes
 - package: `com.littlenet.app`
 - digest: `sha256:f38cc4e79a14bcf7de405e2d735a5869f11716cf6aab853809ebbfb2c0c43f65`
 
