@@ -24,7 +24,7 @@ r2_secret = modal.Secret.from_name("littlenet-r2")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "libgomp1")
+    .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "libgomp1", "tesseract-ocr")
     .pip_install(
         "numpy==1.26.4",
         "torch>=2.2,<2.8",
@@ -43,6 +43,7 @@ image = (
         "Pillow==12.3.0",
         "pypdf==6.16.1",
         "requests==2.33.0",
+        "pytesseract>=0.3.13,<0.4",
         "psycopg2-binary==2.9.10",
         "boto3==1.40.17",
         # Explicit: safety/policy_config.py does a top-level `import yaml`
@@ -56,6 +57,7 @@ image = (
         {
             "LITTLENET_AI_SERVER": "1",
             "LITTLENET_DEVICE": "cuda",
+            "LITTLENET_ENABLE_OCR": "1",
             "LITTLENET_MODEL_CACHE": "/cache/models",
             "LITTLENET_ENABLE_TRAINED_IMAGE_ENSEMBLE": "1",
             "LITTLENET_TRAINED_IMAGE_V2_PATH": "/cache/models/littlenet_core_safety_v2.pth",
