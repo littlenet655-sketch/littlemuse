@@ -204,3 +204,10 @@ The local Gradle APK workflow is diagnostic/secondary. It has no historical
 backend fallback: `LITTLENET_LIVE_URL` must be explicitly configured, its mobile
 health identity must be React Native, and the committed Expo/EAS/package identity
 must match the canonical release identity.
+
+
+The live-media probe is intentionally fixture-bound because it creates and then
+deletes real test content. Configure repository variables
+`LITTLENET_RELEASE_PROBE_CHILD_A` and `LITTLENET_RELEASE_PROBE_CHILD_B` with
+two distinct ACTIVE child test accounts that have the required approved
+relationship. The probe has no default user IDs.

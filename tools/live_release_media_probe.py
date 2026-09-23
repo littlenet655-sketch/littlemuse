@@ -46,8 +46,15 @@ def run_probe() -> dict:
     if not base.startswith("https://") or not db_url or len(secret) < 16:
         raise RuntimeError("release probe environment is incomplete")
 
-    child_a = 2
-    child_b = 3
+    try:
+        child_a = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_A"])
+        child_b = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_B"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "release probe requires explicit LITTLENET_RELEASE_PROBE_CHILD_A/B fixture IDs"
+        ) from exc
+    if child_a <= 0 or child_b <= 0 or child_a == child_b:
+        raise RuntimeError("release probe child fixture IDs must be distinct positive integers")
 
     conn = psycopg2.connect(db_url)
     try:

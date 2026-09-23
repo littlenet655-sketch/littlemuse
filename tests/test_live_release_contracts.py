@@ -126,3 +126,14 @@ def test_release_utilities_use_configurable_current_resource_names():
     stage = (ROOT / "tools/stage_model_volume.py").read_text(encoding="utf-8")
     assert 'LITTLENET_WEB_SECRET", "littlemuse-web-secrets"' in probe
     assert 'LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache"' in stage
+
+
+def test_live_media_probe_requires_explicit_fixture_accounts():
+    probe = (ROOT / "tools/live_release_media_probe.py").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/live-media-probe.yml").read_text(encoding="utf-8")
+    assert "child_a = 2" not in probe
+    assert "child_b = 3" not in probe
+    assert "LITTLENET_RELEASE_PROBE_CHILD_A" in probe
+    assert "LITTLENET_RELEASE_PROBE_CHILD_B" in probe
+    assert "vars.LITTLENET_RELEASE_PROBE_CHILD_A" in workflow
+    assert "vars.LITTLENET_RELEASE_PROBE_CHILD_B" in workflow
