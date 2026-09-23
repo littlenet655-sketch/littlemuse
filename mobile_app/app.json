@@ -2,7 +2,7 @@
   "expo": {
     "name": "LittleNet",
     "slug": "littlenet",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/app_logo.png",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.littlenet.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/app_logo.png",
