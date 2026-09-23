@@ -64,7 +64,7 @@ def needs_onboarding_quiz(cid, required_questions=2):
 # ─── Classic quiz bank (used by quiz page) ────────────────────────────────────
 
 def quizzes(cid, limit=5):
-    """Return randomized unseen age-matched questions; guarantee non-repeating until pool is exhausted, then cycle from least-recently attempted."""
+    """Return randomized unseen age-matched questions; strictly guarantees non-repeating for kids by dynamically generating new questions with K2 AI."""
     g = age_group(cid)
     if not g:
         return []
@@ -80,43 +80,23 @@ def quizzes(cid, limit=5):
     )
     if len(rows) < limit:
         needed = limit - len(rows)
-        existing_ids = [r['quiz_id'] for r in rows]
-        if existing_ids:
-            backfill = fetch_all(
-                '''SELECT q.* FROM quizzes q
-                   JOIN (
-                       SELECT quiz_id, MAX(attempted_at) as last_attempted
-                       FROM child_quiz_attempts
-                       WHERE child_id = %s
-                       GROUP BY quiz_id
-                   ) a ON q.quiz_id = a.quiz_id
-                   WHERE q.age_group = %s
-                     AND q.quiz_id NOT IN %s
-                   ORDER BY a.last_attempted ASC, RANDOM()
-                   LIMIT %s''',
-                (cid, g, tuple(existing_ids), needed)
-            )
-        else:
-            backfill = fetch_all(
-                '''SELECT q.* FROM quizzes q
-                   JOIN (
-                       SELECT quiz_id, MAX(attempted_at) as last_attempted
-                       FROM child_quiz_attempts
-                       WHERE child_id = %s
-                       GROUP BY quiz_id
-                   ) a ON q.quiz_id = a.quiz_id
-                   WHERE q.age_group = %s
-                   ORDER BY a.last_attempted ASC, RANDOM()
-                   LIMIT %s''',
-                (cid, g, needed)
-            )
-        if not backfill and not rows:
-            backfill = fetch_all(
-                'SELECT * FROM quizzes WHERE age_group=%s ORDER BY RANDOM() LIMIT %s',
-                (g, needed)
-            )
-        rows.extend(backfill)
-    return rows
+        try:
+            from quiz.learning_service import generate_and_insert_fresh_quizzes
+            fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=needed, child_id=cid)
+            existing_ids = {r['quiz_id'] for r in rows}
+            for f in fresh:
+                if f['quiz_id'] not in existing_ids:
+                    rows.append(f)
+                    existing_ids.add(f['quiz_id'])
+                    if len(rows) >= limit:
+                        break
+        except Exception as exc:
+            pass
+
+    # Strict zero-repetition guarantee: never return a question already in child_quiz_attempts for this child
+    attempted_rows = fetch_all('SELECT quiz_id FROM child_quiz_attempts WHERE child_id=%s', (cid,))
+    attempted_ids = {r['quiz_id'] for r in attempted_rows}
+    return [r for r in rows if r['quiz_id'] not in attempted_ids]
 
 # ─── Feed quiz — single unseen question injected between reels ────────────────
 
@@ -164,22 +144,25 @@ def next_feed_quiz(cid):
             (g, cid)
         )
     if not row:
-        # Exhausted children receive the single least-recently attempted question (strict LRU)
-        row = fetch_one(
-            '''SELECT q.* FROM quizzes q
-               JOIN (
-                   SELECT quiz_id, MAX(attempted_at) as last_attempted
-                   FROM child_quiz_attempts
-                   WHERE child_id = %s
-                   GROUP BY quiz_id
-               ) a ON q.quiz_id = a.quiz_id
-               WHERE q.age_group = %s
-               ORDER BY a.last_attempted ASC, RANDOM()
-               LIMIT 1''',
-            (cid, g)
-        )
-    if not row:
-        row = fetch_one('SELECT * FROM quizzes WHERE age_group=%s ORDER BY RANDOM() LIMIT 1', (g,))
+        # Bank exhausted for this child! Generate fresh questions using K2 AI on the fly
+        try:
+            from quiz.learning_service import generate_and_insert_fresh_quizzes
+            fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=3, child_id=cid)
+            if fresh:
+                row = fresh[0]
+        except Exception as exc:
+            pass
+
+    # Strictly guarantee: NEVER return a question already in child_quiz_attempts for this child
+    if row:
+        has_attempted = fetch_one('SELECT 1 FROM child_quiz_attempts WHERE child_id=%s AND quiz_id=%s', (cid, row['quiz_id']))
+        if has_attempted:
+            try:
+                from quiz.learning_service import generate_and_insert_fresh_quizzes
+                fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=1, child_id=cid)
+                row = fresh[0] if fresh else None
+            except Exception:
+                row = None
 
     try:
         trigger_background_refill_if_needed(g, cid)

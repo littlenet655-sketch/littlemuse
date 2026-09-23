@@ -7,31 +7,29 @@
   "api_key_exposed": false,
   "live_calls_performed": 6,
   "latencies_ms": [
-    1820,
-    2111,
-    3718,
-    5616,
-    4641,
-    6234
+    2592,
+    2632,
+    17887,
+    13052,
+    11661,
+    12881
   ],
   "token_usages": [
     {
-      "completion_tokens": 73,
-      "prompt_tokens": 148,
-      "total_tokens": 221,
-      "completion_tokens_details": null,
+      "prompt_tokens": 117,
+      "total_tokens": 235,
+      "completion_tokens": 118,
       "prompt_tokens_details": null
     }
   ],
   "smoke_test": {
     "success": true,
-    "latency_ms": 1820,
+    "latency_ms": 2592,
     "model": "IFM/K2-Horizon-375B-A23B",
     "tokens": {
-      "completion_tokens": 73,
-      "prompt_tokens": 148,
-      "total_tokens": 221,
-      "completion_tokens_details": null,
+      "prompt_tokens": 117,
+      "total_tokens": 235,
+      "completion_tokens": 118,
       "prompt_tokens_details": null
     }
   },
@@ -41,34 +39,34 @@
     "risk_score": 0.0,
     "reason_code": "benign_academic_exchange",
     "fallback_used": false,
-    "latency_ms": 2111
+    "latency_ms": 2632
   },
   "contextual_safety": {
     "success": true,
     "action": "BLOCK",
     "risk_score": 0.95,
-    "reason_code": "grooming_secrecy_offplatform_contact_request",
+    "reason_code": "grooming_secrecy_off_platform_username_request",
     "detected_grooming": true,
     "fallback_used": false,
-    "latency_ms": 3718
+    "latency_ms": 17887
   },
   "quiz_generation": {
     "success": true,
     "count_generated": 3,
     "options_valid": true,
-    "latency_ms": 5616
+    "latency_ms": 13052
   },
   "kannada_generation": {
     "success": true,
     "count": 2,
     "has_unicode_script": true,
-    "latency_ms": 4641
+    "latency_ms": 11661
   },
   "hindi_generation": {
     "success": true,
     "count": 2,
     "has_unicode_script": true,
-    "latency_ms": 6234
+    "latency_ms": 12881
   },
   "prompt_injection": {
     "success": true,

@@ -142,4 +142,13 @@ def create_child_for_verified_parent(parent_id, form):
         raise
     finally:
         conn.close()
+
+    # Trigger proactive background K2 AI quiz generation tailored for this child's age
+    try:
+        from quiz.learning_service import trigger_child_account_creation_refill
+        trigger_child_account_creation_refill(child_id, age)
+    except Exception as refill_exc:
+        import logging
+        logging.getLogger(__name__).warning("Initial child quiz refill trigger failed: %s", refill_exc)
+
     return child_id

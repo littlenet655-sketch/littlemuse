@@ -5,6 +5,12 @@ import logging
 import requests
 from typing import Dict, Any, Optional, Tuple
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 logger = logging.getLogger("littlenet.ai.k2")
 
 class K2Error(Exception):
