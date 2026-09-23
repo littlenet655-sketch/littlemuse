@@ -276,7 +276,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return () => pulse.stop();
   }, [badgeAnim]);
 
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 200 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
     const first = viewableItems.find((row) => typeof row.index === 'number')?.index;
     if (typeof first === 'number') {
@@ -315,7 +315,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       payload.session_id = feed.sessionId;
     }
     impressionBatchRef.current.push(payload);
-    if (impressionBatchRef.current.length >= 5) {
+    if (impressionBatchRef.current.length >= 10) {
       void flushBatch();
     }
   }, [feed.sessionId, flushBatch]);
@@ -605,7 +605,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         windowSize={3}
         maxToRenderPerBatch={2}
         initialNumToRender={2}
-        updateCellsBatchingPeriod={50}
+        updateCellsBatchingPeriod={150}
         removeClippedSubviews={false}
         pagingEnabled
         decelerationRate="fast"

@@ -97,7 +97,7 @@ WEB_MIN_CONTAINERS = int(os.getenv("MODAL_WEB_MIN_CONTAINERS", "0"))
 WEB_MAX_CONTAINERS = int(os.getenv("MODAL_WEB_MAX_CONTAINERS", "1"))
 WEB_CPU = float(os.getenv("MODAL_WEB_CPU", "2.0"))
 WEB_MEMORY = int(os.getenv("MODAL_WEB_MEMORY", "2048"))
-WEB_SCALEDOWN_WINDOW = int(os.getenv("MODAL_WEB_SCALEDOWN_WINDOW", "120"))
+WEB_SCALEDOWN_WINDOW = int(os.getenv("MODAL_WEB_SCALEDOWN_WINDOW", "60"))
 
 
 @app.function(
