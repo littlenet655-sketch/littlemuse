@@ -80,7 +80,7 @@ def run(*, apply: bool, limit: int) -> dict:
         item = {
             "asset_id": asset_id,
             "delivery_object_key": delivery_ref,
-            "target_poster_key": f"{R2_PREFIX}{target_key}",
+            "target_poster_key": object_storage.new_reference(target_key),
             "status": "DRY_RUN",
         }
 

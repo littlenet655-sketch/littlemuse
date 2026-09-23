@@ -9,7 +9,12 @@ permissions:
   contents: read
 
 env:
-  LIVE_URL: ${{ vars.LITTLENET_LIVE_URL || 'https://netlittle2--littlenet-web-web.modal.run' }}
+  LIVE_URL: ${{ vars.LITTLENET_LIVE_URL }}
+  LITTLENET_WEB_MODAL_APP: littlemuse-web
+  LITTLENET_AI_MODAL_APP: littlemuse-ai
+  LITTLENET_WEB_SECRET: littlemuse-web-secrets
+  LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_R2_WRITE_PREFIX: littlemuse
 
 jobs:
   deploy-web:

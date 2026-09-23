@@ -15,6 +15,16 @@ from urllib.parse import urlparse
 R2_REFERENCE_PREFIX = "uploads/r2/"
 
 
+def _write_key(key: str) -> str:
+    prefix = (os.getenv("LITTLENET_R2_WRITE_PREFIX") or "").strip("/")
+    return f"{prefix}/{key.lstrip('/')}" if prefix else key.lstrip("/")
+
+
+def new_reference(key: str) -> str:
+    """Return a reference inside this deployment's R2 write namespace."""
+    return R2_REFERENCE_PREFIX + _write_key(key)
+
+
 def _enabled() -> bool:
     return all(
         os.getenv(name)
@@ -127,6 +137,7 @@ def upload_file(local_path: str, key: str, content_type: Optional[str] = None, s
         from services.media_sanitizer import strip_video_audio_in_place
 
         strip_video_audio_in_place(str(path))
+    key = _write_key(key)
     _client().upload_file(
         str(path),
         os.environ["R2_BUCKET"],
@@ -158,6 +169,12 @@ def _acknowledge_deleted_reference(reference: str) -> None:
 
 def delete_reference(reference: str) -> None:
     if not is_reference(reference):
+        return
+    prefix = (os.getenv("LITTLENET_R2_WRITE_PREFIX") or "").strip("/")
+    if prefix and not str(reference).startswith(R2_REFERENCE_PREFIX + prefix + "/"):
+        # A cloned LittleMuse database may reference old LittleNet objects.
+        # Its delete outbox must never remove those shared-bucket objects.
+        _acknowledge_deleted_reference(reference)
         return
     if not _enabled():
         # Never report a successful private-object delete when R2 is unavailable.
@@ -237,6 +254,9 @@ def signed_upload_url(reference_or_key: str, content_type: str, expires_seconds:
     key = str(reference_or_key)
     if key.startswith(R2_REFERENCE_PREFIX):
         key = key[len(R2_REFERENCE_PREFIX) :]
+    prefix = (os.getenv("LITTLENET_R2_WRITE_PREFIX") or "").strip("/")
+    if prefix and not key.startswith(prefix + "/"):
+        raise ValueError("upload_key_outside_deployment_namespace")
     expiry = expires_seconds or int(os.getenv("R2_PRESIGNED_UPLOAD_TTL", "900"))
     return _client().generate_presigned_url(
         "put_object",

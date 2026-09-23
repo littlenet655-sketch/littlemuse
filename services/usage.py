@@ -31,7 +31,7 @@ def start_session(child_id):
             )
             rows=cur.fetchall()
             for row in rows:
-                cur.execute("SELECT NOW() AS now")
+                cur.execute("SELECT LOCALTIMESTAMP AS now")
                 now=cur.fetchone()['now']
                 end_at=row['last_seen_at'] or row['started_at']
                 if end_at > now:
@@ -62,7 +62,7 @@ def start_session(child_id):
 def heartbeat(session_key):
     row=fetch_one('SELECT * FROM child_usage_sessions WHERE session_key=%s AND ended_at IS NULL',(session_key,))
     if not row:return None
-    now=datetime.now()
+    now=fetch_one('SELECT LOCALTIMESTAMP AS now')['now']
     if row['started_at'].date()<now.date():
         midnight=datetime.combine(now.date(),time.min);_log_session(row,midnight);execute('UPDATE child_usage_sessions SET started_at=%s,last_seen_at=%s WHERE usage_session_id=%s',(midnight,now,row['usage_session_id']))
     else:execute('UPDATE child_usage_sessions SET last_seen_at=%s WHERE usage_session_id=%s',(now,row['usage_session_id']))

@@ -1628,8 +1628,10 @@ def register_mobile_api(bp):
         if mime_type and mime_type not in valid_mimes:
             return jsonify(error="unsupported_mime_type", allowed=sorted(list(valid_mimes))), 400
 
+        from services import object_storage
+
         upload_id = str(uuid.uuid4())
-        object_key = f"uploads/r2/quarantine/{uid}/{upload_id}/source.{ext}"
+        object_key = object_storage.new_reference(f"quarantine/{uid}/{upload_id}/source.{ext}")
         expires_seconds = 900
         expires_at = datetime.utcnow() + timedelta(seconds=expires_seconds)
 
@@ -1649,8 +1651,6 @@ def register_mobile_api(bp):
                 expires_at,
             ),
         )
-
-        from services import object_storage
 
         if os.environ.get("FORCE_DIRECT_UPLOAD_UNAVAILABLE") == "1" or os.environ.get("DIRECT_UPLOAD_UNAVAILABLE") == "1":
             return jsonify(
