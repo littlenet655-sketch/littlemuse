@@ -137,3 +137,9 @@ def test_live_media_probe_requires_explicit_fixture_accounts():
     assert "LITTLENET_RELEASE_PROBE_CHILD_B" in probe
     assert "vars.LITTLENET_RELEASE_PROBE_CHILD_A" in workflow
     assert "vars.LITTLENET_RELEASE_PROBE_CHILD_B" in workflow
+
+
+def test_live_probe_passes_fixture_ids_explicitly_into_remote_function():
+    probe = (ROOT / "tools/live_release_media_probe.py").read_text(encoding="utf-8")
+    assert "def run_probe(child_a: int, child_b: int)" in probe
+    assert "run_probe.remote(child_a, child_b)" in probe
