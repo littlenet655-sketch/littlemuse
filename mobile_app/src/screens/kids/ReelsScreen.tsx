@@ -586,7 +586,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`)
+        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`)}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
