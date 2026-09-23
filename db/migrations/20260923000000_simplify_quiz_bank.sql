@@ -47,3 +47,11 @@ FROM (VALUES
 ) AS q(category, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
 CROSS JOIN (VALUES ('6-8'), ('9-11'), ('12-13'), ('14-18')) AS age(age_group)
 ON CONFLICT (question, age_group) DO NOTHING;
+
+-- migrate:down
+-- Rollback removes the simplified bank this migration inserted. The older
+-- 52-question bank deleted by the up migration is intentionally not restored:
+-- it was superseded by design (quiz untwist, 2026-09-23).
+DELETE FROM quizzes WHERE category IN (
+  'Digital Safety', 'Kindness', 'Stranger Safety', 'Healthy Habits'
+);
