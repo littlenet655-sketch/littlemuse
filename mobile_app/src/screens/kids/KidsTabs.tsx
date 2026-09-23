@@ -87,6 +87,9 @@ export function KidsTabsShell({ navigation, route, render }: ChildScreenProps<'K
         </View>
       ) : null}
       <View style={styles.body}>{render(active)}</View>
+      {/* Instagram parity: the composer is a full-screen flow — the tab bar
+          stays hidden while creating so media/caption steps own the screen. */}
+      {active !== 'CreateTab' ? (
       <View
         style={[
           styles.tabs,
@@ -133,6 +136,7 @@ export function KidsTabsShell({ navigation, route, render }: ChildScreenProps<'K
           );
         })}
       </View>
+      ) : null}
     </View>
   );
 }

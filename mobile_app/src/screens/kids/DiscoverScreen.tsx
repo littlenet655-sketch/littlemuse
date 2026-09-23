@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { searchDiscover, type CuratedSearchItem, type KidSummary } from '../../api/kidsProfiles';
@@ -78,6 +80,8 @@ export type ExploreGridItem = {
   poster_url?: string | null;
   is_reel?: boolean;
   caption?: string;
+  /** Curated learning picks have no post page — the cell is display-only. */
+  is_curated?: boolean;
 };
 
 const ExploreGridCell = memo(function ExploreGridCell({
@@ -92,14 +96,17 @@ const ExploreGridCell = memo(function ExploreGridCell({
   return (
     <Pressable
       style={styles.gridItem}
-      onPress={() => onOpenPost(post.post_id)}
+      onPress={() => {
+        // Curated picks have no post page; the cell is display-only.
+        if (!post.is_curated) onOpenPost(post.post_id);
+      }}
       accessibilityRole="imagebutton"
       accessibilityLabel={
         post.caption ? `Open post: ${post.caption.slice(0, 80)}` : hasVideo ? 'Open reel' : 'Open post'
       }
     >
       {imgUri ? (
-        <Image source={{ uri: imgUri }} style={styles.gridThumb} resizeMode="cover" fadeDuration={0} />
+        <Image source={{ uri: imgUri }} style={styles.gridThumb} contentFit="cover" cachePolicy="memory-disk" />
       ) : (
         <View style={styles.gridPlaceholder}>
           <Feather name={hasVideo ? 'film' : 'file-text'} size={24} color="#94A3B8" />
@@ -119,7 +126,7 @@ const CuratedRowCard = memo(function CuratedRowCard({ item }: { item: CuratedSea
   return (
     <View style={styles.curatedCard}>
       {imgUri ? (
-        <Image source={{ uri: imgUri }} style={styles.curatedThumb} resizeMode="cover" fadeDuration={0} />
+        <Image source={{ uri: imgUri }} style={styles.curatedThumb} contentFit="cover" cachePolicy="memory-disk" />
       ) : (
         <View style={styles.curatedPlaceholder}>
           <Feather name="book-open" size={24} color="#94A3B8" />
@@ -242,7 +249,29 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // only returns reels when a query is typed, so use the reels feed for the
   // unfiltered Reels tab and search results while typing.
   const showReelsFeed = kind === 'Reels' && !debounced.trim();
-  const gridItems: ExploreGridItem[] = showReelsFeed ? reels : filteredPosts;
+  // Instagram Explore parity: with no query and no social posts (fresh
+  // account), fill the grid with safe curated picks instead of a centered
+  // empty state.
+  const exploreFallback: ExploreGridItem[] = useMemo(
+    () =>
+      !debounced.trim() && kind === 'Posts' && filteredPosts.length === 0
+        ? curated.map((c) => ({
+            post_id: c.source_id,
+            media_type: c.media_type,
+            media_url: c.media_url ?? null,
+            poster_url: c.poster_url ?? null,
+            is_reel: false,
+            caption: c.caption,
+            is_curated: true,
+          }))
+        : [],
+    [debounced, kind, filteredPosts, curated],
+  );
+  const gridItems: ExploreGridItem[] = showReelsFeed
+    ? reels
+    : filteredPosts.length > 0
+      ? filteredPosts
+      : exploreFallback;
   const reelsError = showReelsFeed ? reelsQuery.error : null;
   const hasAnyContent =
     kids.length > 0 || posts.length > 0 || curated.length > 0 || (showReelsFeed && reels.length > 0);
@@ -264,19 +293,6 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     <CuratedRowCard item={item} />
   ), []);
 
-  // 3-column explore grid: container padding 2 on each side, 2pt column gaps,
-  // 2pt paddingBottom per row wrapper — exact cell math for getItemLayout so
-  // the list can jump/scroll without measuring every row.
-  const { width: windowWidth } = useWindowDimensions();
-  const gridCell = (windowWidth - 8) / 3;
-  const gridRowHeight = gridCell + 2;
-  const gridItemLayout = useCallback(
-    (_data: ArrayLike<ExploreGridItem> | null | undefined, index: number) => {
-      const row = Math.floor(index / 3);
-      return { length: gridRowHeight, offset: row * gridRowHeight, index };
-    },
-    [gridRowHeight],
-  );
 
   if (error instanceof ApiError && error.code === 'disabled_by_parent') {
     return <DisabledFeature feature="Discover" />;
@@ -361,11 +377,28 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       ) : null}
 
       {!loading && !reelsLoading && !error && !hasAnyContent && kind !== 'Learn' ? (
-        <EmptyState
-          icon="search"
-          title="No results found"
-          body={raw ? 'Try another name, subject, or friendly topic.' : 'Explore safe learning, friends, and creative ideas.'}
-        />
+        <View>
+          <EmptyState
+            icon="search"
+            title="No results found"
+            body={raw ? 'Try another name, subject, or friendly topic.' : 'Explore safe learning, friends, and creative ideas.'}
+          />
+          {!raw ? (
+            <View style={styles.suggestionRow} accessibilityRole="list" accessibilityLabel="Suggested topics">
+              {['Science', 'Space', 'Animals', 'Art', 'Sports', 'Music'].map((topic) => (
+                <Pressable
+                  key={topic}
+                  style={styles.suggestionChip}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Search ${topic}`}
+                  onPress={() => setRaw(topic)}
+                >
+                  <Text style={styles.suggestionText}>{topic}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
       {kind === 'Reels' && showReelsFeed && !reelsLoading && !reelsError && reels.length === 0 ? (
@@ -396,16 +429,12 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
       {/* People Mode: Vertical list of clean friend cards */}
       {kind === 'People' && kids.length > 0 ? (
-        <FlatList
+        <FlashList
           data={kids}
           keyExtractor={(k) => `kid:${k.user_id}`}
           contentContainerStyle={styles.peopleList}
           showsVerticalScrollIndicator={false}
-          windowSize={5}
-          maxToRenderPerBatch={10}
-          initialNumToRender={10}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews
+          drawDistance={600}
           refreshControl={refreshControl}
           renderItem={renderPerson}
         />
@@ -415,16 +444,13 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {kind === 'Learn' && curated.length > 0 ? (
         <View>
           <Text style={styles.sectionTitle}>Recommended for you</Text>
-          <FlatList
+          <FlashList
             data={curated}
             horizontal
             keyExtractor={(c) => `curated:${c.source_id}`}
             contentContainerStyle={styles.curatedRow}
             showsHorizontalScrollIndicator={false}
-            windowSize={3}
-            initialNumToRender={4}
-            maxToRenderPerBatch={4}
-            removeClippedSubviews
+            drawDistance={600}
             renderItem={renderCurated}
           />
         </View>
@@ -432,19 +458,13 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
       {/* Posts / Reels / Learn Mode: Instagram Explore 3-column grid */}
       {kind !== 'People' && gridItems.length > 0 ? (
-        <FlatList
+        <FlashList
           data={gridItems}
           keyExtractor={(p) => `post:${p.post_id}`}
           numColumns={3}
           contentContainerStyle={styles.gridContainer}
-          columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
-          windowSize={5}
-          initialNumToRender={12}
-          maxToRenderPerBatch={9}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews
-          getItemLayout={gridItemLayout}
+          drawDistance={800}
           refreshControl={refreshControl}
           renderItem={renderGridCell}
         />
@@ -628,15 +648,12 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   gridContainer: {
-    padding: 2,
-  },
-  gridRow: {
-    gap: 2,
-    paddingBottom: 2,
+    padding: 1,
   },
   gridItem: {
     flex: 1,
     aspectRatio: 1,
+    margin: 1,
     backgroundColor: '#EFEFEF',
   },
   gridThumb: {
@@ -661,6 +678,25 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    marginTop: 4,
+  },
+  suggestionChip: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  suggestionText: {
+    color: '#4F46E5',
+    fontSize: 13,
+    fontWeight: '700',
   },
   skeletonGrid: {
     flexDirection: 'row',

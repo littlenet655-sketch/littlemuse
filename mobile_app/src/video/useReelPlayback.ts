@@ -13,6 +13,9 @@ import type {
 } from './types';
 
 const BUFFERING_DEBOUNCE_MS = 300;
+const PREPARING_SPINNER_DELAY_MS = 600;
+/** Active reel with no first frame after this long surfaces the retry UI instead of a black screen. */
+const FIRST_FRAME_TIMEOUT_MS = 10000;
 const PREEMPTIVE_REFRESH_WINDOW_SEC = 45;
 /** Consecutive auto-refresh attempts after playback errors before surfacing the retry UI. */
 const MAX_ERROR_REFRESH_ATTEMPTS = 3;
@@ -53,6 +56,10 @@ export function useReelPlayback({
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
   const [isDebouncedBuffering, setIsDebouncedBuffering] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Spinner for the active cell when the native player never emits a status
+  // event at all (stalled PREPARING) — the debounced buffering flag alone
+  // would leave a black screen.
+  const [showPreparing, setShowPreparing] = useState(false);
   // Instagram parity: per-reel mute toggle. Reels autoplay with sound; the
   // toggle only affects this cell's player instance.
   const [muted, setMuted] = useState(false);
@@ -92,6 +99,7 @@ export function useReelPlayback({
     setCurrentExpiryAt(item.playback_expires_at ?? null);
     setFirstFrameRendered(false);
     setErrorMessage(null);
+    setShowPreparing(false);
     progressAnim.setValue(0);
     playbackStartedRef.current = false;
     sourceFetchInFlightRef.current = false;
@@ -283,6 +291,36 @@ export function useReelPlayback({
     };
   }, [player, active, paused, requestFreshPlayback]);
 
+  const itemKey = `${item.source_type}:${item.source_id}:${item.post_id}`;
+
+  // Preparing spinner: the active cell shows "Loading…" even when the native
+  // player emits no status events (covers stalled PREPARING with no poster).
+  useEffect(() => {
+    if (!active || firstFrameRendered || errorMessage) {
+      setShowPreparing(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      if (isMountedRef.current) setShowPreparing(true);
+    }, PREPARING_SPINNER_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [active, firstFrameRendered, errorMessage, itemKey]);
+
+  // First-frame watchdog: an active reel that never renders a frame must not
+  // sit on a black screen forever — surface the retry UI with a clear message.
+  useEffect(() => {
+    if (!active || firstFrameRendered || errorMessage) return;
+    const t = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setIsDebouncedBuffering(false);
+      setShowPreparing(false);
+      setPlaybackState('ERROR');
+      metricsRef.current.onError('first_frame_timeout');
+      setErrorMessage('This reel is taking too long to load. Check your connection and try again.');
+    }, FIRST_FRAME_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [active, firstFrameRendered, errorMessage, itemKey]);
+
   // Window loading logic: only load source if active or immediate neighbor (nearby)
   useEffect(() => {
     const nextSource = nearby ? currentSource : null;
@@ -337,6 +375,7 @@ export function useReelPlayback({
     errorRefreshAttemptsRef.current = 0;
     setErrorMessage(null);
     setFirstFrameRendered(false);
+    setShowPreparing(false);
     setPlaybackState('PREPARING');
     if (token) {
       try {
@@ -396,6 +435,7 @@ export function useReelPlayback({
 
   const handleFirstFrameRender = useCallback(() => {
     setFirstFrameRendered(true);
+    setShowPreparing(false);
     metricsRef.current.onFirstFrame();
     setErrorMessage(null);
   }, []);
@@ -405,6 +445,7 @@ export function useReelPlayback({
     playbackState,
     firstFrameRendered,
     isDebouncedBuffering,
+    showPreparing,
     errorMessage,
     retry,
     handleFirstFrameRender,

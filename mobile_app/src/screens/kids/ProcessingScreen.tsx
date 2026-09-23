@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Feather } from '@expo/vector-icons';
 import { MAX_POLL_ATTEMPTS, moderationCopy } from '../../kids/social';
 import { useProcessingStatus } from '../../kids/useProcessing';
@@ -26,6 +28,24 @@ function stepIndexFor(stage: string): number {
   if (stage === 'allowed') return 2;
   if (stage === 'blocked' || stage === 'failed' || stage === 'retryable' || stage === 'review') return 1;
   return 1;
+}
+
+/** Elapsed seconds since mount — makes a slow safety check visible instead of a frozen spinner. */
+function useElapsedSeconds(running: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const started = Date.now();
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  return elapsed;
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
 }
 
 export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'ProcessingStatus'>) {
@@ -56,14 +76,26 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
     !allowed && params.mediaType === 'IMAGE' ? params.localUri : undefined;
   const previewUri = allowed ? serverPreview || localImagePreview : localImagePreview;
   const showVideoPlaceholder = !allowed && params.mediaType === 'VIDEO';
+  const localVideoUri = showVideoPlaceholder ? params.localUri : undefined;
+  const elapsed = useElapsedSeconds(!allowed && !blocked);
+  // Local preview player: paused, muted, no controls — shows the real first
+  // frame of the kid's own video while the server check runs. Display only;
+  // the server result stays authoritative.
+  const previewPlayer = useVideoPlayer(localVideoUri ?? null, (p) => {
+    p.loop = false;
+    p.muted = true;
+  });
+  useEffect(() => {
+    try { previewPlayer.pause(); } catch { /* best-effort */ }
+  }, [previewPlayer, localVideoUri]);
 
   return (
-    <Screen>
-      <BrandHeader title="Safety check" subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`} />
+    <Screen hasNativeHeader={false}>
+      <BrandHeader title="Safety check" onBack={() => navigation.goBack()} subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`} />
 
       {previewUri ? (
         <Card style={styles.previewCard}>
-          <Image source={{ uri: previewUri }} style={styles.preview} resizeMode="cover" />
+          <Image source={{ uri: previewUri }} style={styles.preview} contentFit="cover" cachePolicy="memory-disk" />
           <View style={styles.previewTag}>
             <Feather name={allowed ? 'check-circle' : 'clock'} size={12} color="#FFFFFF" />
             <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Waiting for safety check'}</Text>
@@ -73,11 +105,19 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
 
       {showVideoPlaceholder ? (
         <Card style={styles.previewCard}>
-          <View style={styles.videoPreviewPlaceholder}>
-            <Feather name="film" size={30} color={colors.muted} />
-            <Text style={styles.videoPreviewText}>
-              Your video is being checked for safety.{'\n'}It'll appear here when it's approved.
-            </Text>
+          {localVideoUri ? (
+            <VideoView player={previewPlayer} style={styles.preview} contentFit="cover" nativeControls={false} />
+          ) : (
+            <View style={styles.videoPreviewPlaceholder}>
+              <Feather name="film" size={30} color={colors.muted} />
+              <Text style={styles.videoPreviewText}>
+                Your video is being checked for safety.{'\n'}It'll appear here when it's approved.
+              </Text>
+            </View>
+          )}
+          <View style={styles.previewTag}>
+            <Feather name="clock" size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>Waiting for safety check</Text>
           </View>
         </Card>
       ) : null}
@@ -100,6 +140,9 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
           })}
         </View>
         <Text style={styles.copy}>{moderationCopy(poll.stage)}</Text>
+        {!allowed && !blocked ? (
+          <Text style={styles.elapsed}>Waiting {formatElapsed(elapsed)} — most checks finish within a couple of minutes.</Text>
+        ) : null}
       </Card>
 
       {poll.error ? <GateNotice error={poll.error} /> : null}
@@ -215,6 +258,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   copy: { color: colors.ink, fontSize: 15, lineHeight: 22, textAlign: 'center', paddingVertical: 12 },
+  elapsed: { color: colors.muted, fontSize: 13, textAlign: 'center', paddingBottom: 8 },
   blockedTitle: {
     fontSize: 16,
     fontWeight: '800',

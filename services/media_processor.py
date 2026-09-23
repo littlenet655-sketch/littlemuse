@@ -139,7 +139,13 @@ def _make_video_derivatives(source_path: Path, temp_dir: Path) -> tuple[Path, Pa
         return clean_video, None
 
     try:
-        # Faststart MP4
+        # Faststart MP4 and poster thumbnail are independent (the poster only
+        # needs the audio-stripped source, not the faststart output), so they
+        # run concurrently: stage time becomes max() instead of sum().
+        # Fail-closed semantics preserved: transcode failure raises, poster
+        # failure degrades to None.
+        import concurrent.futures as _futures
+
         faststart_path = temp_dir / f"fast_{source_path.stem}.mp4"
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -148,16 +154,22 @@ def _make_video_derivatives(source_path: Path, temp_dir: Path) -> tuple[Path, Pa
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-an", str(faststart_path),
         ]
-        res = subprocess.run(cmd, capture_output=True, timeout=60)
-        final_video = faststart_path if res.returncode == 0 and faststart_path.is_file() else clean_video
-
-        # Poster thumbnail
         poster_cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-ss", "0.2", "-i", str(final_video),
+            "-ss", "0.2", "-i", str(clean_video),
             "-frames:v", "1", "-vf", "scale=480:-2", str(poster_image),
         ]
-        res_p = subprocess.run(poster_cmd, capture_output=True, timeout=30)
+
+        def _run(cmd_list: list, timeout_s: int) -> subprocess.CompletedProcess:
+            return subprocess.run(cmd_list, capture_output=True, timeout=timeout_s)
+
+        with _futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="ffmpeg") as pool:
+            fut_video = pool.submit(_run, cmd, 60)
+            fut_poster = pool.submit(_run, poster_cmd, 30)
+            res = fut_video.result()
+            res_p = fut_poster.result()
+
+        final_video = faststart_path if res.returncode == 0 and faststart_path.is_file() else clean_video
         final_poster = poster_image if res_p.returncode == 0 and poster_image.is_file() else None
         return final_video, final_poster
     except Exception as exc:
@@ -230,6 +242,33 @@ def _renew_worker_lease(post_id: int, worker_exec_token: str, extend_seconds: in
     except Exception as exc:
         logger.warning("Failed to renew lease for post %s: %s", post_id, exc)
         return False
+
+
+class StageTimer:
+    """Lightweight per-job stage timing for the moderation pipeline.
+
+    Records wall-clock seconds per named stage and emits one structured log
+    line per job. Read-only instrumentation: it never changes control flow,
+    never weakens safety gates, and never touches the database.
+    """
+
+    def __init__(self, post_id: int):
+        import time as _time
+
+        self._time = _time
+        self.post_id = int(post_id)
+        self._start = _time.monotonic()
+        self._last = self._start
+        self.stages: dict[str, float] = {}
+
+    def mark(self, stage: str) -> None:
+        now = self._time.monotonic()
+        self.stages[stage] = round(now - self._last, 3)
+        self._last = now
+
+    def summary(self) -> dict[str, object]:
+        total = round(self._time.monotonic() - self._start, 3)
+        return {"post_id": self.post_id, "total_s": total, "stages_s": dict(self.stages)}
 
 
 def process_media_job(
@@ -362,6 +401,7 @@ def _process_media_job_impl(
 
     media_type = post.get("media_type") or "VIDEO"
     temp_dir = Path(tempfile.mkdtemp(prefix=f"littlenet_proc_{post_id}_"))
+    stage_timer = StageTimer(post_id)
     lease_stop = threading.Event()
     lease_lost = threading.Event()
 
@@ -404,6 +444,8 @@ def _process_media_job_impl(
                 (post_id, worker_exec_token),
             )
             return {"ok": False, "error": "quarantine_media_missing_or_empty"}
+
+        stage_timer.mark("quarantine_download")
 
         if source_local.is_file() and source_local.stat().st_size > Config.MAX_CONTENT_LENGTH:
             execute(
@@ -464,6 +506,8 @@ def _process_media_job_impl(
                     (f"image_sanitization_failed: {exc}", post_id, worker_exec_token),
                 )
                 raise RuntimeError(f"image_sanitization_failed: {exc}") from exc
+
+        stage_timer.mark("sanitize_derivatives")
 
         # AI Moderation
         #
@@ -592,6 +636,7 @@ def _process_media_job_impl(
         merged = _merge_signals(text_signals, media_signals)
         decision = decide(merged, safety_level(child_id), Config.ADULT_HARD_BLOCK_THRESHOLD)
         event_id = record(child_id, media_type, post_id, merged, decision)
+        stage_timer.mark("ai_moderation")
 
         if decision.action == "BLOCK":
             blocked_row = execute(
@@ -815,6 +860,16 @@ def _process_media_job_impl(
         lease_stop.set()
         lease_thread.join(timeout=2)
         shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            summary = stage_timer.summary()
+            logger.info(
+                "media_job_timings post_id=%s total_s=%s stages_s=%s",
+                summary["post_id"],
+                summary["total_s"],
+                summary["stages_s"],
+            )
+        except Exception:
+            pass
 
 
 def sanitize_and_promote_media(

@@ -97,12 +97,12 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   // pauses while a query is active and resumes when it is cleared.
   const showMore = !q && hasMore;
 
-  if (loading) return <Screen><LoadingState message="Loading messages…" /></Screen>;
-  if (error instanceof ApiError && error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Messages" /></Screen>;
-  if (error && !items.length) return <Screen><GateNotice error={error} /><ErrorState message="Could not load messages." onRetry={() => void load('first')} /></Screen>;
+  if (loading) return <Screen hasNativeHeader={false}><LoadingState message="Loading messages…" /></Screen>;
+  if (error instanceof ApiError && error.code === 'disabled_by_parent') return <Screen hasNativeHeader={false}><DisabledFeature feature="Messages" /></Screen>;
+  if (error && !items.length) return <Screen hasNativeHeader={false}><GateNotice error={error} /><ErrorState message="Could not load messages." onRetry={() => void load('first')} /></Screen>;
 
   return (
-    <Screen>
+    <Screen hasNativeHeader={false}>
       <FlatList
         data={filtered}
         keyExtractor={(c) => `c:${c.conversation_id}`}
@@ -115,7 +115,7 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
         }}
         ListHeaderComponent={(
           <>
-            <BrandHeader title="Messages" subtitle="Only approved friends can message." />
+            <BrandHeader title="Messages" onBack={() => navigation.goBack()} subtitle="Only approved friends can message." />
             <View style={styles.searchWrap}>
               <TextInput
                 style={styles.search}

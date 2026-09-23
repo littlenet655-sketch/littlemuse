@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
 import type { FeedItem } from '../api/kidsFeed';
 import { NativeVideoView } from '../ui/nativeViews';
@@ -58,6 +58,7 @@ export function ReelPlayer({
     playbackState,
     firstFrameRendered,
     isDebouncedBuffering,
+    showPreparing,
     errorMessage,
     retry,
     handleFirstFrameRender,
@@ -169,13 +170,16 @@ export function ReelPlayer({
         <Image
           source={{ uri: posterUri }}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
           accessibilityLabel="Reel poster"
         />
       ) : null}
 
-      {/* Debounced Buffering Indicator (shown only after 300ms stall) */}
-      {isDebouncedBuffering && !errorMessage ? (
+      {/* Buffering / preparing indicator: the debounced stall pill, plus the
+          preparing spinner for an active cell whose player emits no status
+          events at all (otherwise a pure black screen). */}
+      {(isDebouncedBuffering || showPreparing) && !errorMessage ? (
         <View style={styles.bufferingOverlay} pointerEvents="none">
           <View style={styles.bufferingPill}>
             <ActivityIndicator size="small" color="#FFFFFF" />

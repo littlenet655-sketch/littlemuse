@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,7 @@ import { DisabledFeature, ErrorState, GateNotice } from '../../ui/components';
 import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
+import { QuizBreakCard, isQuizMarker, withQuizBreaks, type QuizMarker } from '../../components/QuizBreakCard';
 import type { ImpressionEventPayload } from '../../video/types';
 
 interface ReelCellProps {
@@ -246,12 +247,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const REEL_HEIGHT = windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
+  // Quiz break every 5 reels — markers are stable per content index.
+  const displayItems = useMemo(() => withQuizBreaks(feed.items), [feed.items]);
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem>>(null);
+  const flatListRef = useRef<FlatList<FeedItem | QuizMarker>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -283,14 +286,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
   useEffect(() => {
-    if (feed.items.length === 0) {
+    if (displayItems.length === 0) {
       if (activeIndex !== 0) setActiveIndex(0);
       return;
     }
-    if (activeIndex > feed.items.length - 1) {
-      setActiveIndex(feed.items.length - 1);
+    if (activeIndex > displayItems.length - 1) {
+      setActiveIndex(displayItems.length - 1);
     }
-  }, [feed.items.length, activeIndex]);
+  }, [displayItems.length, activeIndex]);
 
   // Flush batched impressions to server
   const flushBatch = useCallback(async () => {
@@ -438,7 +441,15 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => (
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizMarker; index: number }) => {
+    if (isQuizMarker(item)) {
+      return (
+        <View style={[styles.quizPage, { height: REEL_HEIGHT }]}>
+          {session?.token ? <QuizBreakCard token={session.token} fullscreen /> : null}
+        </View>
+      );
+    }
+    return (
     <ReelCell
       item={item}
       index={index}
@@ -458,7 +469,8 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       onMetricsFlush={handleMetricsFlush}
       onDoubleTapLike={handleDoubleTapLike}
     />
-  ), [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+    );
+  }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -571,11 +583,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem>
+      <FlatList<FeedItem | QuizMarker>
         ref={flatListRef}
-        data={feed.items}
+        data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => `reel:${feedKey(it)}`}
+        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`)}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -744,6 +756,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  quizPage: {
+    width: '100%',
+    backgroundColor: '#000000',
+    justifyContent: 'center',
   },
   reelPage: {
     position: 'relative',

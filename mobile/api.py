@@ -3119,6 +3119,13 @@ def register_mobile_api(bp):
             posts = discoverable_posts(uid, False, 30, 0)
 
         curated = search_curated_content(uid, q, limit=20) if q else []
+        if not q:
+            # Instagram Explore parity: a fresh account has no social posts yet,
+            # so the default Discover view falls back to safe curated picks
+            # instead of rendering a blank page.
+            from services.curated_feed import fetch_curated_candidates
+
+            curated = fetch_curated_candidates(uid, "FEED", 20)
         for item in curated:
             if item.get("media_reference"):
                 item["media_url"] = _asset_url(item["media_reference"])

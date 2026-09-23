@@ -55,7 +55,8 @@
           "backgroundColor": "#FFF9F2"
         }
       ],
-      "./plugins/parent-device-auth"
+      "./plugins/parent-device-auth",
+      "expo-image"
     ],
     "owner": "anilkumar09",
     "extra": {

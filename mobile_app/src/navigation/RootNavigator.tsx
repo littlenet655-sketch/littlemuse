@@ -141,8 +141,8 @@ function ChildNavigator() {
       <ChildStack.Screen name="ReelsTab" component={withGateSync(ReelsScreen)} options={{ title: 'Reels' }} />
       <ChildStack.Screen name="ProfileTab" component={withGateSync(OwnProfileScreen)} options={{ title: 'Profile' }} />
       <ChildStack.Screen name="Stories" component={withGateSync(StoriesScreen)} options={{ title: 'Stories' }} />
-      <ChildStack.Screen name="NotificationsTab" component={withGateSync(NotificationsScreen)} options={{ title: 'Notifications' }} />
-      <ChildStack.Screen name="Conversations" component={withGateSync(ConversationsScreen)} options={{ title: 'Messages' }} />
+      <ChildStack.Screen name="NotificationsTab" component={withGateSync(NotificationsScreen)} options={{ headerShown: false }} />
+      <ChildStack.Screen name="Conversations" component={withGateSync(ConversationsScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="Chat" component={withGateSync(ChatScreen)} options={{ title: 'Chat' }} />
       <ChildStack.Screen name="ChatDetails" component={withGateSync(ChatDetailsScreen)} options={{ title: 'Chat details' }} />
       <ChildStack.Screen name="NewMessage" component={withGateSync(NewMessageScreen)} options={{ title: 'New message' }} />
@@ -153,7 +153,7 @@ function ChildNavigator() {
       <ChildStack.Screen name="SafetyCentre" component={withGateSync(SafetyCentreScreen)} options={{ title: 'Safety Centre' }} />
       <ChildStack.Screen name="ReportHistory" component={withGateSync(ReportHistoryScreen)} options={{ title: 'Report history' }} />
       <ChildStack.Screen name="OtherProfile" component={withGateSync(OtherProfileScreen)} options={{ title: 'Profile' }} />
-      <ChildStack.Screen name="ProcessingStatus" component={withGateSync(ProcessingStatusScreen)} options={{ title: 'Safety check' }} />
+      <ChildStack.Screen name="ProcessingStatus" component={withGateSync(ProcessingStatusScreen)} options={{ headerShown: false }} />
     </ChildStack.Navigator>
   );
 }

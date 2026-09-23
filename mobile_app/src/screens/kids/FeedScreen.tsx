@@ -1,4 +1,5 @@
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
@@ -12,6 +13,7 @@ import { socialPostTarget, socialProfileTarget, feedKey } from '../../kids/socia
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
 import type { FeedItem } from '../../api/kidsFeed';
+import { QuizBreakCard, isQuizMarker, withQuizBreaks, type QuizMarker } from '../../components/QuizBreakCard';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
 import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
@@ -254,6 +256,10 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     [feed.items, hiddenKeys],
   );
 
+  // Quiz break every 5 posts: the marker rows are stable per content index so
+  // a refresh keeps each card's identity (and its answered state) in place.
+  const displayItems = useMemo(() => withQuizBreaks(visibleItems), [visibleItems]);
+
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
     if (!session) return;
     const key = `${sourceType}:${sourceId}`;
@@ -290,7 +296,12 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, online, feed.error]);
 
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem | QuizMarker }) => {
+    if (isQuizMarker(item)) {
+      return session?.token ? (
+        <QuizBreakCard key={item.markerId} token={session.token} />
+      ) : null;
+    }
     const key = feedKey(item);
     return (
       <FeedRow
@@ -302,7 +313,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         onDeletedItem={deletedItem}
       />
     );
-  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
+  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
 
   if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
@@ -310,19 +321,16 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   return (
     <Screen>
-      <FlatList
-        data={visibleItems}
-        keyExtractor={(it) => feedKey(it)}
+      <FlashList
+        data={displayItems}
+        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : feedKey(it))}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
         renderItem={renderFeedItem}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        windowSize={5}
-        maxToRenderPerBatch={4}
-        initialNumToRender={4}
-        removeClippedSubviews
+        drawDistance={1200}
         onEndReached={feed.loadMore}
         onEndReachedThreshold={0.5}
       />

@@ -134,11 +134,11 @@ export function NotificationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
     if (session && !item.is_read) void markRead([item.notification_id]);
   }
 
-  if (query.isPending) return <Screen><LoadingState message="Loading notifications…" /></Screen>;
-  if (query.error instanceof ApiError && query.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Notifications" /></Screen>;
+  if (query.isPending) return <Screen hasNativeHeader={false}><LoadingState message="Loading notifications…" /></Screen>;
+  if (query.error instanceof ApiError && query.error.code === 'disabled_by_parent') return <Screen hasNativeHeader={false}><DisabledFeature feature="Notifications" /></Screen>;
   if (query.error && !items.length) {
     return (
-      <Screen>
+      <Screen hasNativeHeader={false}>
         <GateNotice error={query.error} />
         <ErrorState message="Could not load notifications." onRetry={() => void query.refetch()} />
       </Screen>
@@ -146,14 +146,14 @@ export function NotificationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   }
 
   return (
-    <Screen>
+    <Screen hasNativeHeader={false}>
       <SectionList
         sections={sections}
         keyExtractor={(n) => `n:${n.notification_id}`}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}
         ListHeaderComponent={
           <>
-            <BrandHeader title="Notifications" subtitle={unread > 0 ? `${unread} unread` : undefined} />
+            <BrandHeader title="Notifications" onBack={() => navigation.goBack()} subtitle={unread > 0 ? `${unread} unread` : undefined} />
             <OfflineBanner online={online} />
             {query.error ? <GateNotice error={query.error} /> : null}
             <View style={styles.headerActions}>

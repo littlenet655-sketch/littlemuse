@@ -29,16 +29,30 @@ export function BrandHeader({
   title,
   subtitle,
   showLogo = true,
+  onBack,
 }: {
   title: string;
   subtitle?: string;
   showLogo?: boolean;
+  /** When set, renders a back chevron (screen owns its header; no native header). */
+  onBack?: () => void;
 }) {
   const isBrandTitle = title.trim().toLowerCase() === 'littlenet';
 
   return (
     <View style={styles.header}>
       <View style={styles.brandRow}>
+        {onBack ? (
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={10}
+            style={styles.backBtn}
+          >
+            <Feather name="chevron-left" size={24} color={colors.ink} />
+          </Pressable>
+        ) : null}
         {showLogo ? (
           <Image
             source={require('../../assets/app_logo.png')}
@@ -371,6 +385,7 @@ const styles = StyleSheet.create({
   },
   header: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs, marginBottom: spacing.xs },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  backBtn: { marginLeft: -8, padding: 4 },
   headerLogo: { width: 28, height: 28, borderRadius: 8 },
   brand: { fontSize: 22, fontWeight: '800', color: colors.ink, letterSpacing: -0.5 },
   title: { fontSize: type.hero, fontWeight: '800', color: colors.ink, marginTop: 4 },

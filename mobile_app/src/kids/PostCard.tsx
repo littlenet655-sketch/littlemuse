@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
 import type { FeedItem, FeedPage } from '../api/kidsFeed';
@@ -27,7 +28,7 @@ function useRemoteAspect(uri: string | null | undefined, hint?: string | null): 
     setMeasured(null);
     if (!uri) return;
     let cancelled = false;
-    Image.getSize(
+    RNImage.getSize(
       uri,
       (w, h) => {
         if (!cancelled && w > 0 && h > 0) setMeasured(clampAspectRatio(w / h));
@@ -69,12 +70,13 @@ function FeedImage({ uri, aspectHint, label }: { uri: string; aspectHint?: strin
           key={`${uri}#${attempt}`}
           source={{ uri }}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
           accessibilityLabel={label}
           onLoad={(e) => {
             setReady(true);
             setFailed(false);
-            const src = e.nativeEvent.source;
+            const src = e.source;
             if (src?.width > 0 && src?.height > 0) {
               setMeasured(clampAspectRatio(src.width / src.height));
             }
