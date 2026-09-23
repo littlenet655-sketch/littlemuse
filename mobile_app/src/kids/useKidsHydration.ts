@@ -47,12 +47,17 @@ export function useKidsHydration(): void {
       // Keys must match useFeed/useQuery consumers exactly, or the warm cache
       // is never read: feed keys are [...kidsKeys.feed, mode, token].
       queryClient.prefetchInfiniteQuery({ queryKey: [...kidsKeys.feed, 'for_you', token], ...feedQuery }),
-      queryClient.prefetchInfiniteQuery({ queryKey: [...kidsKeys.reels, token], ...reelsQuery }),
-      queryClient.prefetchQuery({ queryKey: [...kidsKeys.discover(''), token], queryFn: () => searchDiscover(token, '') }),
-      queryClient.prefetchQuery({ queryKey: [...kidsKeys.ownProfile, token], queryFn: () => fetchOwnProfile(token) }),
-      queryClient.prefetchQuery({ queryKey: [...kidsKeys.notifications, token], queryFn: () => fetchNotifications(token) }),
     ]).finally(() => {
       if (cancelled) return;
+      // Phase 2: everything the first paint does not need. Firing all six at
+      // once against the backend serialized the heavy requests and pushed the
+      // feed past the 10s client timeout (58s of skeletons on a real phone).
+      void Promise.allSettled([
+        queryClient.prefetchInfiniteQuery({ queryKey: [...kidsKeys.reels, token], ...reelsQuery }),
+        queryClient.prefetchQuery({ queryKey: [...kidsKeys.discover(''), token], queryFn: () => searchDiscover(token, '') }),
+        queryClient.prefetchQuery({ queryKey: [...kidsKeys.ownProfile, token], queryFn: () => fetchOwnProfile(token) }),
+        queryClient.prefetchQuery({ queryKey: [...kidsKeys.notifications, token], queryFn: () => fetchNotifications(token) }),
+      ]);
     });
 
     return () => {

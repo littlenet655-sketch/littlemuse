@@ -1,8 +1,15 @@
 from database.connection import fetch_all, fetch_one, execute
 from services.controls import effective_categories, controls_for_child, feature_allowed, quiet_hours_state
+from services.request_cache import memo as _req_memo
 
 
 def _age_group(viewer_id):
+    # Invoked once per feed item (and per media authorization); the viewer's
+    # age cannot change mid-request, so memoize it on flask.g.
+    return _req_memo(("_age_group", viewer_id), lambda: _age_group_uncached(viewer_id))
+
+
+def _age_group_uncached(viewer_id):
     row=fetch_one('SELECT age,date_of_birth FROM child_profiles WHERE child_id=%s',(viewer_id,)) or {}
     age=row.get('age')
     if not age and row.get('date_of_birth'):
@@ -24,7 +31,17 @@ def child_surface_open(viewer_id, feature=None):
     Quiet-hours, screen-time and mandatory-quiz state are request-time controls.
     Background policy/unit evaluation has no browser session to lock and continues
     to use the canonical content/friend/category SQL rules instead.
+
+    Memoized per request: media signing and per-item visibility checks call this
+    dozens of times with the same viewer inside one request.
     """
+    return _req_memo(
+        ("child_surface_open", viewer_id, feature),
+        lambda: _child_surface_open_uncached(viewer_id, feature),
+    )
+
+
+def _child_surface_open_uncached(viewer_id, feature=None):
     try:
         from flask import has_request_context
         if not has_request_context():
@@ -48,6 +65,12 @@ def child_surface_open(viewer_id, feature=None):
 
 
 def can_interact(a,b):
+    # Called per message-media authorization; the relationship cannot change
+    # mid-request, so memoize it on flask.g.
+    return _req_memo(("can_interact", a, b), lambda: _can_interact_uncached(a, b))
+
+
+def _can_interact_uncached(a,b):
     if a==b:return False
     try:
         from flask import has_request_context,request,session

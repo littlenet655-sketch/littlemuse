@@ -372,6 +372,9 @@ def test_reels_page_defers_social_playback_credentials(monkeypatch):
         lambda query, params=(): user if "FROM users" in query else None,
     )
     monkeypatch.setattr("mobile.api._child_gate", lambda *args, **kwargs: None)
+    # The reels handler pre-authorizes poster refs in one batched pass
+    # (_media_allowed_many -> fetch_all); no rows match in this fixture.
+    monkeypatch.setattr("mobile.api.fetch_all", lambda query, params=(): [])
     monkeypatch.setattr(
         "mobile.api.get_feed_page",
         lambda *args, **kwargs: {

@@ -51,8 +51,15 @@ def resolve_media_delivery(
     viewer_id: int | None = None,
     viewer_role: str | None = None,
     expires_seconds: int = DEFAULT_SIGNED_URL_TTL,
+    auth_decisions: dict | None = None,
 ) -> dict[str, Any]:
     """Resolve a media reference into an authorized delivery payload.
+
+    ``auth_decisions`` is an optional precomputed ``{reference: bool}`` map
+    (see ``mobile.api._media_allowed_many``). When the stripped reference is
+    present in the map, its decision is used instead of running the
+    per-reference authorization query again. Missing refs fall back to the
+    normal per-ref check, so a partial map can never widen access.
 
     Returns:
         {
@@ -82,8 +89,16 @@ def resolve_media_delivery(
     # 3. R2 Hosted Asset
     if is_r2_reference(ref):
         if r2_enabled():
-            # Strict authorization check before generating signed URL
-            if viewer_id and viewer_role and is_authorized_viewer(viewer_id, viewer_role, ref):
+            # Strict authorization check before generating signed URL.
+            # A precomputed batch decision wins when present; anything else
+            # falls back to the per-ref check (fail closed).
+            if auth_decisions is not None and ref in auth_decisions:
+                pre_authorized = bool(auth_decisions[ref])
+            elif viewer_id and viewer_role:
+                pre_authorized = is_authorized_viewer(viewer_id, viewer_role, ref)
+            else:
+                pre_authorized = False
+            if viewer_id and viewer_role and pre_authorized:
                 try:
                     ttl = get_playback_ttl(expires_seconds)
                     signed_url = signed_download_url(ref, expires_seconds=ttl)

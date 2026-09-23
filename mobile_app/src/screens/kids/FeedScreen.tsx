@@ -1,7 +1,8 @@
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
+import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
 import { fetchKidsHome, type StoryItem } from '../../api/kidsFeed';
@@ -9,6 +10,7 @@ import { submitRecommendationAction } from '../../api/recommendation';
 import { useAuth } from '../../auth/AuthProvider';
 import { PostCard } from '../../kids/PostCard';
 import { useFeed } from '../../kids/useFeed';
+import { kidsKeys } from '../../query/keys';
 import { socialPostTarget, socialProfileTarget, feedKey } from '../../kids/social';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
@@ -41,22 +43,16 @@ function StoriesTray({
   myName?: string;
   onOpen: () => void;
 }) {
-  const [stories, setStories] = useState<TrayStory[]>([]);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    fetchKidsHome(token)
-      .then((home) => {
-        if (!cancelled) setStories((home.stories ?? []) as TrayStory[]);
-      })
-      .catch(() => {
-        // Tray is a bonus — the feed below still works without it.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  // Read the shared home query instead of firing a duplicate raw fetch: the
+  // hydration layer already warms [...kidsKeys.home, token], so this dedupes
+  // to zero extra network requests on feed mount.
+  const { data } = useQuery({
+    queryKey: [...kidsKeys.home, token],
+    queryFn: () => fetchKidsHome(token ?? ''),
+    enabled: !!token,
+    staleTime: 120_000,
+  });
+  const stories = ((data?.stories ?? []) as TrayStory[]);
 
   const myStories = myId != null ? stories.filter((s) => s.child_id === myId) : [];
   const own = myStories[0];
