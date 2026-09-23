@@ -33,7 +33,6 @@ import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
 import { QuizBreakCard } from '../../components/QuizBreakCard';
-import { isQuizMarker, withQuizBreaks, type QuizMarker } from '../../kids/quizBreaks';
 
 interface ReelCellProps {
   item: FeedItem;
@@ -293,17 +292,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
-  // Server-authoritative random threshold in {2, 3, 4, 5}.
-  const reelThreshold = session?.user?.quiz_interval ?? 5;
-  const displayItems = useMemo(() => withQuizBreaks(feed.items, reelThreshold), [feed.items, reelThreshold]);
+  const displayItems = feed.items;
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [completedQuizMarkers, setCompletedQuizMarkers] = useState<Set<string>>(new Set());
   const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem | QuizMarker>>(null);
+  const flatListRef = useRef<FlatList<FeedItem>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -333,19 +329,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem | QuizMarker }> }) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem }> }) => {
     const firstRow = viewableItems.find((row) => typeof row.index === 'number');
     const first = firstRow?.index;
     if (typeof first === 'number') {
       setActiveIndex((current) => current === first ? current : first);
       setPaused(false);
-      const item = firstRow?.item;
-      if (item && isQuizMarker(item) && !completedQuizMarkers.has(item.markerId)) {
-        setQuizLocked(true);
-        setPaused(true);
-      }
     }
-  }, [completedQuizMarkers]);
+  }, []);
 
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
@@ -365,11 +356,21 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     const events = [...impressionBatchRef.current];
     impressionBatchRef.current = [];
     try {
-      await recordImpressionBatch(session.token, events);
-    } catch {
-      // Non-blocking telemetry
+      const result = await recordImpressionBatch(session.token, events);
+      if (result.quiz_required) {
+        setQuizLocked(true);
+        setPaused(true);
+        await refreshMe();
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'quiz_required') {
+        setQuizLocked(true);
+        setPaused(true);
+        await refreshMe();
+      }
+      // Impression telemetry itself remains non-blocking.
     }
-  }, [session?.token]);
+  }, [session?.token, refreshMe]);
 
   // Buffer impression events emitted by ReelPlayer
   const handleMetricsFlush = useCallback((payload: ImpressionEventPayload) => {
@@ -377,9 +378,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       payload.session_id = feed.sessionId;
     }
     impressionBatchRef.current.push(payload);
-    if (impressionBatchRef.current.length >= 5) {
-      void flushBatch();
-    }
+    // One lightweight request per meaningfully watched Reel keeps the persisted
+    // random 2–5 gate exact. This fires when a Reel leaves the active slot, not
+    // on video frames or playback ticks.
+    void flushBatch();
   }, [feed.sessionId, flushBatch]);
 
   // Flush on app backgrounding or screen blur
@@ -505,27 +507,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizMarker; index: number }) => {
-    if (isQuizMarker(item)) {
-      const done = completedQuizMarkers.has(item.markerId);
-      return (
-        <View style={[styles.quizPage, { height: REEL_HEIGHT, width: windowWidth }]}>
-          <QuizBreakCard
-            token={session?.token}
-            fullscreen
-            completed={done}
-            onCompleted={async () => {
-              setCompletedQuizMarkers((current) => new Set(current).add(item.markerId));
-              setQuizLocked(false);
-              setPaused(false);
-              if (session?.token) {
-                await refreshMe();
-              }
-            }}
-          />
-        </View>
-      );
-    }
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
     <ReelCell
       item={item}
@@ -548,7 +530,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [completedQuizMarkers, activeIndex, foreground, focused, paused, quizLocked, session?.token, refreshMe, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -688,11 +670,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem | QuizMarker>
+      <FlatList<FeedItem>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`}
+        keyExtractor={(it) => `reel:${feedKey(it)}`}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!quizLocked}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
@@ -715,7 +697,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       />
 
       {/* Full-screen non-skippable brain break lock if server has latch active */}
-      {quizLocked && !isQuizMarker(displayItems[activeIndex]) ? (
+      {quizLocked ? (
         <View style={[StyleSheet.absoluteFill, styles.lockedOverlay]}>
           <QuizBreakCard
             token={session?.token}

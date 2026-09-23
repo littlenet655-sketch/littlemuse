@@ -241,3 +241,15 @@ def test_migration_and_schema_coherence():
 
     upgrade = text("database/upgrade.sql")
     assert "next_quiz_threshold" in upgrade
+
+
+def test_mobile_compulsory_gate_is_reels_only_source_contract():
+    api = _text("mobile/api.py")
+    feed = _text("mobile_app/src/screens/kids/FeedScreen.tsx")
+    reels = _text("mobile_app/src/screens/kids/ReelsScreen.tsx")
+    assert 'if surface == "REELS":' in api
+    assert 'if surf == "REELS":' in api
+    assert "withQuizBreaks(visibleItems" not in feed
+    assert "withQuizBreaks(feed.items" not in reels
+    assert "if (result.quiz_required)" in reels
+    assert "impressionBatchRef.current.length >= 5" not in reels

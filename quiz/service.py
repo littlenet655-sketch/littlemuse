@@ -278,8 +278,8 @@ def record_feed_view(cid, post_id, source_type="POST"):
     """Atomically count one unique visible post/reel/curated item in the current quiz cycle.
 
     The client reports the concrete item id when it becomes substantially visible.
-    Both Feed posts and Reels increment the SAME server-side view counter.
-    Curated LittleNet content and social child content both count.
+    Only meaningful Reel impressions call this counter in the mobile API.
+    Curated LittleNet Reels and social Reels both count; ordinary Feed browsing does not.
     PostgreSQL owns de-duplication and the latch. Once ``quiz_required`` is true,
     additional views cannot clear or postpone it; only ``reset`` after an accepted
     answer starts a new cycle.

@@ -18,8 +18,6 @@ import type { FeedItem } from '../../api/kidsFeed';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
 import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
-import { QuizBreakCard } from '../../components/QuizBreakCard';
-import { isQuizMarker, withQuizBreaks, type QuizMarker } from '../../kids/quizBreaks';
 
 /**
  * Server sends more than the base StoryItem declares: owner id and whether the
@@ -273,8 +271,6 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [tab, setTab] = useState<FeedTab>('For You');
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
   const [activeVideoKey, setActiveVideoKey] = useState<string | null>(null);
-  const [completedQuizMarkers, setCompletedQuizMarkers] = useState<Set<string>>(new Set());
-  const [quizLocked, setQuizLocked] = useState(false);
   const reportedViewsRef = useRef<Set<string>>(new Set());
   const reportedSessionRef = useRef<string | undefined>(undefined);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
@@ -288,20 +284,16 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visibleVideo = viewableItems.find((entry) => {
-      const item = entry.item as FeedItem | QuizMarker | undefined;
-      return Boolean(entry.isViewable && item && !isQuizMarker(item) && item.media_type?.toUpperCase() === 'VIDEO');
+      const item = entry.item as FeedItem | undefined;
+      return Boolean(entry.isViewable && item?.media_type?.toUpperCase() === 'VIDEO');
     });
-    const videoItem = visibleVideo?.item as FeedItem | QuizMarker | undefined;
-    setActiveVideoKey(videoItem && !isQuizMarker(videoItem) ? `${videoItem.source_type}:${videoItem.source_id}` : null);
+    const videoItem = visibleVideo?.item as FeedItem | undefined;
+    setActiveVideoKey(videoItem ? `${videoItem.source_type}:${videoItem.source_id}` : null);
 
     for (const entry of viewableItems) {
       if (!entry.isViewable) continue;
-      const item = entry.item as FeedItem | QuizMarker | undefined;
+      const item = entry.item as FeedItem | undefined;
       if (!item) continue;
-      if (isQuizMarker(item)) {
-        if (!completedQuizMarkers.has(item.markerId)) setQuizLocked(true);
-        continue;
-      }
       if (!session?.token || !feed.sessionId) continue;
       const sourceId = Number(item.source_id ?? item.post_id ?? 0);
       if (!sourceId) continue;
@@ -319,7 +311,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         reportedViewsRef.current.delete(key);
       });
     }
-  }, [completedQuizMarkers, feed.sessionId, session?.token]);
+  }, [feed.sessionId, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {
@@ -345,9 +337,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     [feed.items, hiddenKeys],
   );
 
-  // Quiz break every 5 posts: the marker rows are stable per content index so
-  // a refresh keeps each card's identity (and its answered state) in place.
-  const displayItems = useMemo(() => withQuizBreaks(visibleItems), [visibleItems]);
+  const displayItems = visibleItems;
 
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
     if (!session) return;
@@ -386,20 +376,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error]);
 
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem | QuizMarker }) => {
-    if (isQuizMarker(item)) {
-      const done = completedQuizMarkers.has(item.markerId);
-      return (
-        <QuizBreakCard
-          token={session?.token}
-          completed={done}
-          onCompleted={() => {
-            setCompletedQuizMarkers((current) => new Set(current).add(item.markerId));
-            setQuizLocked(false);
-          }}
-        />
-      );
-    }
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     const key = feedKey(item);
     return (
       <FeedRow
@@ -411,7 +388,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         onDeletedItem={deletedItem}
       />
     );
-  }, [completedQuizMarkers, focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
+  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
 
   const listFooter = useMemo(() => {
     // Purely visual gate: show the kit end-of-feed card only when real items
@@ -429,13 +406,12 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     <Screen>
       <FlashList
         data={displayItems}
-        keyExtractor={(item) => isQuizMarker(item) ? item.markerId : feedKey(item)}
+        keyExtractor={feedKey}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
         ListFooterComponent={listFooter}
         renderItem={renderFeedItem}
-        scrollEnabled={!quizLocked}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         drawDistance={1200}

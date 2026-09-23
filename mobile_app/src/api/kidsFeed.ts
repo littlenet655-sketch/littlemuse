@@ -184,8 +184,8 @@ export function recordImpressionBatch(
     saved?: boolean;
     replay_count?: number;
   }>,
-): Promise<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }> {
-  return apiRequest<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }>(
+): Promise<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number; next_quiz_threshold?: number }> {
+  return apiRequest<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number; next_quiz_threshold?: number }>(
     routes.impressionsBatch,
     {
       method: 'POST',
