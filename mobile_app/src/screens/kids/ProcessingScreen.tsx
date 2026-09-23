@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useVideoPlayer } from 'expo-video';
 import { MAX_POLL_ATTEMPTS, moderationCopy } from '../../kids/social';
 import { useProcessingStatus } from '../../kids/useProcessing';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -8,12 +9,29 @@ import { useIsForeground } from '../../query/client';
 import { invalidateSocialCaches } from '../../query/keys';
 import { BrandHeader, Button, Card, GateNotice, Notice, Screen } from '../../ui/components';
 import { colors, spacing } from '../../ui/tokens';
+import { NativeVideoView } from '../../ui/nativeViews';
 
 interface ProcessingRouteParams {
   postId?: number;
   /** Local file preview passed by CreateScreen — display only, never authoritative. */
   localUri?: string;
   mediaType?: 'IMAGE' | 'VIDEO';
+}
+
+function VideoPreview({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = true;
+    instance.muted = true;
+    instance.play();
+  });
+  return (
+    <NativeVideoView
+      player={player}
+      style={styles.preview}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
 }
 
 const STEPS = [
@@ -48,18 +66,23 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
   const blocked = poll.stage === 'blocked';
   const allowed = poll.stage === 'allowed';
   const failed = poll.stage === 'failed' || poll.stage === 'retryable';
-  // The local preview is a comfort placeholder only. The server result is
-  // authoritative: nothing is shown as published unless stage === 'allowed'.
-  // Local video files cannot render in an Image, so they get a placeholder.
-  const serverPreview = poll.result?.poster_url || poll.result?.media_url || undefined;
-  const localImagePreview =
-    !allowed && params.mediaType === 'IMAGE' ? params.localUri : undefined;
-  const previewUri = allowed ? serverPreview || localImagePreview : localImagePreview;
-  const showVideoPlaceholder = !allowed && params.mediaType === 'VIDEO';
+  // Local media is comfort-only while the server remains authoritative.
+  // Images and videos can both stay visible while moderation runs.
+  const isVideo = params.mediaType === 'VIDEO';
+  const serverPoster = poll.result?.poster_url || undefined;
+  const serverMedia = poll.result?.media_url || undefined;
+  const localImagePreview = !allowed && !isVideo ? params.localUri : undefined;
+  const localVideoPreview = !allowed && isVideo ? params.localUri : undefined;
+  const previewUri = !isVideo
+    ? (allowed ? serverPoster || serverMedia || localImagePreview : localImagePreview)
+    : undefined;
+  const videoPreviewUri = isVideo ? (allowed ? serverMedia : localVideoPreview) : undefined;
+  const videoPosterFallback = isVideo && !videoPreviewUri ? serverPoster : undefined;
+  const showVideoPlaceholder = isVideo && !videoPreviewUri && !videoPosterFallback;
 
   return (
-    <Screen>
-      <BrandHeader title="Safety check" subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`} />
+    <Screen hasNativeHeader={false}>
+      <BrandHeader title="Safety check" subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`}  onBack={() => navigation.goBack()} />
 
       {previewUri ? (
         <Card style={styles.previewCard}>
@@ -71,12 +94,32 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
         </Card>
       ) : null}
 
+      {videoPreviewUri ? (
+        <Card style={styles.previewCard}>
+          <VideoPreview uri={videoPreviewUri} />
+          <View style={styles.previewTag}>
+            <Feather name={allowed ? 'check-circle' : 'clock'} size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Checking your video'}</Text>
+          </View>
+        </Card>
+      ) : null}
+
+      {videoPosterFallback ? (
+        <Card style={styles.previewCard}>
+          <Image source={{ uri: videoPosterFallback }} style={styles.preview} resizeMode="cover" />
+          <View style={styles.previewTag}>
+            <Feather name="film" size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Checking your video'}</Text>
+          </View>
+        </Card>
+      ) : null}
+
       {showVideoPlaceholder ? (
         <Card style={styles.previewCard}>
           <View style={styles.videoPreviewPlaceholder}>
             <Feather name="film" size={30} color={colors.muted} />
             <Text style={styles.videoPreviewText}>
-              Your video is being checked for safety.{'\n'}It'll appear here when it's approved.
+              Your video is being checked for safety.{'\n'}You can keep this screen open or come back later.
             </Text>
           </View>
         </Card>

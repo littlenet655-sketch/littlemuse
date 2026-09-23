@@ -12,7 +12,9 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -264,7 +266,7 @@ def _process_media_job_impl(
     post = fetch_one(
         """SELECT post_id, child_id, media_type, caption, content_category,
                   audience_age_group, is_story, is_reel, processing_status, moderation_status,
-                  processing_lease_token, processing_lease_expires_at
+                  processing_lease_token, processing_lease_expires_at, created_at
            FROM posts WHERE post_id=%s""",
         (post_id,),
     )
@@ -295,7 +297,7 @@ def _process_media_job_impl(
              )
            RETURNING post_id, child_id, media_type, caption, content_category,
                      audience_age_group, is_story, is_reel, processing_status, moderation_status,
-                     processing_lease_token""",
+                     processing_lease_token, created_at""",
         (worker_exec_token, post_id, lease_token, lease_token, lease_token),
         returning=True,
     )
@@ -305,6 +307,20 @@ def _process_media_job_impl(
         return {"ok": True, "status": cur_status, "already_claimed": True, "idempotent": True}
 
     post = claimed
+    pipeline_started = time.perf_counter()
+    stage_timings_ms: dict[str, int] = {}
+    created_at = post.get("created_at")
+    if created_at:
+        try:
+            if getattr(created_at, "tzinfo", None) is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            stage_timings_ms["queue_ms"] = max(
+                0,
+                int((datetime.now(timezone.utc) - created_at).total_seconds() * 1000),
+            )
+        except Exception:
+            # Telemetry must never affect moderation.
+            pass
 
     # R2 references must never fall back to a container-local path. That makes a
     # missing worker secret look like missing user media and wastes every retry.
@@ -380,6 +396,7 @@ def _process_media_job_impl(
             raise RuntimeError("processing_lease_lost")
 
     try:
+        stage_started = time.perf_counter()
         source_suffix = Path(str(object_key)).suffix.lower()
         source_local = temp_dir / f"quarantine_source{source_suffix if source_suffix in {'.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov'} else '.bin'}"
         if object_storage.enabled():
@@ -415,6 +432,9 @@ def _process_media_job_impl(
                 (post_id, worker_exec_token),
             )
             return {"ok": False, "error": "upload_size_exceeded"}
+
+        stage_timings_ms["download_ms"] = int((time.perf_counter() - stage_started) * 1000)
+        stage_started = time.perf_counter()
 
         final_media_local = source_local
         final_poster_local = None
@@ -464,6 +484,9 @@ def _process_media_job_impl(
                     (f"image_sanitization_failed: {exc}", post_id, worker_exec_token),
                 )
                 raise RuntimeError(f"image_sanitization_failed: {exc}") from exc
+
+        stage_timings_ms["prepare_ms"] = int((time.perf_counter() - stage_started) * 1000)
+        stage_started = time.perf_counter()
 
         # AI Moderation
         #
@@ -592,6 +615,8 @@ def _process_media_job_impl(
         merged = _merge_signals(text_signals, media_signals)
         decision = decide(merged, safety_level(child_id), Config.ADULT_HARD_BLOCK_THRESHOLD)
         event_id = record(child_id, media_type, post_id, merged, decision)
+        stage_timings_ms["moderation_ms"] = int((time.perf_counter() - stage_started) * 1000)
+        stage_started = time.perf_counter()
 
         if decision.action == "BLOCK":
             blocked_row = execute(
@@ -681,6 +706,9 @@ def _process_media_job_impl(
             return {"ok": True, "status": "REVIEW", "event_id": event_id}
 
         else:  # ALLOW
+            # Persistence for REVIEW/BLOCK is measured as part of total_ms;
+            # publication_ms is specifically the ALLOW R2 + DB + visibility path.
+            stage_started = time.perf_counter()
             require_active_lease()
             ext = "mp4" if media_type == "VIDEO" else "jpg"
             media_mime = "video/mp4" if ext == "mp4" else "image/jpeg"
@@ -794,6 +822,7 @@ def _process_media_job_impl(
                     "Quarantine cleanup incomplete after ALLOW for post %s; durable outbox retry queued",
                     post_id,
                 )
+            stage_timings_ms["publication_ms"] = int((time.perf_counter() - stage_started) * 1000)
             return {
                 "ok": True,
                 "status": "ALLOWED",
@@ -815,6 +844,18 @@ def _process_media_job_impl(
         lease_stop.set()
         lease_thread.join(timeout=2)
         shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            stage_timings_ms["total_ms"] = int((time.perf_counter() - pipeline_started) * 1000)
+            logger.info(
+                "media_pipeline_timing post_id=%s media_type=%s kind=%s timings_ms=%s",
+                post_id,
+                media_type,
+                kind,
+                stage_timings_ms,
+            )
+        except Exception:
+            # Instrumentation is strictly best-effort and cannot alter safety.
+            pass
 
 
 def sanitize_and_promote_media(
