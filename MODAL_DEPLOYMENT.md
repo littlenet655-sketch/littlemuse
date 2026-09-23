@@ -53,6 +53,11 @@ LITTLENET_LIVE_URL
 
 The URL must be the current public HTTPS endpoint for `littlemuse-web`.
 
+Before deployment, the workflow runs zero-GPU secret preflights. It requires the
+web `AI_SERVICE_URL` to identify `littlemuse-ai` and compares non-disclosing
+SHA-256 fingerprints of the web/AI `AI_SHARED_SECRET` values. A stale endpoint
+or mismatched secret stops the release before cloud code is replaced.
+
 ## Runtime secret contracts
 
 `littlemuse-ai-secrets`:

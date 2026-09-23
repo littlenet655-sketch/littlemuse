@@ -465,6 +465,8 @@ def main(
     if secret_preflight:
         report = ai_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
+        if not report.get("present"):
+            raise RuntimeError("LittleMuse AI shared secret is missing")
         return
     if trained_image_preflight_only:
         report = trained_image_preflight.remote()

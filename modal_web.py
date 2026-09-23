@@ -153,13 +153,18 @@ def web():
     max_containers=1,
 )
 def web_secret_preflight():
-    """Read only the web secret for a non-disclosing release comparison."""
+    """Non-disclosing web-secret identity check; never wakes the AI runtime."""
     value = str(os.environ.get("AI_SHARED_SECRET") or "")
-    if not value:
-        return {"present": False, "fingerprint": None}
+    ai_url = str(os.environ.get("AI_SERVICE_URL") or "").strip()
+    expected_ai_app = str(os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai") or "").strip()
     return {
-        "present": True,
-        "fingerprint": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+        "present": bool(value),
+        "fingerprint": hashlib.sha256(value.encode("utf-8")).hexdigest() if value else None,
+        "ai_service_url_present": ai_url.startswith("https://"),
+        "ai_service_url_matches_expected": bool(
+            ai_url.startswith("https://") and expected_ai_app and expected_ai_app in ai_url
+        ),
+        "expected_ai_app": expected_ai_app,
     }
 
 
@@ -481,6 +486,8 @@ def main(
     if secret_preflight:
         report = web_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
+        if not report.get("present") or not report.get("ai_service_url_matches_expected"):
+            raise RuntimeError(f"LittleMuse web secret/AI endpoint identity mismatch: {report}")
         return
     if migration_status_check:
         report = database_migration_status.remote()

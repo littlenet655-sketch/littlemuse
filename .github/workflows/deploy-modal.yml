@@ -85,6 +85,30 @@ jobs:
           modal token info
       - name: Stage trained moderation models into the Modal volume
         run: python tools/stage_model_volume.py
+      - name: Verify web/AI release identity and shared secret parity without GPU
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --secret-preflight | tee ai-secret-preflight.log
+          modal run modal_web.py --secret-preflight | tee web-secret-preflight.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def report(path):
+              for line in Path(path).read_text(encoding="utf-8").splitlines():
+                  if line.startswith("secret-preflight "):
+                      return json.loads(line.split(" ", 1)[1])
+              raise SystemExit(f"Missing secret-preflight report in {path}")
+
+          ai = report("ai-secret-preflight.log")
+          web = report("web-secret-preflight.log")
+          if not ai.get("present") or not web.get("present"):
+              raise SystemExit("AI_SHARED_SECRET is missing from one release secret")
+          if ai.get("fingerprint") != web.get("fingerprint"):
+              raise SystemExit("AI_SHARED_SECRET mismatch between AI and web release secrets")
+          if not web.get("ai_service_url_matches_expected"):
+              raise SystemExit("AI_SERVICE_URL does not target the expected LittleMuse AI app")
+          PY
       - name: Validate retained database migration history
         run: modal run modal_web.py --migration-status-check
       - name: Apply reviewed pending dbmate migrations
