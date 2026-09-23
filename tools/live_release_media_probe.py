@@ -20,7 +20,7 @@ probe_image = (
         "Pillow>=11,<13",
     )
 )
-web_secret = modal.Secret.from_name("littlenet-web-secrets")
+web_secret = modal.Secret.from_name(os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"))
 
 
 def _fail(label: str, status: int | None = None, body: object | None = None) -> RuntimeError:

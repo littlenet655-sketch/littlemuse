@@ -16,7 +16,7 @@ jobs:
     env:
       CI: "1"
       NODE_ENV: production
-      EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL || 'https://netlittle2--littlenet-web-web.modal.run' }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL }}
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -45,15 +45,31 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify release backend
+      - name: Verify release backend and committed app identity
         run: |
           python - <<'PY'
-          import os,sys
+          import json,os,sys
           url=os.environ.get('EXPO_PUBLIC_API_BASE_URL','').strip().rstrip('/')
           if not url.startswith('https://') or 'localhost' in url or '127.0.0.1' in url:
               sys.exit(f'EXPO_PUBLIC_API_BASE_URL must be a public HTTPS backend, got {url!r}')
+          app=json.load(open('mobile_app/app.json',encoding='utf-8')).get('expo',{})
+          owner=str(app.get('owner') or '').strip()
+          project_id=str(((app.get('extra') or {}).get('eas') or {}).get('projectId') or '').strip()
+          package=str((app.get('android') or {}).get('package') or '').strip()
+          if owner != 'akshu1245s-team':
+              sys.exit(f'app.json Expo owner mismatch: {owner!r}')
+          if project_id != 'c4ce834d-fd50-4504-a311-820c3372b6dc':
+              sys.exit(f'app.json EAS projectId mismatch: {project_id!r}')
+          if package != 'com.littlenet.app':
+              sys.exit(f'Android package mismatch: {package!r}')
           PY
-          curl --connect-timeout 10 --max-time 30 --fail-with-body -sS "${EXPO_PUBLIC_API_BASE_URL%/}/api/mobile/v1/health" >/dev/null
+          curl --connect-timeout 10 --max-time 30 --fail-with-body -sS "${EXPO_PUBLIC_API_BASE_URL%/}/api/mobile/v1/health" | tee mobile-health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('mobile-health.json',encoding='utf-8'))
+          if body.get('ok') is not True or body.get('client') != 'react-native':
+              raise SystemExit(f'Mobile API identity mismatch: {body}')
+          PY
       - name: Install mobile dependencies
         working-directory: mobile_app
         run: npm ci

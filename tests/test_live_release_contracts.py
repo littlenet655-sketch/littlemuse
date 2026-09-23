@@ -97,3 +97,32 @@ def test_release_preflight_rejects_stale_ai_endpoint_or_secret_drift():
     assert "LittleMuse AI shared secret is missing" in ai
     assert "Verify web/AI release identity and shared secret parity without GPU" in deploy
     assert "AI_SHARED_SECRET mismatch between AI and web release secrets" in deploy
+
+
+def test_web_only_deploy_cannot_bypass_release_identity_or_database_gates():
+    workflow = (ROOT / ".github/workflows/deploy-web-only.yml").read_text(encoding="utf-8")
+    secret = "modal run modal_web.py --secret-preflight"
+    status = "modal run modal_web.py --migration-status-check"
+    current = "modal run modal_web.py --require-db-current"
+    deploy = "modal deploy modal_web.py"
+    assert secret in workflow
+    assert status in workflow and current in workflow
+    assert workflow.index(secret) < workflow.index(status) < workflow.index(current) < workflow.index(deploy)
+    assert "LITTLENET_AI_SECRET: littlemuse-ai-secrets" in workflow
+    assert "LITTLENET_R2_SECRET: littlenet-r2" in workflow
+
+
+def test_local_apk_build_has_no_legacy_backend_fallback_and_checks_identity():
+    workflow = (ROOT / ".github/workflows/build-local-apk.yml").read_text(encoding="utf-8")
+    assert "netlittle2--littlenet-web-web.modal.run" not in workflow
+    assert "EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL }}" in workflow
+    assert "akshu1245s-team" in workflow
+    assert "c4ce834d-fd50-4504-a311-820c3372b6dc" in workflow
+    assert "Mobile API identity mismatch" in workflow
+
+
+def test_release_utilities_use_configurable_current_resource_names():
+    probe = (ROOT / "tools/live_release_media_probe.py").read_text(encoding="utf-8")
+    stage = (ROOT / "tools/stage_model_volume.py").read_text(encoding="utf-8")
+    assert 'LITTLENET_WEB_SECRET", "littlemuse-web-secrets"' in probe
+    assert 'LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache"' in stage

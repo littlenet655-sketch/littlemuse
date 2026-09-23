@@ -191,3 +191,16 @@ Use these states independently:
 - MISSING
 
 Source/tests never imply live or physical verification.
+
+
+## Secondary workflow safety
+
+The web-only workflow is an emergency code-only redeploy path. It does not apply
+database migrations; it first requires web/AI identity parity, coherent retained
+migration history, and zero pending migrations. If a schema change is pending,
+use the canonical full release workflow instead.
+
+The local Gradle APK workflow is diagnostic/secondary. It has no historical
+backend fallback: `LITTLENET_LIVE_URL` must be explicitly configured, its mobile
+health identity must be React Native, and the committed Expo/EAS/package identity
+must match the canonical release identity.
