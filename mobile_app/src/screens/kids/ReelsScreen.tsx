@@ -243,8 +243,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Full-screen height — true Instagram Reels feel
-  const REEL_HEIGHT = windowHeight;
+  // Use the actual navigator viewport, not the raw device window. The bottom
+  // LittleNet tab bar sits outside this screen; using windowHeight made each
+  // paging cell taller than the visible body on some Android devices.
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
   const foreground = useIsForeground();
@@ -569,7 +572,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={({ nativeEvent }) => {
+        const next = Math.round(nativeEvent.layout.height);
+        if (next > 0 && next !== viewportHeight) setViewportHeight(next);
+      }}
+    >
       {/* Floating Top Header — Instagram Reels style */}
       <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <Text style={styles.topTitle}>Reels</Text>
