@@ -76,6 +76,7 @@ export function ReelPlayer({
 
   const posterUri = item.poster_url ?? null;
   const showPoster = !firstFrameRendered && Boolean(posterUri);
+  const showPreparingFallback = !firstFrameRendered && !posterUri && !errorMessage;
 
   // Progress bar fill width as a percentage string — interpolated from the
   // Animated.Value so the native timeUpdate ticks never re-render the cell.
@@ -174,6 +175,17 @@ export function ReelPlayer({
         />
       ) : null}
 
+      {/* Never leave a preparing Reel as an unexplained black cell when the
+          backend has no poster. This stays underneath the retry/error layer. */}
+      {showPreparingFallback ? (
+        <View style={styles.preparingOverlay} pointerEvents="none">
+          <View style={styles.preparingCard}>
+            <Feather name="film" size={30} color="#CBD5E1" />
+            <Text style={styles.preparingText}>Preparing reel…</Text>
+          </View>
+        </View>
+      ) : null}
+
       {/* Debounced Buffering Indicator (shown only after 300ms stall) */}
       {isDebouncedBuffering && !errorMessage ? (
         <View style={styles.bufferingOverlay} pointerEvents="none">
@@ -250,6 +262,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
     overflow: 'hidden',
+  },
+  preparingOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#020617',
+  },
+  preparingCard: {
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+  },
+  preparingText: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    fontWeight: '700',
   },
   bufferingOverlay: {
     ...StyleSheet.absoluteFill,
