@@ -16,20 +16,26 @@ from typing import Any, Callable, Hashable
 
 
 def memo(key: Hashable, maker: Callable[[], Any]) -> Any:
-    """Return the cached value for *key*, computing it once per request."""
+    """Return the cached value for *key*, computing it once per request.
+
+    Cache/context setup may fall back, but a failing maker is never executed a
+    second time implicitly. That avoids duplicate DB/network work and preserves
+    the original policy failure.
+    """
     try:
         from flask import g, has_request_context
     except ImportError:  # pragma: no cover - flask is always present in app
         return maker()
     try:
-        if not has_request_context():
-            return maker()
-        cache = getattr(g, "_littlenet_req_memo", None)
-        if cache is None:
+        in_request = has_request_context()
+        cache = getattr(g, "_littlenet_req_memo", None) if in_request else None
+        if in_request and cache is None:
             cache = {}
             g._littlenet_req_memo = cache
-        if key not in cache:
-            cache[key] = maker()
-        return cache[key]
     except Exception:
         return maker()
+    if not in_request:
+        return maker()
+    if key not in cache:
+        cache[key] = maker()
+    return cache[key]

@@ -1,14 +1,6 @@
-import time as _time
 from datetime import date
 from database.connection import fetch_one,fetch_all,execute
-
-# In-process TTL cache for discoverable_child_ids. The query does a full scan
-# with unindexable TRIM(LOWER()) comparisons and runs on every feed/reels/
-# discover session build. Candidates are always re-authorized per item by
-# _media_allowed/post_visible_to with fresh block/mute checks, so a short
-# staleness window here cannot widen access.
-_discoverable_cache = {}
-_DISCOVERABLE_CACHE_TTL = 300
+from services.request_cache import memo as _req_memo
 
 def profile_exists(cid):return bool(fetch_one('SELECT 1 FROM child_profiles WHERE child_id=%s',(cid,)))
 def get_child_profile(cid):return fetch_one('SELECT * FROM child_profiles WHERE child_id=%s',(cid,))
@@ -50,26 +42,21 @@ def unfollow_child(a,b):
 
 
 def discoverable_child_ids(cid):
-    """Return only minors the viewer is allowed to discover.
+    """Return minors the viewer may discover, fresh on every HTTP request.
 
-    LittleNet is intentionally not a global directory of children. A child can only
-    discover another child when there is a legitimate relationship context:
-    - same verified parent/family mapping;
-    - same school AND same class;
-    - an already ACTIVE friendship;
-    - a pending parent-mediated friendship request; or
-    - a friend-of-an-ACTIVE-friend.
-
-    If school/class data is missing, no broad fallback is used.
-
-    Results are cached in-process for 5 minutes (see _DISCOVERABLE_CACHE_TTL).
+    The expensive relationship query is memoized only inside the current
+    request. Cross-request TTL caching is intentionally forbidden because a
+    block, unfriend, parent-approval change, or profile-context change must
+    affect a child on the very next request.
     """
-    now = _time.monotonic()
-    hit = _discoverable_cache.get(cid)
-    if hit and now - hit[0] < _DISCOVERABLE_CACHE_TTL:
-        return list(hit[1])
-    ids = _discoverable_child_ids_uncached(cid)
-    _discoverable_cache[cid] = (now, ids)
+    try:
+        viewer_id = int(cid)
+    except (TypeError, ValueError):
+        return []
+    ids = _req_memo(
+        ("discoverable_child_ids", viewer_id),
+        lambda: tuple(_discoverable_child_ids_uncached(viewer_id)),
+    )
     return list(ids)
 
 
