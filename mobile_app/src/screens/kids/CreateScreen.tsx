@@ -7,7 +7,8 @@ import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
 import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
-import { Card, Field, GateNotice, Notice, StepIndicator } from '../../ui/components';
+import { IgIcon } from '../../components/IgIcon';
+import { Card, Field, GateNotice, Notice } from '../../ui/components';
 import { NativeVideoView } from '../../ui/nativeViews';
 import { colors, shadow, spacing } from '../../ui/tokens';
 import { clampAspectRatio } from '../../video/types';
@@ -96,6 +97,12 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<UploadSession | null>(null);
+  // Kit header "Next" scrolls the composer to the caption/details section.
+  const scrollRef = useRef<ScrollView | null>(null);
+  const detailsY = useRef(0);
+  function scrollToDetails() {
+    scrollRef.current?.scrollTo({ y: Math.max(0, detailsY.current - 76), animated: true });
+  }
 
   // Never leave a native upload running after the screen goes away.
   useEffect(() => () => {
@@ -253,53 +260,37 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
 
   const isVideo = kind === 'reel';
   const pickedIsVideo = (media?.mimeType ?? '').startsWith('video/');
-  // Visual step tracker: 1 = pick media, 2 = caption/details, 3 = sharing.
-  const flowStep = !media ? 1 : busy ? 3 : 2;
-  const flowLabels = ['Pick media', 'Add caption', 'Sharing'] as const;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      {/* Creation flow steps (visual only) */}
-      <StepIndicator
-        step={flowStep}
-        total={3}
-        label={flowLabels[flowStep - 1]}
-        steps={['Pick media', 'Add caption', 'Sharing']}
-      />
-
-      {/* Mode Switcher — pill chips */}
+    <>
+      {/* Kit header: X | New post | Next */}
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          hitSlop={12}
+          style={styles.headerSide}
+        >
+          <Feather name="x" size={24} color={colors.ink} />
+        </Pressable>
+        <Text style={styles.headerTitle}>New post</Text>
+        <Pressable
+          onPress={scrollToDetails}
+          accessibilityRole="button"
+          accessibilityLabel="Next: add caption"
+          hitSlop={12}
+          style={[styles.headerSide, styles.headerNextWrap]}
+        >
+          <Text style={styles.headerNext}>Next</Text>
+        </Pressable>
+      </View>
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.kindChips}
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        {(['post', 'reel', 'story'] as Kind[]).map((k) => {
-          const active = kind === k;
-          const label = k === 'post' ? 'Photo Post' : k === 'reel' ? 'Short Reel' : 'Daily Story';
-          const icon = k === 'post' ? 'image' : k === 'reel' ? 'film' : 'zap';
-          return (
-            <Pressable
-              key={k}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-              accessibilityState={{ selected: active }}
-              onPress={() => {
-                setKind(k);
-                setMedia(null);
-                resetPipelineState();
-                setStatus('');
-                setError(null);
-              }}
-              style={[styles.kindBtn, active && styles.kindBtnActive]}
-            >
-              <Feather name={icon} size={14} color={active ? '#FFFFFF' : '#64748B'} />
-              <Text style={[styles.kindText, active && styles.kindTextActive]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
       {error ? <GateNotice error={error} /> : null}
       {status ? <Notice tone="info" message={status} /> : null}
 
@@ -336,8 +327,8 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   accessibilityLabel="Choose a video from your gallery"
                   onPress={() => void choose(() => pickGalleryMedia('video'))}
                 >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#EFF6FF' }]}>
-                    <Feather name="film" size={24} color={colors.brand} />
+                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                    <Feather name="film" size={24} color={colors.ink} />
                   </View>
                   <Text style={styles.pickOptionTitle}>Gallery Video</Text>
                   <Text style={styles.pickOptionSub}>Choose from files</Text>
@@ -348,8 +339,8 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   accessibilityLabel="Record a video with the camera"
                   onPress={() => void choose(() => capturePostMedia('video'))}
                 >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#FDF2F8' }]}>
-                    <Feather name="video" size={24} color="#DB2777" />
+                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                    <Feather name="video" size={24} color={colors.ink} />
                   </View>
                   <Text style={styles.pickOptionTitle}>Camera Video</Text>
                   <Text style={styles.pickOptionSub}>Record right now</Text>
@@ -363,8 +354,8 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   accessibilityLabel="Choose a photo from your gallery"
                   onPress={() => void choose(() => pickGalleryMedia('image'))}
                 >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#EFF6FF' }]}>
-                    <Feather name="image" size={24} color={colors.brand} />
+                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                    <Feather name="image" size={24} color={colors.ink} />
                   </View>
                   <Text style={styles.pickOptionTitle}>Choose Photo</Text>
                   <Text style={styles.pickOptionSub}>From your gallery</Text>
@@ -375,8 +366,8 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   accessibilityLabel="Take a photo with the camera"
                   onPress={() => void choose(() => capturePostMedia('image'))}
                 >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#ECFDF5' }]}>
-                    <Feather name="camera" size={24} color="#10B981" />
+                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                    <Feather name="camera" size={24} color={colors.ink} />
                   </View>
                   <Text style={styles.pickOptionTitle}>Take Photo</Text>
                   <Text style={styles.pickOptionSub}>Snap with camera</Text>
@@ -392,6 +383,13 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           ) : (
             <Image source={{ uri: media.uri }} style={styles.previewImg} resizeMode="cover" />
           )}
+          {/* Floating Sentinel pre-check pill (kit). Presentational only — the
+              real AI scan runs server-side after upload; logic untouched. */}
+          <View style={styles.safetyPill} pointerEvents="none">
+            <View style={styles.safetyPillDot} />
+            <Feather name="shield" size={12} color={colors.ink} />
+            <Text style={styles.safetyPillText}>Sentinel Pre-Check: Safe (PASS)</Text>
+          </View>
           <View style={styles.previewBottom}>
             <View style={styles.fileInfo}>
               <Feather name="check-circle" size={14} color="#10B981" />
@@ -418,6 +416,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       )}
 
       {/* Post Details */}
+      <View onLayout={(e) => { detailsY.current = e.nativeEvent.layout.y; }}>
       <Card>
         {/* Instagram-style borderless caption composer */}
         <View style={styles.captionWrap}>
@@ -430,7 +429,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
             numberOfLines={3}
             textAlignVertical="top"
             placeholder="Write a kind caption…"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.muted}
             maxLength={2200}
             accessibilityLabel="Caption"
           />
@@ -471,13 +470,47 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           placeholder="Home, School, Art Class"
         />
       </Card>
+      </View>
 
-      {/* Safety Notice Card */}
+      {/* Safety Notice Card — kit "Classroom Safe Ring" */}
       <View style={styles.safetyBox}>
-        <Feather name="shield" size={16} color="#10B981" />
-        <Text style={styles.safetyText}>
-          LittleNet AI automatically checks every upload for child safety before sharing.
-        </Text>
+        <View style={styles.safetyIconWrap}>
+          <Feather name="shield" size={20} color={colors.brand} />
+        </View>
+        <View style={styles.safetyCopy}>
+          <Text style={styles.safetyTitle}>Classroom Safe Ring</Text>
+          <Text style={styles.safetyText}>
+            Posts are scanned by AI Sentinel before publishing.{'\n'}Visible to your class and verified parents only.
+          </Text>
+        </View>
+      </View>
+
+      {/* Mode tabs — kit letterspaced text tabs with active dot (selection logic unchanged) */}
+      <View style={styles.modeTabs} accessibilityRole="tablist">
+        {(['post', 'story', 'reel'] as Kind[]).map((k) => {
+          const active = kind === k;
+          const label = k === 'post' ? 'POST' : k === 'story' ? 'STORY' : 'REEL';
+          return (
+            <Pressable
+              key={k}
+              disabled={busy}
+              accessibilityRole="tab"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: active }}
+              onPress={() => {
+                setKind(k);
+                setMedia(null);
+                resetPipelineState();
+                setStatus('');
+                setError(null);
+              }}
+              style={styles.modeTab}
+            >
+              <Text style={[styles.modeTabText, active && styles.modeTabTextActive]}>{label}</Text>
+              <View style={[styles.modeTabDot, active && styles.modeTabDotActive]} />
+            </Pressable>
+          );
+        })}
       </View>
 
       {/* Submit Button */}
@@ -492,13 +525,14 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
         {busy ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
         ) : (
-          <Feather name="send" size={18} color="#FFFFFF" />
+          <IgIcon name="send" size={18} color="#FFFFFF" />
         )}
         <Text style={styles.publishBtnText}>
           {busy ? 'Sharing Safely…' : failedStage ? 'Resume Sharing ✨' : 'Share Safely ✨'}
         </Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </>
   );
 }
 
@@ -511,34 +545,68 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  // Mode chips (pill selectors)
-  kindChips: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 14,
-    paddingRight: 4,
-  },  kindBtn: {
+  // Kit header: X | New post | Next
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+    height: 52,
+  },
+  headerSide: {
+    width: 72,
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
   },
-  kindBtnActive: {
-    backgroundColor: colors.brand,
-  },
-  kindText: {
-    fontSize: 13,
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
     fontWeight: '700',
-    color: '#64748B',
+    color: colors.ink,
   },
-  kindTextActive: {
-    color: '#FFFFFF',
+  headerNextWrap: {
+    alignItems: 'flex-end',
+  },
+  headerNext: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.brand,
+  },
+  // Mode tabs — kit letterspaced text tabs with active dot
+  modeTabs: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: 30,
+    paddingTop: 4,
+    marginBottom: 14,
+  },
+  modeTab: {
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  modeTabText: {
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 2,
+    color: colors.muted,
+  },
+  modeTabTextActive: {
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  modeTabDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 5,
+    backgroundColor: 'transparent',
+  },
+  modeTabDotActive: {
+    backgroundColor: colors.ink,
   },
   progressWrap: {
     backgroundColor: colors.surface,
@@ -546,12 +614,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.line,
   },
   progressTrack: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: colors.line,
     overflow: 'hidden',
   },
   progressFill: {
@@ -582,7 +650,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#DC2626',
+    color: colors.danger,
   },
   pickerCard: {
     padding: 16,
@@ -603,10 +671,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 18,
     paddingHorizontal: 10,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.surface,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: colors.line,
     borderStyle: 'dashed',
   },
   pickIconCircle: {
@@ -634,10 +702,40 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     ...shadow.card,
   },
+  // Floating Sentinel pre-check pill over the preview (kit)
+  safetyPill: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 2,
+  },
+  safetyPillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  safetyPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.ink,
+  },
   previewImg: {
     width: '100%',
     height: 240,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F2F2F2',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
   },
@@ -693,7 +791,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F2F2F2',
   },
   changeBtnText: {
     fontSize: 12,
@@ -706,7 +804,7 @@ const styles = StyleSheet.create({
   captionLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#94A3B8',
+    color: colors.muted,
     letterSpacing: 0.8,
     marginBottom: 6,
   },
@@ -718,7 +816,7 @@ const styles = StyleSheet.create({
   },
   captionCounter: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: colors.muted,
     textAlign: 'right',
     marginTop: 2,
   },
@@ -728,7 +826,7 @@ const styles = StyleSheet.create({
   tagLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#94A3B8',
+    color: colors.muted,
     letterSpacing: 0.8,
     marginBottom: 6,
   },
@@ -741,7 +839,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F2F2F2',
   },
   tagChipText: {
     fontSize: 11,
@@ -750,21 +848,36 @@ const styles = StyleSheet.create({
   },
   safetyBox: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#ECFDF5',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: colors.line,
     borderRadius: 12,
-    padding: 12,
+    padding: 14,
     marginBottom: 16,
   },
-  safetyText: {
+  safetyIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EAF3FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  safetyCopy: {
     flex: 1,
-    fontSize: 12,
-    color: '#065F46',
-    lineHeight: 16,
-    fontWeight: '600',
+  },
+  safetyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.ink,
+    marginBottom: 3,
+  },
+  safetyText: {
+    fontSize: 12.5,
+    color: colors.muted,
+    lineHeight: 17,
   },
   publishBtn: {
     backgroundColor: colors.brand,

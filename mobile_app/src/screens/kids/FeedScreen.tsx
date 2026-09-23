@@ -13,7 +13,6 @@ import { socialPostTarget, socialProfileTarget, feedKey } from '../../kids/socia
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
 import type { FeedItem } from '../../api/kidsFeed';
-import { QuizBreakCard, isQuizMarker, withQuizBreaks, type QuizMarker } from '../../components/QuizBreakCard';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
 import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
@@ -176,6 +175,25 @@ const FeedListHeader = memo(function FeedListHeader({
  * re-renders when its item identity, its own video-active flag, or the tab
  * (which controls the Not Interested affordance) changes.
  */
+/**
+ * Kit end-of-feed card (from the Stitch 08_kids_home_feed mockup): circled
+ * check, "You're All Caught Up" title, grey subtitle. Purely visual — shown
+ * only when the list has items and there are no more pages to load.
+ */
+const CaughtUpCard = memo(function CaughtUpCard() {
+  return (
+    <View style={styles.caughtUpWrap} accessibilityLabel="You're all caught up">
+      <View style={styles.caughtUpCircle}>
+        <Feather name="check" size={24} color={colors.ok} />
+      </View>
+      <Text style={styles.caughtUpTitle}>You&apos;re All Caught Up</Text>
+      <Text style={styles.caughtUpSubtitle}>
+        You&apos;ve seen all new safe updates from friends and classmates today.
+      </Text>
+    </View>
+  );
+});
+
 const FeedRow = memo(function FeedRow({
   item,
   videoActive,
@@ -258,7 +276,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Quiz break every 5 posts: the marker rows are stable per content index so
   // a refresh keeps each card's identity (and its answered state) in place.
-  const displayItems = useMemo(() => withQuizBreaks(visibleItems), [visibleItems]);
+  const displayItems = visibleItems;
 
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
     if (!session) return;
@@ -296,12 +314,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, online, feed.error]);
 
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem | QuizMarker }) => {
-    if (isQuizMarker(item)) {
-      return session?.token ? (
-        <QuizBreakCard key={item.markerId} token={session.token} />
-      ) : null;
-    }
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     const key = feedKey(item);
     return (
       <FeedRow
@@ -315,6 +328,14 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     );
   }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
 
+  const listFooter = useMemo(() => {
+    // Purely visual gate: show the kit end-of-feed card only when real items
+    // are rendered and pagination has no more pages. Does not alter fetch,
+    // refresh, or pagination behavior.
+    if (visibleItems.length === 0 || feed.hasMore || feed.refreshing) return null;
+    return <CaughtUpCard />;
+  }, [visibleItems.length, feed.hasMore, feed.refreshing]);
+
   if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
   if (feed.error && feed.items.length === 0) return <Screen><OfflineBanner online={online} /><GateNotice error={feed.error} /><ErrorState message="Could not load your feed." onRetry={feed.retry} /></Screen>;
@@ -323,10 +344,11 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     <Screen>
       <FlashList
         data={displayItems}
-        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : feedKey(it))}
+        keyExtractor={feedKey}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
+        ListFooterComponent={listFooter}
         renderItem={renderFeedItem}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -369,4 +391,34 @@ const styles = StyleSheet.create({
   tabLabelActive: { color: colors.ink, fontWeight: '800' },
   tabIndicator: { height: 2, width: '64%', borderRadius: 1, backgroundColor: 'transparent' },
   tabIndicatorActive: { backgroundColor: colors.brand },
+  caughtUpWrap: {
+    paddingVertical: 40,
+    paddingHorizontal: spacing.xl,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  caughtUpCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: colors.ok,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  caughtUpTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  caughtUpSubtitle: {
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: 'center',
+    maxWidth: 280,
+    lineHeight: 18,
+  },
 });

@@ -132,6 +132,25 @@ def get_due_vocabulary(child_id: int, language: Optional[str] = None, limit: int
 
 # ─── 3. Asynchronous Question Refill & Personalization ────────────────────────
 
+def _question_is_simple_enough(q) -> bool:
+    """Defense-in-depth: drop K2-generated questions that violate the simplicity rules."""
+    stem = (q.question or "").strip()
+    opts = [(q.option_a or "").strip(), (q.option_b or "").strip(),
+            (q.option_c or "").strip(), (q.option_d or "").strip()]
+    ans = (q.correct_answer or "").strip()
+    if not stem or len(stem) > 160:
+        return False
+    if any(not o or len(o) > 60 for o in opts):
+        return False
+    if len({o.lower() for o in opts}) != 4:
+        return False
+    if ans not in opts:
+        return False
+    if not (q.category or "").strip():
+        return False
+    return True
+
+
 def _refill_bank_async(age_group: str, grade_level: str = "Grade 4"):
     """Runs batch quiz generation in a background worker thread."""
     def worker():
@@ -140,7 +159,12 @@ def _refill_bank_async(age_group: str, grade_level: str = "Grade 4"):
             if not client.is_k2_available():
                 return
             res = client.generate_quiz_batch(age_group=age_group, grade_level=grade_level, count=15)
+            kept = 0
             for q in res.questions:
+                if not _question_is_simple_enough(q):
+                    logger.info("Dropping K2 question that failed simplicity check: %.60s", q.question)
+                    continue
+                kept += 1
                 execute(
                     '''INSERT INTO quizzes(category, question, option_a, option_b, option_c, option_d,
                                            correct_answer, age_group, explanation, difficulty_level, language, source)
@@ -149,7 +173,7 @@ def _refill_bank_async(age_group: str, grade_level: str = "Grade 4"):
                     (q.category, q.question, q.option_a, q.option_b, q.option_c, q.option_d,
                      q.correct_answer, age_group, q.explanation, q.difficulty, q.language)
                 )
-            logger.info("Asynchronously refilled %d questions for age group %s", len(res.questions), age_group)
+            logger.info("Asynchronously refilled %d questions for age group %s", kept, age_group)
         except Exception as e:
             logger.warning("Background quiz refill failed: %s", e)
 

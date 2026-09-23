@@ -131,19 +131,23 @@ class AIServiceClient:
             logger.info("K2 unavailable for batch quiz generation; returning empty pool.")
             return QuizBatchResult(questions=[])
 
-        cats = categories or ["Science", "Mathematics", "India GK", "Vocabulary", "Nature", "Digital Safety"]
+        cats = categories or ["Digital Safety", "Kindness", "Stranger Safety", "Healthy Habits"]
         system_prompt = (
-            f"You are a child education curriculum designer. Generate {count} multiple-choice questions "
-            f"for children in age group '{age_group}' ({grade_level}). "
-            f"Topics to mix: {', '.join(cats)}. Difficulty level: '{difficulty}'. Language: '{language}'. "
-            "Requirements:\n"
+            f"You are a child safety teacher writing quiz questions for children in age group '{age_group}' ({grade_level}). "
+            f"Generate {count} multiple-choice questions. Topics to mix: {', '.join(cats)}. "
+            f"Language: '{language}'. "
+            "SIMPLICITY RULES (follow strictly):\n"
+            "- Use short, simple everyday words a 7-year-old can read. No jargon, no technical terms.\n"
+            "- Question is ONE short sentence, under 120 characters. Scenario-based: 'What should you do if...?' or 'Is it okay to...?'\n"
+            "- Each option is a short phrase, under 40 characters.\n"
             "- Exactly 4 distinct options (option_a, option_b, option_c, option_d)\n"
             "- correct_answer must EXACTLY match one of the 4 options verbatim\n"
-            "- Include a clear, 1-2 sentence kid-friendly explanation of why it is correct\n"
-            "- Strict educational value and age appropriateness\n"
+            "- Include a 1-sentence kid-friendly explanation of why it is correct\n"
+            "- Every question must have a clear safe/unsafe or kind/unkind answer. Never ambiguous.\n"
+            "- Difficulty: 'EASY'\n"
             "Return JSON: {\"questions\": [{\"category\": \"...\", \"question\": \"...\", \"option_a\": \"...\", "
             "\"option_b\": \"...\", \"option_c\": \"...\", \"option_d\": \"...\", \"correct_answer\": \"...\", "
-            "\"explanation\": \"...\", \"difficulty\": \"MEDIUM\", \"language\": \"en\"}]}"
+            "\"explanation\": \"...\", \"difficulty\": \"EASY\", \"language\": \"en\"}]}"
         )
         user_content = f"Generate {count} verified questions for {age_group}."
 

@@ -24,10 +24,10 @@
 <aside class="ig-desktop-sidebar" aria-label="Desktop Navigation">
   <div class="ig-desktop-top">
     <a href="/child/dashboard/" class="ig-desktop-logo" aria-label="LittleNet Home">
-      <img src="/static/icons/app_logo.png" alt="LittleNet Logo" class="ig-brand-logo-img"><span>LittleNet</span>
+      {{ ico.brand_wordmark(30) }}
     </a>
     <nav class="ig-desktop-nav-menu" aria-label="Main Menu">
-      <a href="/child/dashboard/" class="ig-desktop-nav-link {% if request.path == '/child/dashboard/' %}active{% endif %}">{{ ico.icon('home',24) }}<span>Home</span></a>
+      <a href="/child/dashboard/" class="ig-desktop-nav-link {% if request.path == '/child/dashboard/' %}active{% endif %}">{% if request.path == '/child/dashboard/' %}{{ ico.icon('home_filled',24) }}{% else %}{{ ico.icon('home',24) }}{% endif %}<span>Home</span></a>
       {% if not child_controls or child_controls.allow_discover %}<a href="/discover/" class="ig-desktop-nav-link {% if '/discover' in request.path %}active{% endif %}">{{ ico.icon('search',24) }}<span>Search</span></a>{% endif %}
       {% if not child_controls or child_controls.allow_reels %}<a href="/reels/" class="ig-desktop-nav-link {% if '/reels' in request.path %}active{% endif %}">{{ ico.icon('clips',24) }}<span>Reels</span></a>{% endif %}
       {% if not child_controls or child_controls.allow_messaging %}<a href="/messages/" class="ig-desktop-nav-link {% if '/messages' in request.path or '/chat' in request.path %}active{% endif %}"><span class="ig-nav-icon-wrap">{{ ico.icon('send',24) }}</span><span>Messages</span></a>{% endif %}
@@ -46,7 +46,7 @@
 <div class="app">
   {% if session.get('role')=='CHILD' and request.path in ['/child/dashboard/', '/'] %}
   <header class="topbar ig-topbar">
-    <a href="/child/dashboard/" class="ig-brand" aria-label="LittleNet"><img src="/static/icons/app_logo.png" alt="LittleNet Logo" class="ig-brand-logo-img" style="width:28px;height:28px;"><span>LittleNet</span></a>
+    <a href="/child/dashboard/" class="ig-brand" aria-label="LittleNet">{{ ico.brand_wordmark(28) }}</a>
     <div class="top-actions ig-top-actions">
       <a href="/notifications/" class="icon-btn ig-icon-btn" aria-label="Activity & Requests" style="position:relative;">{{ ico.icon('heart',24) }}{% if unread_activity_count and unread_activity_count > 0 %}<span class="nav-badge" style="position:absolute;top:-3px;right:-3px;background:#EF4444;color:white;border-radius:999px;min-width:17px;height:17px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #FFFFFF;">{{ unread_activity_count }}</span>{% endif %}</a>
       {% if not child_controls or child_controls.allow_messaging %}<a href="/messages/" class="icon-btn ig-icon-btn" aria-label="Direct Messages">{{ ico.icon('send',22) }}</a>{% endif %}
@@ -58,7 +58,7 @@
 
   {% if session.get('role')=='CHILD' %}
   <nav class="bottom-nav ig-bottom-nav" aria-label="Navigation">
-    <a href="/child/dashboard/" class="nav-item ig-nav-item {% if request.path=='/child/dashboard/' %}active{% endif %}" aria-label="Home">{{ ico.icon('home',24) }}</a>
+    <a href="/child/dashboard/" class="nav-item ig-nav-item {% if request.path=='/child/dashboard/' %}active{% endif %}" aria-label="Home">{% if request.path=='/child/dashboard/' %}{{ ico.icon('home_filled',24) }}{% else %}{{ ico.icon('home',24) }}{% endif %}</a>
     {% if not child_controls or child_controls.allow_discover %}<a href="/discover/" class="nav-item ig-nav-item {% if '/discover' in request.path %}active{% endif %}" aria-label="Search">{{ ico.icon('search',24) }}</a>{% endif %}
     {% if not child_controls or child_controls.allow_posting %}<a href="/child/upload-post/" class="nav-item ig-nav-item ig-create-btn" aria-label="New Post"><svg class="ln-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></a>{% endif %}
     {% if not child_controls or child_controls.allow_reels %}<a href="/reels/" class="nav-item ig-nav-item {% if '/reels' in request.path %}active{% endif %}" aria-label="Reels">{{ ico.icon('clips',24) }}</a>{% endif %}

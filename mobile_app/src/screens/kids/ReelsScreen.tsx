@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,6 +13,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { IgIcon } from '../../components/IgIcon';
 import { useIsFocused } from '@react-navigation/native';
 import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
@@ -29,7 +31,6 @@ import { DisabledFeature, ErrorState, GateNotice } from '../../ui/components';
 import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
-import { QuizBreakCard, isQuizMarker, withQuizBreaks, type QuizMarker } from '../../components/QuizBreakCard';
 import type { ImpressionEventPayload } from '../../video/types';
 
 interface ReelCellProps {
@@ -51,6 +52,8 @@ interface ReelCellProps {
   onMetricsFlush: (payload: ImpressionEventPayload) => void;
   /** Instagram parity: double-tap on the video likes (never unlikes). */
   onDoubleTapLike: (item: FeedItem) => void;
+  /** Pulse animation for the kit-style safety pill (stable ref from parent). */
+  badgeAnim: Animated.Value;
 }
 
 /** Compact counts like Instagram: 1.2K, 3.4M. */
@@ -85,6 +88,7 @@ const ReelCell = memo(function ReelCell({
   onTogglePause,
   onMetricsFlush,
   onDoubleTapLike,
+  badgeAnim,
 }: ReelCellProps) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
@@ -94,6 +98,25 @@ const ReelCell = memo(function ReelCell({
   useEffect(() => {
     setCaptionExpanded(false);
   }, [itemKey]);
+
+  // Kit-style spinning audio disc (visual only; independent of playback logic).
+  const discSpin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const spin = Animated.loop(
+      Animated.timing(discSpin, {
+        toValue: 1,
+        duration: 5000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    spin.start();
+    return () => spin.stop();
+  }, [discSpin]);
+  const discRotate = discSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   return (
     <View style={[styles.reelPage, { height: reelHeight, width: windowWidth }]}>
@@ -128,7 +151,7 @@ const ReelCell = memo(function ReelCell({
         </View>
       ) : null}
 
-      {/* Floating Right Action Column (Instagram Reels style) */}
+      {/* Right action rail — kit style: plain white 28px icons with counts */}
       <View style={[styles.rightActionsColumn, { bottom: bottomInset + 80 }]}>
         {/* Like Button */}
         <Pressable
@@ -138,13 +161,11 @@ const ReelCell = memo(function ReelCell({
           accessibilityLabel={item.viewer_liked ? 'Unlike' : 'Like'}
           hitSlop={8}
         >
-          <View style={[styles.actionIconCircle, item.viewer_liked && styles.actionIconLiked]}>
-            <Feather
-              name="heart"
-              size={24}
-              color={item.viewer_liked ? '#EF4444' : '#FFFFFF'}
-            />
-          </View>
+          <IgIcon
+            name={item.viewer_liked ? 'heart-filled' : 'heart'}
+            size={28}
+            color={item.viewer_liked ? '#ff3040' : '#FFFFFF'}
+          />
           <Text style={styles.actionLabel}>{formatCount(item.likes ?? 0)}</Text>
         </Pressable>
 
@@ -157,14 +178,12 @@ const ReelCell = memo(function ReelCell({
             accessibilityLabel="Comments"
             hitSlop={8}
           >
-            <View style={styles.actionIconCircle}>
-              <Feather name="message-circle" size={24} color="#FFFFFF" />
-            </View>
+            <IgIcon name="comment" size={28} color="#FFFFFF" />
             <Text style={styles.actionLabel}>{formatCount(item.comments_count ?? 0)}</Text>
           </Pressable>
         ) : null}
 
-        {/* Bookmark / Save Button */}
+        {/* Bookmark / Save Button — kept (existing feature); restyled to kit icons */}
         <Pressable
           style={styles.actionBtn}
           onPress={() => onSave(item)}
@@ -172,13 +191,11 @@ const ReelCell = memo(function ReelCell({
           accessibilityLabel={item.viewer_saved ? 'Saved' : 'Save'}
           hitSlop={8}
         >
-          <View style={styles.actionIconCircle}>
-            <Feather
-              name="bookmark"
-              size={23}
-              color={item.viewer_saved ? colors.brand : '#FFFFFF'}
-            />
-          </View>
+          <IgIcon
+            name={item.viewer_saved ? 'bookmark-filled' : 'bookmark'}
+            size={28}
+            color={item.viewer_saved ? colors.brand : '#FFFFFF'}
+          />
           <Text style={styles.actionLabel}>Save</Text>
         </Pressable>
 
@@ -190,27 +207,52 @@ const ReelCell = memo(function ReelCell({
           accessibilityLabel="Options"
           hitSlop={8}
         >
-          <View style={styles.actionIconCircle}>
-            <Feather name="more-horizontal" size={22} color="#FFFFFF" />
-          </View>
+          <IgIcon name="more-horizontal" size={28} color="#FFFFFF" />
         </Pressable>
+
+        {/* Spinning audio disc — visual only */}
+        <View style={styles.audioDiscWrap}>
+          <Animated.View style={[styles.audioDisc, { transform: [{ rotate: discRotate }] }]}>
+            <View style={styles.audioDiscInner}>
+              <Feather name="music" size={11} color="#FFFFFF" />
+            </View>
+          </Animated.View>
+        </View>
       </View>
 
-      {/* Floating Bottom Metadata (Author, Caption, Audio tag) */}
+      {/* Bottom metadata — kit layout: safety pill, creator row, caption, audio */}
       <View style={[styles.bottomMetaContainer, { bottom: bottomInset + 18 }]} pointerEvents="box-none">
+        {/* Safety pill — kit's dark translucent pill; pulse logic untouched */}
+        <Animated.View style={[styles.safetyPill, { opacity: badgeAnim }]}>
+          <Feather name="shield" size={14} color="#4CD964" />
+          <Text style={styles.safetyPillText}>🛡️ AI Approved • Classroom Safe</Text>
+        </Animated.View>
+
         {/* Creator Row */}
-        <Pressable
-          style={styles.creatorRow}
-          onPress={() => profile && nav.navigate('OtherProfile', profile)}
-          disabled={!profile}
-        >
-          <Avatar uri={item.avatar_url} name={item.full_name ?? 'F'} size={38} />
-          <View style={styles.creatorInfo}>
+        <View style={styles.creatorRow}>
+          <Pressable
+            style={styles.creatorIdentity}
+            onPress={() => profile && nav.navigate('OtherProfile', profile)}
+            disabled={!profile}
+          >
+            <Avatar uri={item.avatar_url} name={item.full_name ?? 'F'} size={36} />
             <Text style={styles.creatorName} numberOfLines={1}>
               {item.full_name ?? 'Friend'}
             </Text>
-          </View>
-        </Pressable>
+          </Pressable>
+          {/* Follow pill — visual only; opens the creator profile, which owns
+              the real follow flow (no follow logic changed in this screen) */}
+          <Pressable
+            style={styles.followPill}
+            onPress={() => profile && nav.navigate('OtherProfile', profile)}
+            disabled={!profile}
+            accessibilityRole="button"
+            accessibilityLabel="Follow"
+            hitSlop={8}
+          >
+            <Text style={styles.followPillText}>Follow</Text>
+          </Pressable>
+        </View>
 
         {/* Caption — tap to expand like Instagram */}
         {item.caption ? (
@@ -221,9 +263,9 @@ const ReelCell = memo(function ReelCell({
           </Pressable>
         ) : null}
 
-        {/* Safe Audio Tag */}
+        {/* Audio row — kit style: music note + track name (existing copy kept) */}
         <View style={styles.audioTagRow}>
-          <Feather name="music" size={13} color="#CBD5E1" />
+          <Feather name="music" size={14} color="rgba(255,255,255,0.9)" />
           <Text style={styles.audioTagText}>Safe Sound • Kid Approved</Text>
         </View>
       </View>
@@ -248,13 +290,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
   // Quiz break every 5 reels — markers are stable per content index.
-  const displayItems = useMemo(() => withQuizBreaks(feed.items), [feed.items]);
+  const displayItems = feed.items;
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem | QuizMarker>>(null);
+  const flatListRef = useRef<FlatList<FeedItem>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -441,14 +483,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizMarker; index: number }) => {
-    if (isQuizMarker(item)) {
-      return (
-        <View style={[styles.quizPage, { height: REEL_HEIGHT }]}>
-          {session?.token ? <QuizBreakCard token={session.token} fullscreen /> : null}
-        </View>
-      );
-    }
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
     <ReelCell
       item={item}
@@ -468,6 +503,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       onTogglePause={togglePause}
       onMetricsFlush={handleMetricsFlush}
       onDoubleTapLike={handleDoubleTapLike}
+      badgeAnim={badgeAnim}
     />
     );
   }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
@@ -510,11 +546,20 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return (
       <View style={styles.guardContainer}>
         <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
-          <Text style={styles.topTitle}>Reels</Text>
-          <Animated.View style={[styles.topSafeBadge, { opacity: badgeAnim }]}>
-            <Feather name="shield" size={12} color="#10B981" />
-            <Text style={styles.topSafeBadgeText}>AI GUARDED</Text>
-          </Animated.View>
+          <View style={styles.topTitleRow}>
+            <Text style={styles.topTitle}>Reels</Text>
+            <Feather name="chevron-down" size={20} color="#FFFFFF" />
+          </View>
+          {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
+          <Pressable
+            style={styles.cameraBtn}
+            onPress={() => {}}
+            accessibilityRole="button"
+            accessibilityLabel="Camera"
+            hitSlop={8}
+          >
+            <Feather name="camera" size={26} color="#FFFFFF" />
+          </Pressable>
         </View>
         <ActivityIndicator size="large" color="#3B82F6" />
         <Text style={styles.loadingText}>Loading reels…</Text>
@@ -541,11 +586,20 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return (
       <View style={styles.guardContainer}>
         <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
-          <Text style={styles.topTitle}>Reels</Text>
-          <Animated.View style={[styles.topSafeBadge, { opacity: badgeAnim }]}>
-            <Feather name="shield" size={12} color="#10B981" />
-            <Text style={styles.topSafeBadgeText}>AI GUARDED</Text>
-          </Animated.View>
+          <View style={styles.topTitleRow}>
+            <Text style={styles.topTitle}>Reels</Text>
+            <Feather name="chevron-down" size={20} color="#FFFFFF" />
+          </View>
+          {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
+          <Pressable
+            style={styles.cameraBtn}
+            onPress={() => {}}
+            accessibilityRole="button"
+            accessibilityLabel="Camera"
+            hitSlop={8}
+          >
+            <Feather name="camera" size={26} color="#FFFFFF" />
+          </Pressable>
         </View>
         <View style={styles.emptyWrapper}>
           <View style={styles.emptyIconCircle}>
@@ -571,23 +625,32 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   return (
     <View style={styles.container}>
-      {/* Floating Top Header — Instagram Reels style */}
+      {/* Top header — kit: "Reels" + chevron (left), camera (right) */}
       <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
-        <Text style={styles.topTitle}>Reels</Text>
-        <Animated.View style={[styles.topSafeBadge, { opacity: badgeAnim }]}>
-          <Feather name="shield" size={12} color="#10B981" />
-          <Text style={styles.topSafeBadgeText}>AI GUARDED</Text>
-        </Animated.View>
+        <View style={styles.topTitleRow}>
+          <Text style={styles.topTitle}>Reels</Text>
+          <Feather name="chevron-down" size={20} color="#FFFFFF" />
+        </View>
+        {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
+        <Pressable
+          style={styles.cameraBtn}
+          onPress={() => {}}
+          accessibilityRole="button"
+          accessibilityLabel="Camera"
+          hitSlop={8}
+        >
+          <Feather name="camera" size={26} color="#FFFFFF" />
+        </Pressable>
       </View>
 
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem | QuizMarker>
+      <FlatList<FeedItem>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`)}
+        keyExtractor={(it) => `reel:${feedKey(it)}`}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -725,37 +788,33 @@ const styles = StyleSheet.create({
   topHeader: {
     position: 'absolute',
     top: 14,
-    left: 16,
+    left: 0,
+    right: 0,
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  topTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   topTitle: {
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  topSafeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(16, 185, 129, 0.22)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-  },
-  topSafeBadgeText: {
-    color: '#6EE7B7',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  cameraBtn: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   quizPage: {
     width: '100%',
@@ -799,65 +858,116 @@ const styles = StyleSheet.create({
   },
   rightActionsColumn: {
     position: 'absolute',
-    right: 12,
+    right: 10,
     alignItems: 'center',
     gap: 20,
     zIndex: 10,
   },
   actionBtn: {
     alignItems: 'center',
-    gap: 4,
-  },
-  actionIconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: 'rgba(0, 0, 0, 0.50)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  actionIconLiked: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    gap: 6,
   },
   actionLabel: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '400',
     textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+  },
+  // Kit spinning audio disc
+  audioDiscWrap: {
+    marginTop: 4,
+  },
+  audioDisc: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#181818',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioDiscInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#404040',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bottomMetaContainer: {
     position: 'absolute',
     left: 14,
     right: 76,
     zIndex: 10,
+  },
+  // Kit's dark translucent safety pill (pulse logic untouched)
+  safetyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+  },
+  safetyPillText: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   creatorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 10,
   },
-  creatorInfo: {
-    justifyContent: 'center',
+  creatorIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
   },
   creatorName: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 1,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
+  followPill: {
+    marginLeft: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    backgroundColor: 'transparent',
+    flexShrink: 0,
+  },
+  followPillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   reelCaption: {
     color: '#FFFFFF',
-    fontSize: 13.5,
-    lineHeight: 19,
-    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 10,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -865,17 +975,12 @@ const styles = StyleSheet.create({
   audioTagRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
+    gap: 8,
   },
   audioTagText: {
-    color: '#E2E8F0',
-    fontSize: 11,
-    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontWeight: '400',
   },
   // Bottom action sheet (Instagram-style restyle of the old Alert menu)
   sheetBackdrop: {

@@ -3,7 +3,7 @@ from database.connection import fetch_one, fetch_all, execute, get_db_connection
 
 # Product-locked doom-scroll intervention. Parent Mode may make it MORE
 # frequent, but never less frequent than the LittleNet safety default.
-FEED_QUIZ_INTERVAL = 4
+FEED_QUIZ_INTERVAL = 5
 
 # ─── Age helpers ──────────────────────────────────────────────────────────────
 

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { fetchOwnProfile, updateOwnProfile } from '../../api/kidsProfiles';
 import { fetchSaved } from '../../api/kidsSocial';
@@ -10,15 +9,45 @@ import { queryClient } from '../../query/client';
 import { invalidateSocialCaches, kidsKeys } from '../../query/keys';
 import { Avatar, StoryRing } from '../../ui/social';
 import { Button, Card, EmptyState, ErrorState, Field, GateNotice, Notice, Screen } from '../../ui/components';
+import { IgIcon } from '../../components/IgIcon';
 import { colors, radius, spacing } from '../../ui/tokens';
 
 type Tab = 'posts' | 'reels' | 'saved' | 'edit';
 
 const AVATAR = 80;
 const STORY_RING = AVATAR + 12;
-const GAP = 1.5;
+const GAP = 1;
 const GRID_COLS = 3;
 const cellSize = (Dimensions.get('window').width - GAP * (GRID_COLS - 1)) / GRID_COLS;
+
+/** Kit-style 3x3 grid glyph for the posts tab — drawn with Views. */
+function GridGlyph({ size = 24, color = colors.ink }: { size?: number; color?: string }) {
+  const cell = (size - 2) / 3;
+  return (
+    <View style={{ width: size, height: size, flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
+      {Array.from({ length: 9 }, (_, i) => (
+        <View key={i} style={{ width: cell, height: cell, backgroundColor: color, borderRadius: 1 }} />
+      ))}
+    </View>
+  );
+}
+
+/** Kit-style down chevron drawn with Views (no chevron glyph in IgIcon). */
+function ChevronDown({ color = colors.ink }: { color?: string }) {
+  return (
+    <View
+      style={{
+        width: 9,
+        height: 9,
+        borderRightWidth: 2,
+        borderBottomWidth: 2,
+        borderColor: color,
+        transform: [{ rotate: '45deg' }],
+        marginBottom: 3,
+      }}
+    />
+  );
+}
 
 /** Defensively read story highlights from the profile record when present. */
 function readStories(profile: Record<string, unknown> | null): Array<Record<string, unknown>> {
@@ -66,13 +95,13 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     );
   };
 
-  // Visual-only aggregates from already-fetched data.
-  const totalLikes = useMemo(
-    () => posts.reduce((sum, p) => sum + (typeof p.likes === 'number' ? p.likes : 0), 0),
-    [posts],
-  );
   const stories = readStories(profile);
   const hasUnviewedStories = stories.some((s) => !(s.viewed === true || s.seen === true));
+
+  const handle =
+    typeof profile?.username === 'string' && profile.username
+      ? `@${profile.username}`
+      : String(profile?.full_name ?? 'You');
 
   useEffect(() => {
     if (!profile) return;
@@ -133,6 +162,25 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       >
         {error ? <GateNotice error={error} /> : null}
 
+        {/* Kit top bar: @username + verified + chevron, left; create icon, right */}
+        <View style={styles.topBar}>
+          <View style={styles.userRow}>
+            <Text style={styles.username} numberOfLines={1}>
+              {handle}
+            </Text>
+            <IgIcon name="verified" size={17} color={colors.brand} />
+            <ChevronDown />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create post"
+            hitSlop={8}
+            onPress={() => nav.navigate('KidsTabs', { tab: 'CreateTab' })}
+          >
+            <IgIcon name="create" size={27} color={colors.ink} />
+          </Pressable>
+        </View>
+
         {/* Instagram-style profile header */}
         <View style={styles.header}>
           <View style={styles.headRow}>
@@ -153,11 +201,11 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 onPress={() => nav.navigate('Connections', { mode: 'followers' })}
               >
                 <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
-                <Text style={styles.statLabel}>Friends</Text>
+                <Text style={styles.statLabel}>Classmates</Text>
               </Pressable>
               <View style={styles.statItem}>
-                <Text style={styles.statNum}>{totalLikes}</Text>
-                <Text style={styles.statLabel}>Likes</Text>
+                <Text style={styles.statNum}>{Number(counts.following ?? 0)}</Text>
+                <Text style={styles.statLabel}>Following</Text>
               </View>
             </View>
           </View>
@@ -171,7 +219,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             )}
           </View>
 
-          {/* Story highlights (Instagram-style: ring + label) */}
+          {/* Story highlights (kit: ring + grey label underneath) */}
           {stories.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlights}>
               {stories.map((s, i) => {
@@ -199,7 +247,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             </ScrollView>
           ) : null}
 
-          {/* Action buttons */}
+          {/* Action buttons: kit light-grey rounded buttons, existing handlers untouched */}
           <View style={styles.actionsRow}>
             <Pressable
               style={styles.greyBtn}
@@ -222,12 +270,12 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           </View>
         </View>
 
-        {/* Tab switcher: Instagram-style icon tabs, 1px active underline */}
+        {/* Tab switcher: kit icon tabs, active tab has ink icon + top border indicator */}
         <View style={styles.tabBar}>
           {(['posts', 'reels', 'saved'] as const).map((t) => {
             const active = tab === t;
-            const icon = t === 'posts' ? 'grid' : t === 'reels' ? 'film' : 'bookmark';
             const label = t === 'posts' ? 'Posts' : t === 'reels' ? 'Reels' : 'Saved';
+            const color = active ? colors.ink : colors.muted;
             return (
               <Pressable
                 key={t}
@@ -237,11 +285,11 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={`${label} tab`}
               >
-                <Feather
-                  name={icon}
-                  size={22}
-                  color={active ? colors.ink : colors.muted}
-                />
+                {t === 'posts' ? (
+                  <GridGlyph size={24} color={color} />
+                ) : (
+                  <IgIcon name={t === 'reels' ? 'reels' : 'bookmark'} size={24} color={color} />
+                )}
               </Pressable>
             );
           })}
@@ -300,12 +348,22 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                     <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
                   ) : (
                     <View style={styles.gridPlaceholder}>
-                      <Feather name={isVid ? 'play' : 'image'} size={22} color={colors.muted} />
+                      {isVid ? (
+                        <IgIcon name="reels" size={26} color={colors.muted} />
+                      ) : (
+                        <GridGlyph size={26} color={colors.muted} />
+                      )}
                     </View>
                   )}
                   {isVid ? (
-                    <View style={styles.videoBadge}>
-                      <Feather name="play" size={11} color="#FFFFFF" />
+                    <View style={styles.videoMark}>
+                      <IgIcon name="reels" size={18} color="#FFFFFF" />
+                    </View>
+                  ) : null}
+                  {typeof post.likes === 'number' ? (
+                    <View style={styles.likeOverlay}>
+                      <IgIcon name="heart" size={15} color="#FFFFFF" />
+                      <Text style={styles.likeCount}>{post.likes}</Text>
                     </View>
                   ) : null}
                 </Pressable>
@@ -332,10 +390,30 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flexShrink: 1,
+  },
+  username: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.ink,
+  },
   header: {
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
   headRow: {
@@ -354,8 +432,8 @@ const styles = StyleSheet.create({
     minWidth: 64,
   },
   statNum: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: colors.ink,
   },
   statLabel: {
@@ -393,7 +471,7 @@ const styles = StyleSheet.create({
   },
   highlightLabel: {
     fontSize: 11,
-    color: colors.ink,
+    color: colors.muted,
     marginTop: 4,
     textAlign: 'center',
   },
@@ -423,18 +501,16 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
   },
   tabItem: {
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
+    borderTopWidth: 1,
+    borderTopColor: 'transparent',
   },
   tabItemActive: {
-    borderBottomColor: colors.ink,
+    borderTopColor: colors.ink,
   },
   editCard: {
     margin: 16,
@@ -460,15 +536,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  videoBadge: {
+  videoMark: {
     position: 'absolute',
     top: 6,
     right: 6,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: radius.pill,
-    width: 22,
-    height: 22,
+  },
+  likeOverlay: {
+    position: 'absolute',
+    left: 8,
+    bottom: 6,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+  },
+  likeCount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { Feather, FontAwesome } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
 import type { FeedItem, FeedPage } from '../api/kidsFeed';
 import { useAuth } from '../auth/AuthProvider';
@@ -10,8 +10,9 @@ import { invalidateSocialCaches, kidsKeys } from '../query/keys';
 import { deletePost, toggleLike, toggleSave } from '../api/kidsSocial';
 import { isPubliclyVisible, runSocialPostAction, socialPostTarget } from './social';
 import { VideoMedia } from './VideoMedia';
-import { Avatar, CategoryBadge, TimeAgo } from '../ui/social';
+import { Avatar, StoryRing } from '../ui/social';
 import { colors, radius, spacing, type } from '../ui/tokens';
+import { IgIcon } from '../components/IgIcon';
 import { clampAspectRatio, parseAspectRatio } from '../video/types';
 
 const FALLBACK_MEDIA_HEIGHT = 300;
@@ -109,6 +110,21 @@ function FeedImage({ uri, aspectHint, label }: { uri: string; aspectHint?: strin
       ) : null}
     </View>
   );
+}
+
+/** Kit-style uppercase timestamp ("2 HOURS AGO"). Presentational only. */
+function longAgo(value?: string): string {
+  if (!value) return '';
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return 'JUST NOW';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m === 1 ? '1 MINUTE AGO' : `${m} MINUTES AGO`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return h === 1 ? '1 HOUR AGO' : `${h} HOURS AGO`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 DAY AGO' : `${d} DAYS AGO`;
 }
 
 export function PostCard({
@@ -243,7 +259,7 @@ export function PostCard({
     if (!burstVisible) return null;
     return (
       <Animated.View pointerEvents="none" style={[styles.burst, burstAnimatedStyle]}>
-        <FontAwesome name="heart" size={88} color="#FFFFFF" style={styles.burstHeart} />
+        <IgIcon name="heart-filled" size={88} color="#FFFFFF" />
       </Animated.View>
     );
   }
@@ -304,12 +320,15 @@ export function PostCard({
     <View style={styles.card}>
       <View style={styles.row}>
         <Pressable onPress={onProfile} disabled={!onProfile} style={styles.profileRow}>
-          <Avatar uri={item.avatar_url} name={item.full_name} size={40} />
+          <StoryRing size={52} seen={false}>
+            <Avatar uri={item.avatar_url} name={item.full_name} size={40} />
+          </StoryRing>
           <View style={styles.meta}>
             <Text style={styles.name}>{item.full_name ?? 'Friend'}</Text>
-            <TimeAgo value={item.created_at} />
+            {item.content_category ? (
+              <Text style={styles.subtitle}>{item.content_category}</Text>
+            ) : null}
           </View>
-          <CategoryBadge label={item.content_category} />
         </Pressable>
         {onNotInterested ? (
           <Pressable
@@ -333,7 +352,7 @@ export function PostCard({
             hitSlop={8}
             style={styles.dismiss}
           >
-            <Feather name="more-horizontal" size={18} color={colors.muted} />
+            <IgIcon name="more-horizontal" size={20} color={colors.muted} />
           </Pressable>
         ) : null}
       </View>
@@ -346,7 +365,9 @@ export function PostCard({
           {item.caption}
         </Text>
       ) : null}
-      {isVideo ? (
+      {(isVideo || previewUrl) ? (
+        <View style={styles.mediaWrap}>
+          {isVideo ? (
         inlineVideoPlayback && videoActive && item.media_url ? (
           <Pressable onPress={() => handleMediaPress(false)} style={styles.inlineVideo} accessibilityRole="button" accessibilityLabel="Video playing">
             <VideoMedia
@@ -379,6 +400,14 @@ export function PostCard({
           {renderHeartBurst()}
         </Pressable>
       ) : null}
+          {item.is_safe ? (
+            <View style={styles.safePill} pointerEvents="none">
+              <Feather name="shield" size={11} color="#34D399" />
+              <Text style={styles.safePillText}>Sentinel Safe</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       {socialTarget ? (
         <View>
           <View style={styles.actions}>
@@ -390,9 +419,9 @@ export function PostCard({
               hitSlop={6}
             >
               {item.viewer_liked ? (
-                <FontAwesome name="heart" size={24} color={colors.danger} />
+                <IgIcon name="heart-filled" size={26} color="#FF3040" />
               ) : (
-                <Feather name="heart" size={24} color={colors.ink} />
+                <IgIcon name="heart" size={26} color={colors.ink} />
               )}
             </Pressable>
             <Pressable
@@ -402,7 +431,7 @@ export function PostCard({
               style={styles.action}
               hitSlop={6}
             >
-              <Feather name="message-circle" size={24} color={colors.ink} />
+              <IgIcon name="comment" size={26} color={colors.ink} />
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -411,7 +440,7 @@ export function PostCard({
               style={styles.action}
               hitSlop={6}
             >
-              <Feather name="send" size={24} color={colors.ink} />
+              <IgIcon name="send" size={26} color={colors.ink} />
             </Pressable>
             <View style={styles.flex} />
             <Pressable
@@ -422,9 +451,9 @@ export function PostCard({
               hitSlop={6}
             >
               {item.viewer_saved ? (
-                <FontAwesome name="bookmark" size={24} color={colors.brand} />
+                <IgIcon name="bookmark-filled" size={26} color={colors.ink} />
               ) : (
-                <Feather name="bookmark" size={24} color={colors.ink} />
+                <IgIcon name="bookmark" size={26} color={colors.ink} />
               )}
             </Pressable>
           </View>
@@ -435,6 +464,9 @@ export function PostCard({
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+      {longAgo(item.created_at) ? (
+        <Text style={styles.timestamp}>{longAgo(item.created_at)}</Text>
       ) : null}
       <Modal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setMenuOpen(false)}>
@@ -467,12 +499,28 @@ export function PostCard({
 
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.line, paddingBottom: spacing.md, marginBottom: spacing.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md },
   profileRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   meta: { flex: 1 },
   name: { fontWeight: '800', color: colors.ink, fontSize: type.body },
-  title: { marginTop: 8, color: colors.ink, fontSize: type.body, fontWeight: '800' },
-  caption: { marginTop: 8, color: colors.ink, fontSize: type.body, lineHeight: 20 },
+  subtitle: { color: colors.muted, fontSize: type.caption, marginTop: 1 },
+  timestamp: { color: colors.muted, fontSize: 10, fontWeight: '600', letterSpacing: 0.4, paddingHorizontal: spacing.md, marginTop: 6 },
+  mediaWrap: { position: 'relative' },
+  safePill: {
+    position: 'absolute',
+    left: 12,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  safePillText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  title: { marginTop: 8, color: colors.ink, fontSize: type.body, fontWeight: '800', paddingHorizontal: spacing.md },
+  caption: { marginTop: 8, color: colors.ink, fontSize: type.body, lineHeight: 20, paddingHorizontal: spacing.md },
   captionUser: { fontWeight: '800' },
   burst: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   burstHeart: { textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
