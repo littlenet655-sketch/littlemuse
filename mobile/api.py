@@ -1946,7 +1946,7 @@ def register_mobile_api(bp):
                     try:
                         job_id = enqueue_media_job(existing["post_id"], uid, session_row["object_key"], session_row["kind"].upper())
                         execute("UPDATE posts SET processing_status='PROCESSING', job_id=%s, processing_error=NULL WHERE post_id=%s", (job_id, existing["post_id"]))
-                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True)
+                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
                     except Exception as exc:
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
 
@@ -2146,6 +2146,8 @@ def register_mobile_api(bp):
                 ok=True,
                 post_id=post_id,
                 status="PROCESSING",
+                moderation_queued=True,
+                publication_state="PRIVATE_PROCESSING",
             )
         except Exception as exc:
             execute(
