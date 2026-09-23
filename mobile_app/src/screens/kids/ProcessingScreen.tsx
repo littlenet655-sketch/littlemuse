@@ -106,8 +106,7 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
           <View style={styles.videoPreviewPlaceholder}>
             <Feather name="film" size={30} color={colors.muted} />
             <Text style={styles.videoPreviewText}>
-              Your video is being checked for safety.{'
-'}You can keep this screen open or come back later.
+              Your video is being checked for safety.{'\n'}You can keep this screen open or come back later.
             </Text>
           </View>
         </Card>
