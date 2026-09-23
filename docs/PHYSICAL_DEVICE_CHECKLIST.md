@@ -11,8 +11,8 @@ Allowed statuses:
 - **BLOCKED** — could not be executed because a prerequisite, service, device,
   or credential was unavailable.
 
-APK artifact: **UNVERIFIED — no current-HEAD APK was built; do not reuse the obsolete preview artifact.**
-Backend: `https://netlittle2--littlenet-web-web.modal.run`
+APK artifact: **UNVERIFIED for the current release commit — build a fresh EAS preview APK after live deployment; do not reuse an older artifact.**
+Backend: **the verified HTTPS `LITTLENET_LIVE_URL` for `littlemuse-web`; record the exact URL in the evidence bundle.**
 
 | # | Journey | Status | Evidence filename | Notes |
 |---:|---|---|---|---|
@@ -57,7 +57,7 @@ The current non-device evidence is recorded in
 entries above are not claims that the implementation is absent; they identify
 journeys that still need real device evidence.
 
-## Device run record
+## Historical device run record
 
 - Run date: 2026-09-14
 - Target: none available; `adb`, Android emulator, and `scrcpy` were not present.
