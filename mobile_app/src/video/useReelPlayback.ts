@@ -13,6 +13,7 @@ import type {
 } from './types';
 
 const BUFFERING_DEBOUNCE_MS = 300;
+const FIRST_FRAME_TIMEOUT_MS = 8000;
 const PREEMPTIVE_REFRESH_WINDOW_SEC = 45;
 /** Consecutive auto-refresh attempts after playback errors before surfacing the retry UI. */
 const MAX_ERROR_REFRESH_ATTEMPTS = 3;
@@ -65,6 +66,7 @@ export function useReelPlayback({
   const sourceRef = useRef<string | null>(null);
   const metricsRef = useRef<ReelMetricsTracker>(new ReelMetricsTracker(item, 'REELS'));
   const bufferingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstFrameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const playbackStartedRef = useRef(false);
   const sourceFetchInFlightRef = useRef(false);
@@ -280,6 +282,10 @@ export function useReelPlayback({
         clearTimeout(bufferingTimerRef.current);
         bufferingTimerRef.current = null;
       }
+      if (firstFrameTimerRef.current) {
+        clearTimeout(firstFrameTimerRef.current);
+        firstFrameTimerRef.current = null;
+      }
     };
   }, [player, active, paused, requestFreshPlayback]);
 
@@ -319,6 +325,39 @@ export function useReelPlayback({
       player.pause();
     }
   }, [active, nearby, currentSource, errorMessage, paused, player]);
+
+  // A decoder can occasionally remain in a non-error preparing state forever.
+  // Bound that state so the UI becomes actionable instead of showing a black
+  // screen indefinitely. Manual Retry will refresh the JIT playback credential.
+  useEffect(() => {
+    if (firstFrameTimerRef.current) {
+      clearTimeout(firstFrameTimerRef.current);
+      firstFrameTimerRef.current = null;
+    }
+    if (!active || !nearby || !currentSource || firstFrameRendered || errorMessage) return;
+
+    firstFrameTimerRef.current = setTimeout(() => {
+      firstFrameTimerRef.current = null;
+      if (!isMountedRef.current || firstFrameRendered) return;
+      const message = 'This reel is taking too long to start. Tap Retry.';
+      metricsRef.current.onError(message);
+      setPlaybackState('ERROR');
+      setIsDebouncedBuffering(false);
+      setErrorMessage(message);
+      try {
+        player.pause();
+      } catch {
+        // Best-effort; retry will rebuild playback state.
+      }
+    }, FIRST_FRAME_TIMEOUT_MS);
+
+    return () => {
+      if (firstFrameTimerRef.current) {
+        clearTimeout(firstFrameTimerRef.current);
+        firstFrameTimerRef.current = null;
+      }
+    };
+  }, [active, nearby, currentSource, firstFrameRendered, errorMessage, player]);
 
   // Instagram parity: mute/unmute this reel's player only.
   // The player mutation runs outside the state updater (updaters must be pure).
@@ -395,6 +434,10 @@ export function useReelPlayback({
   }, [active, item.source_type, item.source_id, item.post_id]);
 
   const handleFirstFrameRender = useCallback(() => {
+    if (firstFrameTimerRef.current) {
+      clearTimeout(firstFrameTimerRef.current);
+      firstFrameTimerRef.current = null;
+    }
     setFirstFrameRendered(true);
     metricsRef.current.onFirstFrame();
     setErrorMessage(null);
