@@ -78,6 +78,7 @@ export type ExploreGridItem = {
   poster_url?: string | null;
   is_reel?: boolean;
   caption?: string;
+  is_curated?: boolean;
 };
 
 const ExploreGridCell = memo(function ExploreGridCell({
@@ -92,10 +93,18 @@ const ExploreGridCell = memo(function ExploreGridCell({
   return (
     <Pressable
       style={styles.gridItem}
-      onPress={() => onOpenPost(post.post_id)}
-      accessibilityRole="imagebutton"
+      onPress={post.is_curated ? undefined : () => onOpenPost(post.post_id)}
+      accessibilityRole={post.is_curated ? "image" : "imagebutton"}
       accessibilityLabel={
-        post.caption ? `Open post: ${post.caption.slice(0, 80)}` : hasVideo ? 'Open reel' : 'Open post'
+        post.is_curated
+          ? post.caption
+            ? `Learning pick: ${post.caption.slice(0, 80)}`
+            : 'Safe learning pick'
+          : post.caption
+            ? `Open post: ${post.caption.slice(0, 80)}`
+            : hasVideo
+              ? 'Open reel'
+              : 'Open post'
       }
     >
       {imgUri ? (
@@ -134,7 +143,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const { session } = useAuth();
   const online = useIsOnline();
   const { raw, setRaw, debounced } = useDebouncedSearch(300);
-  const [kind, setKind] = useState<'People' | 'Posts' | 'Reels' | 'Learn'>('People');
+  const [kind, setKind] = useState<'People' | 'Posts' | 'Reels' | 'Learn'>('Posts');
   const [recent, setRecent] = useState<string[]>([]);
   const [followBusy, setFollowBusy] = useState<number | null>(null);
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
@@ -238,11 +247,29 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return true;
   }), [posts, kind]);
 
+  const exploreFallback = useMemo<ExploreGridItem[]>(() => {
+    if (debounced.trim() || kind !== 'Posts' || filteredPosts.length > 0) return [];
+    return curated.map((item) => ({
+      post_id: item.source_id,
+      media_type: item.media_type,
+      media_url: item.media_url,
+      poster_url: item.poster_url,
+      is_reel: false,
+      caption: item.title || item.caption,
+      is_curated: true,
+    }));
+  }, [curated, debounced, filteredPosts.length, kind]);
+
   // Instagram Explore shows reels on the default view; the discover search
   // only returns reels when a query is typed, so use the reels feed for the
-  // unfiltered Reels tab and search results while typing.
+  // unfiltered Reels tab and safe curated content when a fresh Posts grid has
+  // no social posts yet.
   const showReelsFeed = kind === 'Reels' && !debounced.trim();
-  const gridItems: ExploreGridItem[] = showReelsFeed ? reels : filteredPosts;
+  const gridItems: ExploreGridItem[] = showReelsFeed
+    ? reels
+    : kind === 'Posts' && !debounced.trim() && filteredPosts.length === 0
+      ? exploreFallback
+      : filteredPosts;
   const reelsError = showReelsFeed ? reelsQuery.error : null;
   const hasAnyContent =
     kids.length > 0 || posts.length > 0 || curated.length > 0 || (showReelsFeed && reels.length > 0);
