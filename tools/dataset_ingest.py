@@ -10,6 +10,9 @@ Run with --dry-run first. Production publication is explicit via --publish.
 """
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import argparse
 import csv
 import hashlib

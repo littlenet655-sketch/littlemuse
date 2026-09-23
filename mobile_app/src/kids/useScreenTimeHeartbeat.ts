@@ -8,7 +8,7 @@ import { useIsOnline } from '../query/client';
 import { kidsKeys } from '../query/keys';
 import { shouldRefreshOnboardingForGate } from '../navigation/gates';
 
-const HEARTBEAT_INTERVAL_MS = 30000;
+const HEARTBEAT_INTERVAL_MS = 60000;
 
 export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => void): void {
   const { session, refreshMe } = useAuth();

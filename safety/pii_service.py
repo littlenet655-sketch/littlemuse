@@ -25,7 +25,8 @@ RE_URL_OBFUSCATED = re.compile(
 )
 RE_IP_ADDRESS = re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b')
 RE_SOCIAL_HANDLES = re.compile(
-    r'(?:\b(?:insta(?:gram)?|snap(?:chat)?|tele(?:gram)?|discord|whatsapp|wa|roblox)\s*(?:id|handle|username|name)?\s*(?:is|:|@|\s)?\s*([A-Za-z0-9._]{3,30}))|'
+    r'(?:\b(?:insta(?:gram)?|snap(?:chat)?|tele(?:gram)?|discord|whatsapp|roblox)\s*(?:id|handle|username|name)?\s*(?:is|:|@|\s)\s*([A-Za-z0-9._]{3,30}))|'
+    r'(?:\bwa\b\s*(?:id|handle|username|name)?\s*(?:is|:|@|\s)\s*([A-Za-z0-9._]{3,30}))|'
     r'(?:@([A-Za-z0-9._]{3,30}))|'
     r'(?:\b(?:what\'?s\s*app|whatsapp)\s+me\b)|'
     r'(?:\b(?:add|dm|text|call|ping|follow|msg|message)\s+me\s+(?:on\s+)?(?:insta|snap|telegram|discord|whatsapp|roblox|phone))\b',

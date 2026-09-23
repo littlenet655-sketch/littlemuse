@@ -89,7 +89,7 @@ class ParentDeviceAuthModule(private val reactContext: ReactApplicationContext) 
 
     @ReactMethod
     fun authenticateParentDevice(promise: Promise) {
-        val activity = currentActivity
+        val activity = reactContext.currentActivity
         if (activity == null) {
             promise.reject("NO_ACTIVITY", "No foreground activity for the system prompt.")
             return
@@ -152,10 +152,10 @@ class ParentDeviceAuthModule(private val reactContext: ReactApplicationContext) 
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED ||
-                    errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                if (errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
+                    errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
                 ) {
-                    if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON &&
+                    if (errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON &&
                         negativeLabel != null
                     ) {
                         // User chose the screen-lock fallback on API <= 29.
@@ -165,8 +165,8 @@ class ParentDeviceAuthModule(private val reactContext: ReactApplicationContext) 
                     settle(null, "USER_CANCEL", errString.toString())
                     return
                 }
-                if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT ||
-                    errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT
+                if (errorCode == BiometricPrompt.ERROR_LOCKOUT ||
+                    errorCode == BiometricPrompt.ERROR_LOCKOUT_PERMANENT
                 ) {
                     settle(null, "LOCKOUT", errString.toString())
                     return
@@ -239,7 +239,7 @@ class ParentDeviceAuthModule(private val reactContext: ReactApplicationContext) 
     }
 
     override fun onActivityResult(
-        activity: Activity?,
+        activity: Activity,
         requestCode: Int,
         resultCode: Int,
         data: Intent?,
@@ -252,7 +252,7 @@ class ParentDeviceAuthModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
-    override fun onNewIntent(intent: Intent?) = Unit
+    override fun onNewIntent(intent: Intent) = Unit
 }
 `;
 

@@ -35,7 +35,7 @@ def moderate_image_upload(
 
     import modal
 
-    app_name = os.getenv("LITTLENET_AI_MODAL_APP", "littlenet-ai").strip() or "littlenet-ai"
+    app_name = os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai").strip() or "littlemuse-ai"
     function_name = os.getenv(
         "LITTLENET_AI_IMAGE_CPU_FUNCTION",
         "moderate_image_upload_cpu",

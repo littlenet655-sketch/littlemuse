@@ -9,7 +9,7 @@ export const queryClient = new QueryClient({
     queries: {
       // No aggressive polling: screens opt into bounded refetch explicitly.
       retry: 1,
-      staleTime: 30_000,
+      staleTime: 120_000,
       gcTime: 5 * 60_000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,

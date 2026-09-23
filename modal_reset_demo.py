@@ -13,9 +13,9 @@ import os
 import modal
 
 ROOT = Path(__file__).resolve().parent
-app = modal.App("littlenet-demo-reset")
+app = modal.App("littlemuse-demo-reset")
 web_secret = modal.Secret.from_name(
-    "littlenet-web-secrets",
+    os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"),
     required_keys=["DATABASE_URL", "SECRET_KEY", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
 )
 image = (

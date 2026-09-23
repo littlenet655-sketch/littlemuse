@@ -33,7 +33,7 @@ function isDevelopmentRuntime(): boolean {
 /** Kept for components that only need to know whether a backend is configured. */
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 
-export const REQUEST_TIMEOUT_MS = 15000;
+export const REQUEST_TIMEOUT_MS = 10000;
 
 /** Prefer /api/mobile/v2 where a v2 route exists; keep v1 only where no v2 exists. */
 export const routes = {
