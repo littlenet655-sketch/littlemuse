@@ -77,8 +77,8 @@ def test_yolo_and_nsfw_are_active_for_image_and_video_moderation():
     assert '_nudenet' in visual
     assert '_falconsai' in visual
     assert '_video_frames' in visual
-    assert 'ultralytics>=8.3,<9' in requirements
-    assert 'ultralytics>=8.3,<9' in modal
+    assert 'ultralytics==8.4.159' in requirements
+    assert 'ultralytics==8.4.159' in modal
     assert 'yolo_oiv7' in modal
 
 def test_audio_voice_whisper_and_story_music_are_retired():

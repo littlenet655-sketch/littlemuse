@@ -39,4 +39,5 @@ drift between the requirements files and `modal_ai.py` fails CI.
 
 | Date       | Change                                                                 |
 |------------|------------------------------------------------------------------------|
+| 2026-09-23 | transformers bumped 5.0.0 -> 5.10.0 (minimum version fixing pip-audit PYSEC-2026-2289/2290/3929). Trained text checkpoint re-verified under 5.10.0: loads clean, bullying text -> 0.998, all 13 labels sane. |
 | 2026-09-22 | Exact pins locked: torch 2.13.0, torchvision 0.28.0, transformers 5.0.0, nudenet 3.4.2, ultralytics 8.4.159, scenedetect-headless 0.7.1, presidio-analyzer 2.2.364, spacy 3.8.16, opencv-python-headless 4.11.0.86. Full transitive resolver dry-run completed successfully in the sandbox (every pinned distribution resolved, `Would install` set produced); no disk-limit blocker. Python 3.11/Modal runtime resolution still needs validation at deploy time. |

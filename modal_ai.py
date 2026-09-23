@@ -29,7 +29,7 @@ image = (
         "numpy==1.26.4",
         "torch==2.13.0",
         "torchvision==0.28.0",
-        "transformers==5.0.0",  # v5 verified end-to-end with littlenet_text_safety
+        "transformers==5.10.0",  # v5 verified end-to-end with littlenet_text_safety (5.10.0 fixes pip-audit CVEs in 5.0.0)
         "detoxify==0.5.2",
         # Declared dep of detoxify==0.5.2 (sentencepiece>=0.1.94); its
         # multilingual toxicity model's tokenizer. Keep in sync with
