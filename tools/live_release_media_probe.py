@@ -74,13 +74,37 @@ def run_probe() -> dict:
                     LIMIT 40"""
             )
             hidden_candidates = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                """SELECT current_database() AS database_name,
+                          (SELECT COUNT(*) FROM users) AS users,
+                          (SELECT COUNT(*) FROM posts) AS posts,
+                          (SELECT COUNT(*) FROM schema_migrations) AS migrations,
+                          (SELECT MAX(version) FROM schema_migrations) AS latest_migration"""
+            )
+            db_fingerprint = dict(cur.fetchone() or {})
     finally:
         conn.close()
 
+    safe_user_state = {
+        str(uid): {
+            "exists": bool(users.get(uid)),
+            "role": (users.get(uid) or {}).get("role"),
+            "status": (users.get(uid) or {}).get("account_status"),
+            "session_version": int((users.get(uid) or {}).get("session_version") or 0),
+        }
+        for uid in (child_a, child_b)
+    }
     for uid in (child_a, child_b):
         u = users.get(uid)
         if not u or u.get("role") != "CHILD" or u.get("account_status") != "ACTIVE":
-            raise RuntimeError(f"E2E child {uid} is not ACTIVE")
+            raise RuntimeError(
+                "MODAL_DB_FINGERPRINT "
+                + json.dumps(
+                    {"db": db_fingerprint, "e2e_users": safe_user_state},
+                    sort_keys=True,
+                    default=str,
+                )
+            )
     if not any(
         int(r["child_id"]) == child_a
         and int(r["following_child_id"]) == child_b
