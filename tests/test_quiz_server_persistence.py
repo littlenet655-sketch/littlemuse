@@ -19,7 +19,7 @@ def test_quiz_progress_schema_persists_required_latch_and_seen_ids():
 
 def test_view_counter_is_server_authoritative_and_row_locked():
     service = text('quiz/service.py')
-    assert 'FEED_QUIZ_INTERVAL = 4' in service
+    assert 'FEED_QUIZ_INTERVAL = 5' in service
     assert 'def record_feed_view' in service
     assert 'FOR UPDATE' in service
     assert "post_id not in seen" in service

@@ -33,6 +33,7 @@ SOCIAL_ROW = {
     "source_media_path": "r2:quarantine/202/pic_src.jpg",
     "media_path": "r2:social/pic.jpg",
     "poster_path": None,
+    "story_music_path": "r2:music/story-track.mp3",
 }
 REVIEW_ROW = dict(
     SOCIAL_ROW,
@@ -61,7 +62,7 @@ def _single_fetch_one(query, params=None):
     if "FROM posts" in q:
         ref = params[0]
         for row in (SOCIAL_ROW, REVIEW_ROW, BLOCKED_ROW):
-            if ref in (row["media_path"], row["source_media_path"], row["poster_path"]):
+            if ref in (row["media_path"], row["source_media_path"], row["poster_path"], row.get("story_music_path")):
                 return dict(row)
         return None
     if "FROM child_messages" in q:
@@ -82,7 +83,7 @@ def _batch_fetch_all(query, params=None):
     if "FROM posts" in q and "p.post_id = ANY" not in q:
         out = []
         for row in (SOCIAL_ROW, REVIEW_ROW, BLOCKED_ROW):
-            paths = {row["media_path"], row["source_media_path"], row["poster_path"]}
+            paths = {row["media_path"], row["source_media_path"], row["poster_path"], row.get("story_music_path")}
             if refs & paths:
                 out.append(dict(row))
         return out
@@ -168,3 +169,8 @@ def test_batch_parity_curated_age_gate():
         expected = {r: _media_allowed(303, "CHILD", r) for r in refs}
         got = _media_allowed_many(303, "CHILD", refs)
     assert got == expected == {"r2:curated/vid1.mp4": False}
+
+
+def test_batch_parity_story_music_path():
+    """Story music must authorize identically on single and batched paths."""
+    _check_parity(303, "CHILD", ["r2:music/story-track.mp3"])

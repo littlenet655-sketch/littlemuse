@@ -13,7 +13,7 @@ APK artifacts.
 |---|---|---|---|
 | Release identity | Expo/EAS and Modal web/AI identities normalized; drift tests added | CI + live deploy | PATCHED / VERIFY |
 | Parent auth | Email OTP + guardian declaration + Android system auth; face retired | Physical Parent journey | IMPLEMENTED / DEVICE PENDING |
-| Child auth/quiz | Password login + server-authoritative quiz gates; feed interval 4 | Physical Child journey | IMPLEMENTED / DEVICE PENDING |
+| Child auth/quiz | Password login + server-authoritative quiz gates; feed interval 5 | Physical Child journey | IMPLEMENTED / DEVICE PENDING |
 | Feed/Explore/Search | DB-backed social + curated surfaces | Current APK rendering | IMPLEMENTED / DEVICE PENDING |
 | Reels/Stories | Native Expo video, poster/retry/private playback paths | Real-device playback/TTFF | IMPLEMENTED / DEVICE PENDING |
 | Create/media | private upload → processing → moderation → publication | Live R2 + device upload | IMPLEMENTED / LIVE+DEVICE PENDING |

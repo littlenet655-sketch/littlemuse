@@ -3,7 +3,7 @@ from database.connection import fetch_one, fetch_all, execute, get_db_connection
 
 # Product-locked doom-scroll intervention. Parent Mode may make it MORE
 # frequent, but never less frequent than the LittleNet safety default.
-FEED_QUIZ_INTERVAL = 4
+FEED_QUIZ_INTERVAL = 5
 
 # ─── Age helpers ──────────────────────────────────────────────────────────────
 
@@ -192,9 +192,9 @@ def setting(cid):
 def feed_quiz_interval(cid):
     """Return the server-authoritative view threshold for the next brain break.
 
-    LittleNet default is 4.
-    Parent may configure a MORE frequent intervention: 1, 2, 3, or 4.
-    Never allow > 4 for a child. Child cannot disable it.
+    LittleNet default is 5.
+    Parent may configure a MORE frequent intervention: 1, 2, 3, 4, or 5.
+    Never allow > 5 for a child. Child cannot disable it.
     """
     threshold = FEED_QUIZ_INTERVAL
     s = setting(cid)
