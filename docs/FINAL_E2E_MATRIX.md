@@ -63,14 +63,14 @@ Automated unit/integration tests are recorded separately from live/device journe
 
 Before the final device run require:
 
-- current main deployed to Modal;
+- exact current release commit deployed to the canonical LittleMuse Modal apps;
 - strict Modal preflight PASS;
 - Neon migrations current;
 - R2 private storage health PASS;
 - AI shared-secret/protected endpoint PASS;
 - Resend domain/sender PASS;
 - enabled Resend webhook with signing secret mounted;
-- EAS current-main preview APK artifact;
+- EAS preview APK artifact built from the exact release commit;
 - optional Cloudflare Stream preflight PASS if adaptive delivery is enabled.
 
 ## Submission decision
