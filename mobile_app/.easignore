@@ -1,0 +1,9 @@
+# EAS Build Ignore
+node_modules/
+.expo/
+dist/
+test-dist/
+android/
+ios/
+coverage/
+*.log

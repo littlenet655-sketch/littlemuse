@@ -57,10 +57,10 @@
       ],
       "./plugins/parent-device-auth"
     ],
-    "owner": "anilkumar09",
+    "owner": "akshu1245s-team",
     "extra": {
       "eas": {
-        "projectId": "e415f1da-b67c-4fd2-8f9a-61ac16d211be"
+        "projectId": "c4ce834d-fd50-4504-a311-820c3372b6dc"
       }
     }
   }
