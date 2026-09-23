@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-const root = path.resolve(__dirname, '..');
+const root = process.cwd();
 
 function text(relative: string): string {
   return fs.readFileSync(path.join(root, relative), 'utf8');
