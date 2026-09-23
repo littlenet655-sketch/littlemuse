@@ -2,14 +2,11 @@ from safety import text_service, visual_service
 from safety.policy import decide
 
 
-def test_single_frame_is_complete_coverage(monkeypatch):
-    # Single-frame policy (2026-09-23): one frame is the complete temporal
-    # budget, so even a long video stays eligible for auto-allow on that
-    # frame's own merits.
-    monkeypatch.setattr(visual_service, "video_duration_seconds", lambda _path: 600.0)
-    coverage = visual_service.video_sampling_coverage("video.mp4", requested=1)
-    assert coverage["coverage_complete"] is True
-    assert coverage["required_frames_for_auto_allow"] == 1
+def test_long_video_without_temporal_coverage_cannot_auto_publish(monkeypatch):
+    monkeypatch.setattr(visual_service, "video_duration_seconds", lambda _path: 180.0)
+    monkeypatch.setenv("LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS", "12")
+    coverage = visual_service.video_sampling_coverage("video.mp4", requested=8)
+    assert coverage["coverage_complete"] is False
     signals = {
         "category": "VIDEO",
         "adult_score": 0,
@@ -18,16 +15,54 @@ def test_single_frame_is_complete_coverage(monkeypatch):
         "weapon_score": 0,
         "toxicity_score": 0,
         "general_score": 0,
-        "partial_safety_failure": False,
+        "partial_safety_failure": True,
         "model_signals": coverage,
     }
-    assert decide(signals).action == "ALLOW"
+    assert decide(signals).action == "REVIEW"
 
 
-def test_covered_short_video_remains_eligible_for_allow(monkeypatch):
-    monkeypatch.setattr(visual_service, "video_duration_seconds", lambda _path: 30.0)
-    monkeypatch.setenv("LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS", "4")
-    assert visual_service.video_sampling_coverage("video.mp4", requested=10)["coverage_complete"] is True
+def test_default_video_coverage_boundary_is_intentional(monkeypatch):
+    monkeypatch.setenv("LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS", "8")
+    monkeypatch.setenv("LITTLENET_VIDEO_MIN_FRAMES", "3")
+    monkeypatch.setenv("LITTLENET_VIDEO_MAX_FRAMES", "8")
+    monkeypatch.setenv("LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS", "12")
+
+    expected = {
+        30.0: (5, True),
+        60.0: (8, True),
+        84.0: (8, True),
+        90.0: (8, False),
+        180.0: (8, False),
+    }
+    for duration, (requested, complete) in expected.items():
+        monkeypatch.setattr(
+            visual_service,
+            "video_duration_seconds",
+            lambda _path, d=duration: d,
+        )
+        actual_requested = visual_service._video_sample_count("video.mp4")
+        coverage = visual_service.video_sampling_coverage("video.mp4", actual_requested)
+        assert actual_requested == requested
+        assert coverage["coverage_complete"] is complete
+
+
+def test_incomplete_default_video_coverage_routes_safe_signal_to_review(monkeypatch):
+    monkeypatch.setattr(visual_service, "video_duration_seconds", lambda _path: 90.0)
+    monkeypatch.setenv("LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS", "12")
+    coverage = visual_service.video_sampling_coverage("video.mp4", requested=8)
+    signals = {
+        "category": "VIDEO",
+        "adult_score": 0,
+        "sexual_score": 0,
+        "violence_score": 0,
+        "weapon_score": 0,
+        "toxicity_score": 0,
+        "general_score": 0,
+        "partial_safety_failure": not coverage["coverage_complete"],
+        "model_signals": coverage,
+    }
+    assert coverage["coverage_complete"] is False
+    assert decide(signals).action == "REVIEW"
 
 
 def test_text_canonicalization_catches_common_sexual_evasion():

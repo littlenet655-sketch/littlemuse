@@ -18,7 +18,7 @@ on:
         required: false
         type: string
       migrate_database:
-        description: Apply PostgreSQL schema/upgrades before validation
+        description: Apply reviewed dbmate deltas to a retained release database
         required: true
         type: boolean
         default: false
@@ -38,6 +38,9 @@ env:
   LITTLENET_WEB_SECRET: littlemuse-web-secrets
   LITTLENET_AI_SECRET: littlemuse-ai-secrets
   LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_MODEL_CACHE_VOLUME: littlenet-model-cache
+  LITTLENET_R2_SECRET: littlenet-r2
+  LITTLENET_EMAIL_SECRET: littlenet-email
   LITTLENET_R2_WRITE_PREFIX: littlemuse
 
 jobs:
@@ -80,13 +83,39 @@ jobs:
           test -n "$MODAL_TOKEN_ID"
           test -n "$MODAL_TOKEN_SECRET"
           modal token info
-      - name: Refuse automatic migration of a retained release database
-        if: ${{ inputs.migrate_database }}
-        run: |
-          echo 'Use the reviewed LittleMuse database reconciliation procedure before deploying.'
-          exit 1
       - name: Stage trained moderation models into the Modal volume
         run: python tools/stage_model_volume.py
+      - name: Verify web/AI release identity and shared secret parity without GPU
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --secret-preflight | tee ai-secret-preflight.log
+          modal run modal_web.py --secret-preflight | tee web-secret-preflight.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def report(path):
+              for line in Path(path).read_text(encoding="utf-8").splitlines():
+                  if line.startswith("secret-preflight "):
+                      return json.loads(line.split(" ", 1)[1])
+              raise SystemExit(f"Missing secret-preflight report in {path}")
+
+          ai = report("ai-secret-preflight.log")
+          web = report("web-secret-preflight.log")
+          if not ai.get("present") or not web.get("present"):
+              raise SystemExit("AI_SHARED_SECRET is missing from one release secret")
+          if ai.get("fingerprint") != web.get("fingerprint"):
+              raise SystemExit("AI_SHARED_SECRET mismatch between AI and web release secrets")
+          if not web.get("ai_service_url_matches_expected"):
+              raise SystemExit("AI_SERVICE_URL does not target the expected LittleMuse AI app")
+          PY
+      - name: Validate retained database migration history
+        run: modal run modal_web.py --migration-status-check
+      - name: Apply reviewed pending dbmate migrations
+        if: ${{ inputs.migrate_database }}
+        run: modal run modal_web.py --migrate-db
+      - name: Require database schema current for this release
+        run: modal run modal_web.py --require-db-current
       - run: modal deploy modal_ai.py
       - run: modal deploy modal_web.py
       - run: modal run modal_web.py --seed

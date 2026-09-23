@@ -308,12 +308,15 @@ def test_modal_deploy_workflow_migration_order_and_warmup_flag():
     # 1. Warmup flag must use --confirm-gpu-warmup to pass modal_ai.py cost guard
     assert "modal run modal_ai.py --confirm-gpu-warmup" in content
 
-    # Release databases are reconciled separately; this workflow must not
-    # blindly run legacy bootstrap/dbmate against retained user data.
+    # Retained release DBs must never replay the legacy bootstrap. The release
+    # proves migration history, optionally applies reviewed dbmate deltas, then
+    # requires zero pending migrations before replacing cloud code.
     assert "modal run modal_web.py --init-db" not in content
-    assert "Refuse automatic migration" in content
-    deploy_web_idx = content.index("modal deploy modal_web.py")
+    status_idx = content.index("modal run modal_web.py --migration-status-check")
+    migrate_idx = content.index("modal run modal_web.py --migrate-db")
+    current_idx = content.index("modal run modal_web.py --require-db-current")
     deploy_ai_idx = content.index("modal deploy modal_ai.py")
-    assert deploy_ai_idx < deploy_web_idx
+    deploy_web_idx = content.index("modal deploy modal_web.py")
+    assert status_idx < migrate_idx < current_idx < deploy_ai_idx < deploy_web_idx
     assert "LITTLENET_WEB_MODAL_APP: littlemuse-web" in content
     assert "LITTLENET_AI_MODAL_APP: littlemuse-ai" in content

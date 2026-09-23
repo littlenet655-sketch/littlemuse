@@ -32,6 +32,7 @@ import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
+import { QuizBreakCard } from '../../components/QuizBreakCard';
 
 interface ReelCellProps {
   item: FeedItem;
@@ -283,17 +284,19 @@ const ReelCell = memo(function ReelCell({
 
 export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, refreshMe } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Full-screen height — true Instagram Reels feel
-  const REEL_HEIGHT = windowHeight;
+  // Measure the actual navigator viewport: raw device height includes the tab
+  // bar on some Android devices and causes cells to land between pages.
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
-  // Quiz break every 5 reels — markers are stable per content index.
   const displayItems = feed.items;
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
   const flatListRef = useRef<FlatList<FeedItem>>(null);
@@ -303,6 +306,15 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // duplicate toggle requests. Keys are action-scoped so a like in flight
   // never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
+
+  // Server latch persistence: if the server says a compulsory quiz is required,
+  // lock scrolling and pause playback immediately (e.g. after app restart, tab change).
+  useEffect(() => {
+    if (session?.user?.quiz_required) {
+      setQuizLocked(true);
+      setPaused(true);
+    }
+  }, [session?.user?.quiz_required]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {
@@ -317,13 +329,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
-    const first = viewableItems.find((row) => typeof row.index === 'number')?.index;
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem }> }) => {
+    const firstRow = viewableItems.find((row) => typeof row.index === 'number');
+    const first = firstRow?.index;
     if (typeof first === 'number') {
       setActiveIndex((current) => current === first ? current : first);
       setPaused(false);
     }
-  }).current;
+  }, []);
 
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
@@ -343,11 +356,21 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     const events = [...impressionBatchRef.current];
     impressionBatchRef.current = [];
     try {
-      await recordImpressionBatch(session.token, events);
-    } catch {
-      // Non-blocking telemetry
+      const result = await recordImpressionBatch(session.token, events);
+      if (result.quiz_required) {
+        setQuizLocked(true);
+        setPaused(true);
+        await refreshMe();
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'quiz_required') {
+        setQuizLocked(true);
+        setPaused(true);
+        await refreshMe();
+      }
+      // Impression telemetry itself remains non-blocking.
     }
-  }, [session?.token]);
+  }, [session?.token, refreshMe]);
 
   // Buffer impression events emitted by ReelPlayer
   const handleMetricsFlush = useCallback((payload: ImpressionEventPayload) => {
@@ -355,9 +378,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       payload.session_id = feed.sessionId;
     }
     impressionBatchRef.current.push(payload);
-    if (impressionBatchRef.current.length >= 5) {
-      void flushBatch();
-    }
+    // One lightweight request per meaningfully watched Reel keeps the persisted
+    // random 2–5 gate exact. This fires when a Reel leaves the active slot, not
+    // on video frames or playback ticks.
+    void flushBatch();
   }, [feed.sessionId, flushBatch]);
 
   // Flush on app backgrounding or screen blur
@@ -489,9 +513,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       item={item}
       index={index}
       activeIndex={activeIndex}
-      active={shouldPlayReel(index, activeIndex, foreground && focused)}
-      nearby={shouldLoadReel(index, activeIndex)}
-      paused={paused}
+      active={!quizLocked && shouldPlayReel(index, activeIndex, foreground && focused)}
+      nearby={!quizLocked && shouldLoadReel(index, activeIndex)}
+      paused={paused || quizLocked}
       token={session?.token}
       reelHeight={REEL_HEIGHT}
       windowWidth={windowWidth}
@@ -506,7 +530,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -624,7 +648,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={(event) => { const h = event.nativeEvent.layout.height; if (h > 0 && h !== viewportHeight) setViewportHeight(h); }}>
       {/* Top header — kit: "Reels" + chevron (left), camera (right) */}
       <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <View style={styles.topTitleRow}>
@@ -652,6 +676,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         style={styles.list}
         keyExtractor={(it) => `reel:${feedKey(it)}`}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!quizLocked}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -670,6 +695,24 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         getItemLayout={(_, index) => ({ length: REEL_HEIGHT, offset: REEL_HEIGHT * index, index })}
         renderItem={renderReelItem}
       />
+
+      {/* Full-screen non-skippable brain break lock if server has latch active */}
+      {quizLocked ? (
+        <View style={[StyleSheet.absoluteFill, styles.lockedOverlay]}>
+          <QuizBreakCard
+            token={session?.token}
+            fullscreen
+            completed={false}
+            onCompleted={async () => {
+              setQuizLocked(false);
+              setPaused(false);
+              if (session?.token) {
+                await refreshMe();
+              }
+            }}
+          />
+        </View>
+      ) : null}
 
       {/* Instagram-style bottom action sheet — same actions as the old Alert menu */}
       {sheetItem ? (
@@ -1039,5 +1082,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.brand,
+  },
+  lockedOverlay: {
+    backgroundColor: '#000000',
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

@@ -52,8 +52,8 @@ def _sample_frames(path: str, requested: int):
             os.close(fd)
             cv2.imwrite(tmp, frame)
             try:
-                # Frame OCR stays off unless explicitly enabled: per-frame OCR on
-                # up to 60 frames would otherwise blow the moderation time budget.
+                # Frame OCR stays off unless explicitly enabled: OCR across the
+                # bounded frame set can otherwise dominate moderation time.
                 signals = check_image(tmp, ocr=env_flag('LITTLENET_ENABLE_OCR_VIDEO_FRAMES'))
                 outs.append(signals)
                 inspected.append(int(idx))
@@ -70,7 +70,7 @@ def _sample_frames(path: str, requested: int):
 
 
 def check_video(path: str, max_frames=None):
-    """Moderate a video using its single representative frame (scene-preferred)."""
+    """Moderate a video with bounded scene-aware + uniform frame evidence."""
     from .remote_client import enabled, moderate_file
 
     if enabled():

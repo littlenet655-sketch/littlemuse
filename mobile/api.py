@@ -347,7 +347,7 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
     profile = None
     quiz_required = False
     posts_seen = 0
-    quiz_interval = 4
+    quiz_interval = 5
     if user.get("role") == "CHILD":
         uid = int(user["user_id"])
         profile = _profile_json(get_child_profile(uid))
@@ -356,11 +356,12 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
             quiz_state = {
                 "required": bool(q_state.get("required") or needs_onboarding_quiz(uid)),
                 "posts_seen": int(q_state.get("posts_seen", 0)),
-                "interval": int(q_state.get("interval", 4)),
+                "interval": int(q_state.get("interval", 5)),
+                "next_quiz_threshold": int(q_state.get("next_quiz_threshold", 5)),
             }
         quiz_required = bool(quiz_state.get("required"))
         posts_seen = int(quiz_state.get("posts_seen", 0))
-        quiz_interval = int(quiz_state.get("interval", 4))
+        quiz_interval = int(quiz_state.get("interval", 5))
     return {
         "user_id": int(user["user_id"]),
         "username": user.get("username"),
@@ -389,7 +390,8 @@ def _mobile_login_response(user, method="PASSWORD"):
         quiz_state = {
             "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
             "posts_seen": int(qs.get("posts_seen", 0)),
-            "interval": int(qs.get("interval", 4)),
+            "interval": int(qs.get("interval", 5)),
+            "next_quiz_threshold": int(qs.get("next_quiz_threshold", 5)),
         }
     response = {
         "ok": True,
@@ -430,7 +432,7 @@ def _media_allowed(uid: int, role: str, ref: str) -> bool:
             return bool(cur["min_age"] <= child_age <= cur["max_age"])
 
     p = fetch_one(
-        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path
+        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path, story_music_path
            FROM posts
            WHERE media_path=%s OR story_music_path=%s OR poster_path=%s OR source_media_path=%s""",
         (ref, ref, ref, ref),
@@ -520,7 +522,7 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
 
     post_by_ref = {}
     for row in fetch_all(
-        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path
+        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path, story_music_path
            FROM posts
            WHERE media_path = ANY(%s) OR story_music_path = ANY(%s)
               OR poster_path = ANY(%s) OR source_media_path = ANY(%s)""",
@@ -1946,7 +1948,7 @@ def register_mobile_api(bp):
                     try:
                         job_id = enqueue_media_job(existing["post_id"], uid, session_row["object_key"], session_row["kind"].upper())
                         execute("UPDATE posts SET processing_status='PROCESSING', job_id=%s, processing_error=NULL WHERE post_id=%s", (job_id, existing["post_id"]))
-                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True)
+                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
                     except Exception as exc:
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
 
@@ -2146,6 +2148,8 @@ def register_mobile_api(bp):
                 ok=True,
                 post_id=post_id,
                 status="PROCESSING",
+                moderation_queued=True,
+                publication_state="PRIVATE_PROCESSING",
             )
         except Exception as exc:
             execute(
@@ -2298,6 +2302,8 @@ def register_mobile_api(bp):
             ok=True,
             reason=reason,
             required=bool((state.get("required") or needs_onboarding_quiz(uid)) and len(payload) > 0),
+            quiz_interval=int(state.get("interval", 5)),
+            next_quiz_threshold=int(state.get("next_quiz_threshold", 5)),
             quizzes=_clean(payload),
         )
 
@@ -2320,6 +2326,7 @@ def register_mobile_api(bp):
         state = feed_quiz_state(uid)
         if state.get("required") and state.get("quiz_id") == quiz_id:
             complete_required_feed_quiz(uid, quiz_id)
+        after_state = feed_quiz_state(uid)
         return jsonify(
             ok=True,
             correct=correct,
@@ -2327,7 +2334,9 @@ def register_mobile_api(bp):
             xp=xp,
             explanation=explanation,
             onboarding_complete=not needs_onboarding_quiz(uid),
-            required=bool(feed_quiz_state(uid).get("required")),
+            required=bool(after_state.get("required")),
+            quiz_interval=int(after_state.get("interval", 5)),
+            next_quiz_threshold=int(after_state.get("next_quiz_threshold", 5)),
         )
 
     @bp.route("/api/mobile/v1/kids/feed-view/<int:post_id>", methods=["POST"])
@@ -3213,14 +3222,20 @@ def register_mobile_api(bp):
         if not ok:
             return jsonify(error="invalid_session_item"), 403
 
-        # Advance combined server counter for eligible substantially-viewed item
-        view_res = record_feed_view(uid, source_id, source_type=source_type)
+        # Advance server counter for Reels doom-scrolling intervention
+        if surface == "REELS":
+            view_res = record_feed_view(uid, source_id, source_type=source_type)
+        else:
+            view_res = feed_quiz_state(uid)
+
         if view_res.get("required"):
             return jsonify(
                 ok=True,
                 quiz_required=True,
                 gate="quiz",
-                posts_seen=view_res.get("posts_seen", 4),
+                posts_seen=view_res.get("posts_seen", 5),
+                quiz_interval=view_res.get("interval", 5),
+                next_quiz_threshold=view_res.get("next_quiz_threshold", 5),
                 error="quiz_required",
             ), 428
 
@@ -3228,6 +3243,8 @@ def register_mobile_api(bp):
             ok=True,
             quiz_required=False,
             posts_seen=view_res.get("posts_seen", 0),
+            quiz_interval=view_res.get("interval", 5),
+            next_quiz_threshold=view_res.get("next_quiz_threshold", 5),
         )
 
     @bp.route("/api/mobile/v2/kids/impressions/batch", methods=["POST"])
@@ -3250,6 +3267,8 @@ def register_mobile_api(bp):
 
         processed = 0
         recorded = 0
+        quiz_required = False
+        posts_seen = int(feed_quiz_state(uid).get("posts_seen") or 0)
         from services.curated_feed import record_feed_impression
         for ev in events:
             if not isinstance(ev, dict):
@@ -3284,10 +3303,25 @@ def register_mobile_api(bp):
                 processed += 1
                 if was_recorded:
                     recorded += 1
+                    if surf == "REELS":
+                        view_res = record_feed_view(uid, src_id, source_type=src_type)
+                        posts_seen = int(view_res.get("posts_seen") or posts_seen)
+                        if view_res.get("required"):
+                            quiz_required = True
+                            break
             except Exception:
                 pass
 
-        return jsonify(ok=True, processed=processed, recorded=recorded)
+        batch_qs = feed_quiz_state(uid)
+        return jsonify(
+            ok=True,
+            processed=processed,
+            recorded=recorded,
+            quiz_required=quiz_required,
+            posts_seen=posts_seen,
+            quiz_interval=batch_qs.get("interval", 5),
+            next_quiz_threshold=batch_qs.get("next_quiz_threshold", 5),
+        )
 
     @bp.route("/api/mobile/v2/kids/recommendation-actions", methods=["POST"])
     @csrf.exempt

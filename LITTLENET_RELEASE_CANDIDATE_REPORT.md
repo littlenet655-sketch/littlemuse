@@ -1,5 +1,9 @@
 # LittleNet College Submission Candidate Report
 
+> **Historical snapshot.** This report predates the 2026-09-23 release-coherence
+> hardening. Current release authority is `docs/ASTRA_RELEASE_LEDGER.md`,
+> `docs/LITTLENET_MASTER_SPEC.md`, and `MODAL_DEPLOYMENT.md`.
+
 **Date:** 08 September 2026  
 **Scope:** final-year college project qualification  
 **Baseline:** `main` commit `304f35052e033726b00e9b7e229141b42d32fd6c`

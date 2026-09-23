@@ -2,7 +2,7 @@
 
 ## Runtime boundaries
 
-LittleNet has one native client: React Native + Expo in `mobile_app/`. It calls the existing Flask backend through bearer-authenticated `/api/mobile/v1` and `/api/mobile/v2` routes. PostgreSQL stores identity, relationships, controls, quizzes, content state, activity, and audit records. Cloudflare R2 stores private media. Modal runs heavy image/video inference through the existing durable media job path.
+LittleNet has one native client: React Native + Expo in `mobile_app/`. It calls the existing Flask backend through bearer-authenticated `/api/mobile/v1` and `/api/mobile/v2` routes. PostgreSQL stores identity, relationships, controls, quizzes, content state, activity, and audit records. Cloudflare R2 stores private media. Modal provides scale-to-zero moderation: routine image/text checks use bounded CPU functions where configured, while video follows the capped visual moderation path through the durable media job flow.
 
 No parent control or safety decision is trusted from the client. Flask remains authoritative for role access, parent ownership, onboarding gates, friendship approval, screen time, quiet hours, feature/category controls, moderation, and publication.
 

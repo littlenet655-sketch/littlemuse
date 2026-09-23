@@ -214,7 +214,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
 
       stage = 'complete';
       setProgress(null);
-      setStatus('LittleNet AI safety check…');
+      setStatus('Finalizing your upload…');
       const done = await completeUpload(session.token, sess.upload_id, {
         caption: caption.trim(),
         contentCategory: kind === 'reel' ? 'Fun' : 'Other',

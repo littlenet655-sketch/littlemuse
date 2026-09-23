@@ -135,15 +135,15 @@ function ChildNavigator() {
     <ChildStack.Navigator initialRouteName={initialRoute} screenOptions={cleanStackOptions}>
       <ChildStack.Screen name="Quiz" component={withGateSync(QuizScreen)} options={{ title: 'Safety quiz' }} />
       <ChildStack.Screen name="KidsTabs" component={withGateSync(KidsTabsHost)} options={{ headerShown: false }} />
-      <ChildStack.Screen name="FeedTab" component={withGateSync(FeedScreen)} options={{ title: 'Home' }} />
+      <ChildStack.Screen name="FeedTab" component={withGateSync(FeedScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="DiscoverTab" component={withGateSync(DiscoverScreen)} options={{ title: 'Discover' }} />
-      <ChildStack.Screen name="CreateTab" component={withGateSync(CreateScreen)} options={{ title: 'Create' }} />
-      <ChildStack.Screen name="ReelsTab" component={withGateSync(ReelsScreen)} options={{ title: 'Reels' }} />
-      <ChildStack.Screen name="ProfileTab" component={withGateSync(OwnProfileScreen)} options={{ title: 'Profile' }} />
-      <ChildStack.Screen name="Stories" component={withGateSync(StoriesScreen)} options={{ title: 'Stories' }} />
+      <ChildStack.Screen name="CreateTab" component={withGateSync(CreateScreen)} options={{ headerShown: false }} />
+      <ChildStack.Screen name="ReelsTab" component={withGateSync(ReelsScreen)} options={{ headerShown: false }} />
+      <ChildStack.Screen name="ProfileTab" component={withGateSync(OwnProfileScreen)} options={{ headerShown: false }} />
+      <ChildStack.Screen name="Stories" component={withGateSync(StoriesScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="NotificationsTab" component={withGateSync(NotificationsScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="Conversations" component={withGateSync(ConversationsScreen)} options={{ headerShown: false }} />
-      <ChildStack.Screen name="Chat" component={withGateSync(ChatScreen)} options={{ title: 'Chat' }} />
+      <ChildStack.Screen name="Chat" component={withGateSync(ChatScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="ChatDetails" component={withGateSync(ChatDetailsScreen)} options={{ title: 'Chat details' }} />
       <ChildStack.Screen name="NewMessage" component={withGateSync(NewMessageScreen)} options={{ title: 'New message' }} />
       <ChildStack.Screen name="SavedContent" component={withGateSync(SavedContentScreen)} options={{ title: 'Saved' }} />

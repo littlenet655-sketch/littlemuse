@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
-import { fetchKidsHome, type StoryItem } from '../../api/kidsFeed';
+import { fetchKidsHome, recordFeedImpression, type StoryItem } from '../../api/kidsFeed';
 import { submitRecommendationAction } from '../../api/recommendation';
 import { useAuth } from '../../auth/AuthProvider';
 import { PostCard } from '../../kids/PostCard';
@@ -122,6 +122,40 @@ type FeedTab = 'For You' | 'Friends' | 'Learn';
  * and every optimistic like/save, but the header subtree (stories tray, tabs)
  * only re-renders when its own inputs change.
  */
+/**
+ * Polished voluntary quiz card shown at the top of the Learn section.
+ * Children can practice age-tailored questions anytime without affecting Reel doom-scroll gates.
+ */
+function QuizZoneCard({ onStart }: { onStart: () => void }) {
+  return (
+    <View style={styles.quizZoneCard} accessibilityRole="summary" accessibilityLabel="Quiz Zone">
+      <View style={styles.quizZoneContent}>
+        <View style={styles.quizZoneIconWrap}>
+          <Text style={styles.quizZoneEmoji}>🧠</Text>
+        </View>
+        <View style={styles.quizZoneTextWrap}>
+          <View style={styles.quizZoneBadge}>
+            <Text style={styles.quizZoneBadgeText}>AGE-BASED QUIZ</Text>
+          </View>
+          <Text style={styles.quizZoneTitle}>Quiz Zone</Text>
+          <Text style={styles.quizZoneSubtitle}>
+            Test yourself with a quiz made for your age. Earn XP whenever you want!
+          </Text>
+        </View>
+      </View>
+      <Pressable
+        style={({ pressed }) => [styles.quizZoneButton, pressed && styles.quizZoneButtonPressed]}
+        onPress={onStart}
+        accessibilityRole="button"
+        accessibilityLabel="Start Quiz"
+      >
+        <Feather name="play" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+        <Text style={styles.quizZoneButtonText}>Start Quiz</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const FeedListHeader = memo(function FeedListHeader({
   token,
   myId,
@@ -131,6 +165,7 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories,
   online,
   error,
+  onStartQuizZone,
 }: {
   token?: string;
   myId?: number;
@@ -140,6 +175,7 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories: () => void;
   online: boolean;
   error: unknown;
+  onStartQuizZone?: () => void;
 }) {
   return (
     <>
@@ -161,6 +197,7 @@ const FeedListHeader = memo(function FeedListHeader({
       </View>
       <OfflineBanner online={online} />
       {error ? <GateNotice error={error} /> : null}
+      {tab === 'Learn' ? <QuizZoneCard onStart={() => onStartQuizZone?.()} /> : null}
     </>
   );
 });
@@ -234,17 +271,47 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [tab, setTab] = useState<FeedTab>('For You');
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
   const [activeVideoKey, setActiveVideoKey] = useState<string | null>(null);
+  const reportedViewsRef = useRef<Set<string>>(new Set());
+  const reportedSessionRef = useRef<string | undefined>(undefined);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+  const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
+  const feed = useFeed('feed', 10, feedMode);
+
+  if (reportedSessionRef.current !== feed.sessionId) {
+    reportedSessionRef.current = feed.sessionId;
+    reportedViewsRef.current.clear();
+  }
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visibleVideo = viewableItems.find((entry) => {
       const item = entry.item as FeedItem | undefined;
       return Boolean(entry.isViewable && item?.media_type?.toUpperCase() === 'VIDEO');
     });
-    const item = visibleVideo?.item as FeedItem | undefined;
-    setActiveVideoKey(item ? `${item.source_type}:${item.source_id}` : null);
-  }).current;
-  const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
-  const feed = useFeed('feed', 10, feedMode);
+    const videoItem = visibleVideo?.item as FeedItem | undefined;
+    setActiveVideoKey(videoItem ? `${videoItem.source_type}:${videoItem.source_id}` : null);
+
+    for (const entry of viewableItems) {
+      if (!entry.isViewable) continue;
+      const item = entry.item as FeedItem | undefined;
+      if (!item) continue;
+      if (!session?.token || !feed.sessionId) continue;
+      const sourceId = Number(item.source_id ?? item.post_id ?? 0);
+      if (!sourceId) continue;
+      const key = feedKey(item);
+      if (reportedViewsRef.current.has(key)) continue;
+      reportedViewsRef.current.add(key);
+      void recordFeedImpression(session.token, {
+        session_id: feed.sessionId,
+        source_type: item.source_type ?? 'SOCIAL',
+        source_id: sourceId,
+        surface: 'FEED',
+        watched_ms: 250,
+      }).catch(() => {
+        // Allow a later visibility event to retry transient failures.
+        reportedViewsRef.current.delete(key);
+      });
+    }
+  }, [feed.sessionId, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {
@@ -270,8 +337,6 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     [feed.items, hiddenKeys],
   );
 
-  // Quiz break every 5 posts: the marker rows are stable per content index so
-  // a refresh keeps each card's identity (and its answered state) in place.
   const displayItems = visibleItems;
 
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
@@ -305,10 +370,11 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       tab={tab}
       onTabChange={onTabChange}
       onOpenStories={onOpenStories}
+      onStartQuizZone={() => nav.navigate('Quiz', { returnTo: 'KidsTabs' })}
       online={online}
       error={feed.error}
     />
-  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, online, feed.error]);
+  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error]);
 
   const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     const key = feedKey(item);
@@ -322,7 +388,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         onDeletedItem={deletedItem}
       />
     );
-  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
+  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
 
   const listFooter = useMemo(() => {
     // Purely visual gate: show the kit end-of-feed card only when real items
@@ -416,5 +482,83 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 280,
     lineHeight: 18,
+  },
+  quizZoneCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+    padding: spacing.md,
+    borderRadius: 16,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  quizZoneContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  quizZoneIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  quizZoneEmoji: {
+    fontSize: 22,
+  },
+  quizZoneTextWrap: {
+    flex: 1,
+  },
+  quizZoneBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  quizZoneBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0284C7',
+    letterSpacing: 0.5,
+  },
+  quizZoneTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: colors.ink,
+    letterSpacing: -0.3,
+    marginBottom: 2,
+  },
+  quizZoneSubtitle: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  quizZoneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brand,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: 12,
+  },
+  quizZoneButtonPressed: {
+    opacity: 0.85,
+  },
+  quizZoneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

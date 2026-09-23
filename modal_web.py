@@ -21,14 +21,17 @@ uploads = modal.Volume.from_name(os.getenv("LITTLENET_UPLOADS_VOLUME", "littlemu
 # checkpoints are absent, safety.littlenet_trained_image.available() stays
 # False and moderation fails closed to the legacy stack — mounting the
 # volume never weakens moderation.
-model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
+model_cache = modal.Volume.from_name(
+    os.getenv("LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache"),
+    create_if_missing=True,
+)
 web_secret = modal.Secret.from_name(
     os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"),
     required_keys=["DATABASE_URL", "SECRET_KEY", "BASE_URL", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
 )
-email_secret = modal.Secret.from_name("littlenet-email")
+email_secret = modal.Secret.from_name(os.getenv("LITTLENET_EMAIL_SECRET", "littlenet-email"))
 r2_secret = modal.Secret.from_name(
-    "littlenet-r2",
+    os.getenv("LITTLENET_R2_SECRET", "littlenet-r2"),
     required_keys=["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"],
 )
 
@@ -94,9 +97,6 @@ secret_preflight_image = modal.Image.debian_slim(python_version="3.11")
 
 
 WEB_MIN_CONTAINERS = int(os.getenv("MODAL_WEB_MIN_CONTAINERS", "0"))
-# Default 3: the native app fires home+feed+reels+discover+profile+notifications
-# concurrently right after login; with max_containers=1 those heavy requests
-# serialized behind each other and the feed spinner ran for ~60s.
 WEB_MAX_CONTAINERS = int(os.getenv("MODAL_WEB_MAX_CONTAINERS", "3"))
 WEB_CPU = float(os.getenv("MODAL_WEB_CPU", "2.0"))
 WEB_MEMORY = int(os.getenv("MODAL_WEB_MEMORY", "2048"))
@@ -153,13 +153,18 @@ def web():
     max_containers=1,
 )
 def web_secret_preflight():
-    """Read only the web secret for a non-disclosing release comparison."""
+    """Non-disclosing web-secret identity check; never wakes the AI runtime."""
     value = str(os.environ.get("AI_SHARED_SECRET") or "")
-    if not value:
-        return {"present": False, "fingerprint": None}
+    ai_url = str(os.environ.get("AI_SERVICE_URL") or "").strip()
+    expected_ai_app = str(os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai") or "").strip()
     return {
-        "present": True,
-        "fingerprint": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+        "present": bool(value),
+        "fingerprint": hashlib.sha256(value.encode("utf-8")).hexdigest() if value else None,
+        "ai_service_url_present": ai_url.startswith("https://"),
+        "ai_service_url_matches_expected": bool(
+            ai_url.startswith("https://") and expected_ai_app and expected_ai_app in ai_url
+        ),
+        "expected_ai_app": expected_ai_app,
     }
 
 
@@ -232,6 +237,100 @@ def curated_poster_backfill(apply: bool = False, limit: int = 250):
     os.chdir("/root/littlenet")
     from tools.backfill_curated_video_posters import run
     return run(apply=bool(apply), limit=int(limit))
+
+
+def _assess_migration_history(known, applied, baseline_present):
+    known = {str(v) for v in known}
+    applied = {str(v) for v in applied}
+    unknown = sorted(applied - known)
+    pending = sorted(known - applied)
+    adoption = "20260906180000"
+    missing_adoption = adoption not in applied
+    error = None
+    if not baseline_present:
+        error = "baseline_schema_missing"
+    elif not applied:
+        error = "schema_migrations_empty"
+    elif unknown:
+        error = "unknown_applied_migrations"
+    elif missing_adoption:
+        error = "dbmate_adoption_marker_missing"
+    return {
+        "ok": error is None,
+        "tracked": True,
+        "baseline_tables_present": bool(baseline_present),
+        "applied_count": len(applied),
+        "known_count": len(known),
+        "pending": pending,
+        "unknown_applied": unknown,
+        "missing_adoption_marker": missing_adoption,
+        "error": error,
+    }
+
+
+def _migration_status_local():
+    """Return a non-mutating dbmate + baseline check for a retained release DB."""
+    os.chdir("/root/littlenet")
+    import re
+    from database.connection import get_db_connection
+
+    migration_dir = ROOT / "db" / "migrations"
+    known = set()
+    for path in migration_dir.glob("*.sql"):
+        match = re.match(r"^(\d+)_", path.name)
+        if match:
+            known.add(match.group(1))
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                       to_regclass('public.schema_migrations') AS migrations,
+                       to_regclass('public.users') AS users,
+                       to_regclass('public.child_profiles') AS child_profiles
+                """
+            )
+            row = cur.fetchone() or {}
+            if not row.get("migrations"):
+                return {
+                    "ok": False,
+                    "tracked": False,
+                    "baseline_tables_present": bool(row.get("users") and row.get("child_profiles")),
+                    "error": "schema_migrations_missing",
+                    "pending": sorted(known),
+                    "unknown_applied": [],
+                }
+            cur.execute("SELECT version FROM schema_migrations")
+            applied = {str(r["version"]) for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    baseline_present = bool(row.get("users") and row.get("child_profiles"))
+    return _assess_migration_history(known, applied, baseline_present)
+
+
+@app.function(image=web_image, secrets=[web_secret], timeout=120)
+def database_migration_status():
+    return _migration_status_local()
+
+
+@app.function(image=web_image, secrets=[web_secret], timeout=300)
+def migrate_retained_database():
+    """Apply dbmate deltas only after retained-db history is proven coherent."""
+    os.chdir("/root/littlenet")
+    before = _migration_status_local()
+    if not before.get("ok"):
+        raise RuntimeError(f"Refusing retained DB migration: {before}")
+    subprocess.run(
+        ["dbmate", "--no-dump-schema", "--migrations-dir", "db/migrations", "up"],
+        check=True,
+        env=os.environ.copy(),
+    )
+    after = _migration_status_local()
+    if not after.get("ok") or after.get("pending"):
+        raise RuntimeError(f"Retained DB migration did not converge: {after}")
+    return {"ok": True, "before": before, "after": after}
 
 
 @app.function(image=web_image, secrets=[web_secret], timeout=300)
@@ -379,12 +478,29 @@ def main(
     curated_poster_limit: int = 250,
     deep_ai_probe: bool = False,
     secret_preflight: bool = False,
+    migration_status_check: bool = False,
+    migrate_db: bool = False,
+    require_db_current: bool = False,
 ):
     """Release helper. Deep AI probing is opt-in because it wakes the T4."""
     if secret_preflight:
         report = web_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
+        if not report.get("present") or not report.get("ai_service_url_matches_expected"):
+            raise RuntimeError(f"LittleMuse web secret/AI endpoint identity mismatch: {report}")
         return
+    if migration_status_check:
+        report = database_migration_status.remote()
+        print("migration-status", json.dumps(report, sort_keys=True))
+        if not report.get("ok"):
+            raise RuntimeError(f"Retained database migration history is not safe: {report}")
+    if migrate_db:
+        print("database-migration", migrate_retained_database.remote())
+    if require_db_current:
+        report = database_migration_status.remote()
+        print("database-current", json.dumps(report, sort_keys=True))
+        if not report.get("ok") or report.get("pending"):
+            raise RuntimeError(f"Retained database is not current for this release: {report}")
     if init_db:
         print("database", init_database.remote())
     if seed:

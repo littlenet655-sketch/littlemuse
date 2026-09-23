@@ -13,7 +13,11 @@ env:
   LITTLENET_WEB_MODAL_APP: littlemuse-web
   LITTLENET_AI_MODAL_APP: littlemuse-ai
   LITTLENET_WEB_SECRET: littlemuse-web-secrets
+  LITTLENET_AI_SECRET: littlemuse-ai-secrets
   LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_MODEL_CACHE_VOLUME: littlenet-model-cache
+  LITTLENET_R2_SECRET: littlenet-r2
+  LITTLENET_EMAIL_SECRET: littlenet-email
   LITTLENET_R2_WRITE_PREFIX: littlemuse
 
 jobs:
@@ -46,11 +50,41 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install --upgrade "modal>=1.5,<2"
-      - name: Validate Modal credentials
+      - name: Validate release URL and Modal credentials
         run: |
+          python - <<'PY'
+          import os,sys
+          url=os.environ.get('LIVE_URL','').strip().rstrip('/')
+          if not url.startswith('https://') or 'localhost' in url or '127.0.0.1' in url:
+              sys.exit(f'LITTLENET_LIVE_URL must be a public HTTPS backend, got {url!r}')
+          PY
           test -n "$MODAL_TOKEN_ID"
           test -n "$MODAL_TOKEN_SECRET"
           modal token info
+      - name: Verify web/AI release identity and shared secret parity without GPU
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --secret-preflight | tee ai-secret-preflight.log
+          modal run modal_web.py --secret-preflight | tee web-secret-preflight.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          def report(path):
+              for line in Path(path).read_text(encoding='utf-8').splitlines():
+                  if line.startswith('secret-preflight '):
+                      return json.loads(line.split(' ', 1)[1])
+              raise SystemExit(f'Missing secret-preflight report in {path}')
+          ai=report('ai-secret-preflight.log')
+          web=report('web-secret-preflight.log')
+          if ai.get('fingerprint') != web.get('fingerprint'):
+              raise SystemExit('AI_SHARED_SECRET mismatch between AI and web release secrets')
+          if not web.get('ai_service_url_matches_expected'):
+              raise SystemExit('AI_SERVICE_URL does not target the expected LittleMuse AI app')
+          PY
+      - name: Require retained database history coherent
+        run: modal run modal_web.py --migration-status-check
+      - name: Refuse web-only deploy when schema migrations are pending
+        run: modal run modal_web.py --require-db-current
       - name: Deploy web backend only
         run: modal deploy modal_web.py
       - name: Run production dependency preflight

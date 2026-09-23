@@ -20,7 +20,7 @@ probe_image = (
         "Pillow>=11,<13",
     )
 )
-web_secret = modal.Secret.from_name("littlenet-web-secrets")
+web_secret = modal.Secret.from_name(os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"))
 
 
 def _fail(label: str, status: int | None = None, body: object | None = None) -> RuntimeError:
@@ -33,7 +33,7 @@ def _fail(label: str, status: int | None = None, body: object | None = None) -> 
 
 
 @app.function(image=probe_image, secrets=[web_secret], timeout=900)
-def run_probe() -> dict:
+def run_probe(child_a: int, child_b: int) -> dict:
     import requests
     import psycopg2
     import psycopg2.extras
@@ -46,8 +46,10 @@ def run_probe() -> dict:
     if not base.startswith("https://") or not db_url or len(secret) < 16:
         raise RuntimeError("release probe environment is incomplete")
 
-    child_a = 2
-    child_b = 3
+    child_a = int(child_a)
+    child_b = int(child_b)
+    if child_a <= 0 or child_b <= 0 or child_a == child_b:
+        raise RuntimeError("release probe child fixture IDs must be distinct positive integers")
 
     conn = psycopg2.connect(db_url)
     try:
@@ -412,5 +414,14 @@ def run_probe() -> dict:
 
 @app.local_entrypoint()
 def main():
-    result = run_probe.remote()
+    try:
+        child_a = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_A"])
+        child_b = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_B"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "release probe requires explicit LITTLENET_RELEASE_PROBE_CHILD_A/B fixture IDs"
+        ) from exc
+    if child_a <= 0 or child_b <= 0 or child_a == child_b:
+        raise RuntimeError("release probe child fixture IDs must be distinct positive integers")
+    result = run_probe.remote(child_a, child_b)
     print("LIVE_MEDIA_PROBE " + json.dumps(result, sort_keys=True))

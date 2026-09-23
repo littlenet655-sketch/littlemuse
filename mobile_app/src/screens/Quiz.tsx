@@ -15,6 +15,7 @@ import { colors, radius, spacing, type } from '../ui/tokens';
 interface QuizScreenParams {
   /** Where to return after a required quiz completes. */
   returnTo?: string;
+  autoStart?: boolean;
 }
 
 type Phase = 'loading' | 'hub' | 'ready' | 'unavailable' | 'complete';
@@ -115,7 +116,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       if (params.returnTo) await savePendingDestination(secureStoreBackend, params.returnTo);
       setCorrectCount(0);
       setEarnedXp(0);
-      setPhase(response.required ? 'ready' : 'hub');
+      setPhase((response.required || params.autoStart) ? 'ready' : 'hub');
     } catch (err) {
       setError(err);
       setPhase('ready');
@@ -299,6 +300,19 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
                   setPhase('ready');
                 }}
               />
+              {!required ? (
+                <>
+                  <View style={{ height: 10 }} />
+                  <Button
+                    label="Back to Feed"
+                    variant="secondary"
+                    onPress={() => {
+                      if (navigation.canGoBack()) navigation.goBack();
+                      else navigation.navigate('KidsTabs');
+                    }}
+                  />
+                </>
+              ) : null}
             </View>
           </Card>
         </ScrollView>
@@ -346,6 +360,18 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
               />
               <View style={{ height: 10 }} />
               <Button label="Back to Learning Hub" variant="secondary" onPress={() => setPhase('hub')} />
+              {!required ? (
+                <>
+                  <View style={{ height: 10 }} />
+                  <Button
+                    label="Done & Return to Feed 🎉"
+                    onPress={() => {
+                      if (navigation.canGoBack()) navigation.goBack();
+                      else navigation.navigate('KidsTabs');
+                    }}
+                  />
+                </>
+              ) : null}
             </View>
           </Card>
         </ScrollView>

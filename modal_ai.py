@@ -16,11 +16,17 @@ import modal
 
 ROOT = Path(__file__).resolve().parent
 
-app = modal.App("littlenet-ai")
-model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
-ai_secret = modal.Secret.from_name("littlenet-ai-secrets", required_keys=["AI_SHARED_SECRET"])
-web_secret = modal.Secret.from_name("littlenet-web-secrets")
-r2_secret = modal.Secret.from_name("littlenet-r2")
+app = modal.App(os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai"))
+model_cache = modal.Volume.from_name(
+    os.getenv("LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache"),
+    create_if_missing=True,
+)
+ai_secret = modal.Secret.from_name(
+    os.getenv("LITTLENET_AI_SECRET", "littlemuse-ai-secrets"),
+    required_keys=["AI_SHARED_SECRET"],
+)
+web_secret = modal.Secret.from_name(os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"))
+r2_secret = modal.Secret.from_name(os.getenv("LITTLENET_R2_SECRET", "littlenet-r2"))
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -76,15 +82,14 @@ image = (
             "HF_HUB_CACHE": "/cache/huggingface/hub",
             "TORCH_HOME": "/cache/torch",
             "LITTLENET_DETOXIFY_MODEL": "multilingual",
-            # Single-frame video policy (2026-09-23): exactly one representative
-            # frame per video is AI-scored, keeping video moderation at the
-            # cost of a single image check. Temporal coverage is intentionally
-            # not attempted.
-            "LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS": "4",
-            "LITTLENET_VIDEO_MAX_FRAMES": "1",
-            # The single representative frame is the complete temporal budget;
-            # videos stay eligible for auto-allow on that frame's own merits.
-            "LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS": "4",
+            # Bounded scene-aware video safety: sample a small, hard-capped
+            # scene/uniform frame set. If a longer clip cannot meet the
+            # temporal-coverage contract within the cap, it stays private for
+            # REVIEW instead of being auto-allowed from sparse evidence.
+            "LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS": "8",
+            "LITTLENET_VIDEO_MIN_FRAMES": "3",
+            "LITTLENET_VIDEO_MAX_FRAMES": "8",
+            "LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS": "12",
             "LITTLENET_ENABLE_SCENEDETECT": "1",
             "LITTLENET_SCENEDETECT_THRESHOLD": "27",
             "LITTLENET_YOLO_WEIGHTS": "/root/littlenet/yolov8n-oiv7.pt",
@@ -460,6 +465,8 @@ def main(
     if secret_preflight:
         report = ai_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
+        if not report.get("present"):
+            raise RuntimeError("LittleMuse AI shared secret is missing")
         return
     if trained_image_preflight_only:
         report = trained_image_preflight.remote()

@@ -11,11 +11,12 @@ Pre-deploy checklist for the fully-fixed tree. Nothing below has been executed a
 
 ## 2. Database (Neon / PostgreSQL 16 + pgvector)
 
-- [ ] `CREATE EXTENSION IF NOT EXISTS vector;`
-- [ ] `python tools/init_db.py` (baseline; idempotent, refuses destructive content)
-- [ ] `dbmate --no-dump-schema --migrations-dir db/migrations up` → expect the current migration set applied with 0 pending
-- [ ] Re-run `dbmate up` → expect no-op (idempotency check)
-- [ ] Back up before first production migration.
+- [ ] Take/verify a Neon restore point before a release migration.
+- [ ] For the retained release database, run `modal run modal_web.py --migration-status-check` and require tracked/coherent history.
+- [ ] Apply only reviewed pending deltas with `modal run modal_web.py --migrate-db`.
+- [ ] Run the status check again and require zero pending versions.
+- [ ] Use `python tools/init_db.py` only for a genuinely fresh database baseline.
+- [ ] See `docs/DATABASE_RELEASE_RECONCILIATION.md` for stop/rollback rules.
 
 ## 3. Storage & media (R2)
 
@@ -33,6 +34,7 @@ Pre-deploy checklist for the fully-fixed tree. Nothing below has been executed a
 
 ## 5. Mobile release
 
+- [ ] Confirm app.json owner = `akshu1245s-team`, EAS projectId = `c4ce834d-fd50-4504-a311-820c3372b6dc`, package = `com.littlenet.app`.
 - [ ] `npm run typecheck`, `npm test`, `npx expo install --check` green.
 - [ ] `npm run export:android` then **Gradle `assembleDebug` on a machine with localhost TCP** (sandbox-blocked here): `export ANDROID_HOME=/opt/android-sdk && npx expo prebuild --platform android && ./gradlew assembleDebug` (JDK 17).
 - [ ] Verify package `com.littlenet.app`, CAMERA permission present, RECORD_AUDIO absent.

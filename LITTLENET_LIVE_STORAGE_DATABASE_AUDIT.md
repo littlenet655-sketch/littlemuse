@@ -254,7 +254,7 @@ The following cost control flags were inspected across code, `.env`, and Modal d
 - **Hardware Routing Breakdown**:
   - **Image Upload Moderation**: Uses **GPU (T4)**. (No CPU worker exists).
   - **Text Moderation**: Uses **GPU (T4)**. (No CPU worker exists).
-  - **Video Moderation**: Uses **GPU (T4)** with single-frame policy (2026-09-23): exactly one representative frame per video is AI-scored.
+  - **Video Moderation**: Uses **GPU (T4)** with a bounded 3–8 frame scene-aware/uniform policy; insufficient temporal coverage routes to REVIEW.
   - **Recommendation Engine**: Runs purely on web backend CPU without GPU invocation (`AI_ENABLE_REMOTE_RANKING=0`).
 - **Conclusion**: The CPU-only image/text moderation split is **NOT LIVE**; all inference executes on the T4 GPU container.
 

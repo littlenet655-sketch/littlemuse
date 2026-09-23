@@ -1,70 +1,57 @@
-# Astra Release Ledger
+# LittleNet Release Ledger
 
-Sole progress tracker. Baseline verified against GitHub on 2026-09-15: `f48aafa1bce0fb1344dfc8aec57f70770d8dfc0b`; main `3b5f3e5bad6781b9af5113c395e4750357c42c31`; PR #43 OPEN. 79 changed files. Clean initial checkout; no reset required.
+**Baseline before hardening:** `5d266677dd369e982e768fdda6fd35d6df342648`  
+**Hardening branch:** `fix/release-coherence-20260923`  
+**Current branch commit at ledger rewrite:** `74675518aaffb85e54ba0027e43cc90d4848146b`  
+**Date:** 2026-09-23
 
-Historical test/service claims are not fresh verification. Unknown means not assessed, not missing. All worker domains except A remain queued until the P0 is resolved; physical verification remains required even if a source fix passes tests.
+This is the sole current progress tracker. Older audits/ledgers remain historical
+evidence only when they reference retired face flows, old Modal identities or old
+APK artifacts.
 
-| ID | DOMAIN | REQUIREMENT | SOURCE FILES | TESTS | IMPLEMENTED | AUTOMATED VERIFIED | LIVE VERIFIED | DEVICE VERIFIED | CURRENT DEFECT | OWNER AGENT | DEPENDENCIES | PR/COMMIT | STATUS |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| P0-001 | Native face | Capture → real local face check → server verification | mobile_app/src/camera/CameraCapture.tsx; facePrecheck.ts; faceQuality.ts; ui/nativeViews.tsx | mobile_app/tests/cameraRuntime.test.ts; faceQuality.test.ts | Source fix reviewed | 83 tests PASS; typecheck/export PASS; Astra independently reran 3 camera regressions PASS | No | Original APK capture FAIL; patched APK not tested | Public CameraView.takePicture undefined; corrected to takePictureAsync with public ref type. Physical confirmation pending | A completed bounded patch; Astra reviewed | Rebuilt APK and authorized Android phone | #43 / uncommitted patch atop f48aafa | BLOCKED |
-| B-001 | Auth/gates | Parent OTP, sessions, roles, child creation, face/quiz gates and destination restore | mobile/api.py; auth/; mobile_app/src/screens/Quiz.tsx; mobile_app/src/navigation/ | tests/test_me_onboarding_gates.py; tests/test_quiz_server_persistence.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | B (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| C-001 | Kids social | Hydration, eligible Feed/Reels/Stories/Explore/Search, profiles/actions and recommendation signals | mobile/api.py; child/; services/recommendation.py; mobile_app/src/screens/kids/ | tests/test_content_search.py; tests/test_submission_publication_recommendations.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | C (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| D-001 | Media safety | Private upload, completion, async moderation, publication and authorized delivery | mobile/api.py; services/media_processor.py; services/publication_lifecycle.py; services/object_storage.py | tests/test_media_delivery.py; tests/test_phase2_upload_and_tags.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | D (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| E-001 | Chat/Parent/Admin | Approved text/shared-post chat, controls, reviews, notifications and audited privileged actions | mobile/api.py; mobile/admin_api.py; mobile/stitch_api.py; services/controls.py | tests/test_agent_d_parent_admin.py; tests/test_two_parent_friendship.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | E (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| F-001 | Database | Pool, migrations, SQL, transactions and real disposable acceptance | database/; db/migrations/ | tests/test_database_connection_pool.py; tests/test_real_postgres_role_smoke.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | F (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| G-001 | Release/infra | Modal scale-to-zero, Resend fail-closed, EAS, CI and secret/security checks | modal_web.py; modal_ai.py; mailg/send_email.py; .github/workflows/ | tests/test_live_release_contracts.py; tests/test_smtp_readiness.py | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | G (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
-| H-001 | UI/device | Stitch demo-critical parity and physical APK evidence | mobile_app/src/screens/; mobile_app/src/ui/; docs/PHYSICAL_DEVICE_CHECKLIST.md | Physical checklist; typecheck/export | Source present; detailed audit queued | Historical only | Historical only where documented | No current successful complete journey | Unknown; bounded review queued | H (not dispatched) | P0-001; nonproduction services/device as applicable | #43 / f48aafa | BLOCKED |
+| Domain | Current source state | Remaining proof | Status |
+|---|---|---|---|
+| Release identity | Expo/EAS and Modal web/AI identities normalized; drift tests added | CI + live deploy | PATCHED / VERIFY |
+| Parent auth | Email OTP + guardian declaration + Android system auth; face retired | Physical Parent journey | IMPLEMENTED / DEVICE PENDING |
+| Child auth/quiz | Password login + server-authoritative quiz gates; feed interval 5 | Physical Child journey | IMPLEMENTED / DEVICE PENDING |
+| Feed/Explore/Search | DB-backed social + curated surfaces | Current APK rendering | IMPLEMENTED / DEVICE PENDING |
+| Reels/Stories | Native Expo video, poster/retry/private playback paths | Real-device playback/TTFF | IMPLEMENTED / DEVICE PENDING |
+| Create/media | private upload → processing → moderation → publication | Live R2 + device upload | IMPLEMENTED / LIVE+DEVICE PENDING |
+| Video moderation | bounded 3–8 scene-aware/uniform frames; incomplete coverage → REVIEW | CI + live timing | PATCHED / VERIFY |
+| Image/text safety | trained models + deterministic/PII defenses | live model preflights | IMPLEMENTED / LIVE PENDING |
+| Chat/social | approved 1:1 chat + typing/polling + safety actions | two-user device run | IMPLEMENTED / DEVICE PENDING |
+| Parent controls | screen time, quiet hours, category/features, review | Parent↔Child enforcement | IMPLEMENTED / DEVICE PENDING |
+| Admin | moderation/audit source paths | live/device moderation fixture | IMPLEMENTED / DEVICE PENDING |
+| Database | guarded retained history check + dbmate-only apply path | run on retained Neon with restore point | PATCHED / LIVE PENDING |
+| R2 | private signed delivery + LittleMuse write namespace | live upload/delete | IMPLEMENTED / LIVE PENDING |
+| Resend | fail-closed verified sender path | real inbox + webhook | IMPLEMENTED / LIVE PENDING |
+| Modal | `littlemuse-web` / `littlemuse-ai` coherent defaults | deploy + strict preflight | PATCHED / LIVE PENDING |
+| APK | verified EAS identity restored | current hardening-commit APK | BUILD PENDING |
 
-## Integration and stop rules
+## Locked scope
 
-A alone receives the first work order. Workers may not spawn agents, edit outside scope, merge, push main, modify production, redefine requirements, or claim device verification. Astra owns shared backend files and assigns exact nonoverlapping edits when later workers are released. Review each bounded patch and run relevant checks before accepting it. No repeat audit without new evidence.
+Included: Kids/Parent/Admin modes, feed/posts/reels/stories/search, one-to-one
+chat, quizzes, parent controls, private media, moderation, notifications,
+recommendations, Neon/PostgreSQL, Modal AI, Resend, R2 and React Native Android.
 
-Required final suite: full pytest against a confirmed disposable LittleNet database; route/dynamic SQL/security/secret audit; npm ci, typecheck, test, export:android, expo install --check, expo-doctor; disposable migrations and role/acceptance flows; authorized live dependency checks; then one new APK and sequential physical testing. Do not use heliumdb as product evidence. Production mutations need explicit approval.
+Intentionally excluded: parent/child face recognition or liveness, unrestricted
+audio/voice messaging, group chat, advanced story/reel editors and standalone
+child signup.
 
-## Requirement coverage
+## Release gates
 
-Each master-spec section remains accountable here. Detailed operation evidence will expand these rows once its specialist is released. The broad worker rows above reserve ownership only.
+A release is accepted only when:
 
-| ID | DOMAIN | REQUIREMENT | SOURCE FILES | TESTS | IMPLEMENTED | AUTOMATED VERIFIED | LIVE VERIFIED | DEVICE VERIFIED | CURRENT DEFECT | OWNER AGENT | DEPENDENCIES | PR/COMMIT | STATUS |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| SPEC-A | PRODUCT IDENTITY | Master spec section A, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | Astra | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-B | PARENT ENTRY PIPELINE | Master spec section B, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | B | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-C | CURRENT REAL-DEVICE BLOCKER | Master spec section C, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | A | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-D | CHILD ONBOARDING PIPELINE | Master spec section D, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | B | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-E | QUIZ PIPELINE | Master spec section E, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | B | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-F | KIDS APP INITIAL HYDRATION | Master spec section F, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-G | HOME FEED | Master spec section G, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-H | RECOMMENDATION ENGINE | Master spec section H, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-I | REELS | Master spec section I, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-J | STORIES | Master spec section J, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-K | EXPLORE / DISCOVER | Master spec section K, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-L | SEARCH | Master spec section L, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-M | CREATE / UPLOAD | Master spec section M, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | D | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-N | MODERATION / 18+ SAFETY | Master spec section N, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | D | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-O | CHAT | Master spec section O, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | E | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-P | CHILD PROFILE / SOCIAL | Master spec section P, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | C | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-Q | PARENT MODE | Master spec section Q, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | E | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-R | ADMIN MODE | Master spec section R, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | E | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-S | MEDIA STORAGE | Master spec section S, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | D | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-T | DATABASE | Master spec section T, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | F | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-U | MODAL | Master spec section U, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | G | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-V | UI TARGET | Master spec section V, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | H | P0-001; required service/device | #43 / f48aafa | BLOCKED |
-| SPEC-W | RELEASE REQUIREMENT | Master spec section W, all listed acceptance conditions | Pipeline map and changed-file inventory | Domain suite in owner row; not rerun | Pending full trace | No fresh full-domain run | Historical claims only | P0 failure only; others unverified | P0-001 blocks release; domain defects pending trace | Astra | P0-001; required service/device | #43 / f48aafa | BLOCKED |
+1. exact release commit passes source-audit, security, Python, package and mobile CI;
+2. retained DB history is coherent and reviewed pending migrations converge to zero;
+3. `littlemuse-ai` and `littlemuse-web` deploy with expected resource names;
+4. strict preflight proves DB, AI/models, PII, Resend, private R2, queue and video delivery;
+5. EAS produces a current-commit APK against the verified live URL;
+6. one Android tester completes the physical checklist sequentially;
+7. two-account proof confirms ALLOW publication plus parent-control/chat enforcement;
+8. no accuracy, latency or scale claim is made without retained evidence.
 
-## Current orchestration record
+## Post-merge execution order
 
-- Authority/spec/inventory established; 79 baseline entries. All ten requested baseline documents read. Pipeline map includes actual route/function mappings and direct SQL references; transitive table/service and per-route acceptance tracing remains incomplete.
-- Agent A alone dispatched. Package-source evidence identifies the public/private Expo ref mismatch; bounded patch under independent review. No physical runtime stack captured, so the original APK exception is not attributed with device-level certainty.
-- Local Android SDK ADB is available but reports no connected device. User asked to connect/authorize phone; no device test claimed.
-
-## Agent A reviewed result — 2026-09-15
-
-Root cause proven by execution of installed Expo Camera 57.0.5 JavaScript: public `CameraView` has `takePictureAsync`, while `takePicture` exists on the inner native `CameraViewRef`. The shared adapter incorrectly declared that inner ref as the public ref, hiding the wrong call from TypeScript. The original function fails before reaching ML Kit. This is package-source runtime evidence consistent with the reported APK error, not an Android stack trace.
-
-Accepted uncommitted patch: `mobile_app/src/camera/CameraCapture.tsx` calls `takePictureAsync`; `mobile_app/src/ui/nativeViews.tsx` uses `RefAttributes<CameraView>`; `mobile_app/tests/cameraRuntime.test.ts` exercises the real installed JavaScript and component with native boundaries substituted. All guardian/enrollment/login callers use the fixed shared component. No backend or native dependency/config changes.
-
-Agent A ran `npm run typecheck` successfully; `npm test` passed 83/83; `npm run export:android` succeeded with 979 modules and a 2.4 MB Hermes bundle. Astra inspected the package declarations/implementation, all screen callers, the full patch and typed test; independently ran `node --test test-dist/tests/cameraRuntime.test.js`: 3 passed, 0 failed. `git diff --check` passed. Tests cover method mismatch, detector-before-upload ordering, rejected/no-face/missing-bridge failure without upload or retry retention, and safe offline checked-photo retry. Native linkage, real faces and live guardian server verification are not proven.
-
-ADB is installed at the local Android SDK path and returned no devices. EAS `whoami` succeeded for the existing authorized account/team. No new APK has been requested yet; no production writes, pushes, commits, deployments or merges occurred. PR #43 remains open at the verified baseline. Physical action has been requested before advancing device verification. B–H remain undispatched.
-
-Remaining work: complete per-pipeline transitive tracing and acceptance evidence, progressively release bounded specialists after P0 resolution, execute final release suite against valid disposable LittleNet services, produce the authorized APK and complete physical journeys. The documents are initial authority/inventory artifacts, not an assertion that this full audit or release is complete.
+CI → Neon restore point → controlled live deployment → strict preflight → one
+current APK → one tester → fix runtime defects if any → widen tester base.

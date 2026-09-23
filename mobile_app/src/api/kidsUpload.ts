@@ -40,6 +40,10 @@ export interface CompleteUploadResult {
   idempotent?: boolean;
   /** True when the server re-dispatched a previously failed processing job. */
   retry_dispatched?: boolean;
+  /** Upload is acknowledged and the safety worker is queued/running. */
+  moderation_queued?: boolean;
+  /** PROCESSING posts remain private until the server publishes ALLOW. */
+  publication_state?: 'PRIVATE_PROCESSING' | 'PUBLISHED' | string;
 }
 
 export function completeUpload(token: string, uploadId: string, input: { caption: string; contentCategory: string; tags: string[]; locationName?: string }): Promise<CompleteUploadResult> {

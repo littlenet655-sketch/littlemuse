@@ -91,7 +91,7 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
 
   return (
     <Screen hasNativeHeader={false}>
-      <BrandHeader title="Safety check" onBack={() => navigation.goBack()} subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`} />
+      <BrandHeader title="Safety check" onBack={() => navigation.goBack()} subtitle={allowed ? 'Your post is live!' : 'Uploaded ✓ — checking privately'} />
 
       {previewUri ? (
         <Card style={styles.previewCard}>
@@ -141,7 +141,10 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
         </View>
         <Text style={styles.copy}>{moderationCopy(poll.stage)}</Text>
         {!allowed && !blocked ? (
-          <Text style={styles.elapsed}>Waiting {formatElapsed(elapsed)} — most checks finish within a couple of minutes.</Text>
+          <>
+            <Text style={styles.uploadAck}>Uploaded ✓. Our safety models are checking it privately.</Text>
+            <Text style={styles.elapsed}>Checking {formatElapsed(elapsed)} — you can keep browsing while this finishes.</Text>
+          </>
         ) : null}
       </Card>
 
@@ -163,7 +166,10 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
       {allowed ? (
         <Button label="View in feed" onPress={() => nav.navigate('FeedTab')} />
       ) : (
-        <Button label={poll.refreshing ? 'Checking…' : 'Refresh status'} disabled={poll.refreshing || blocked} onPress={() => void poll.refresh()} />
+        <>
+          {!blocked ? <Button label="Keep browsing" onPress={() => nav.navigate('FeedTab')} /> : null}
+          <Button label={poll.refreshing ? 'Checking…' : 'Refresh status'} variant="secondary" disabled={poll.refreshing || blocked} onPress={() => void poll.refresh()} />
+        </>
       )}
       {failed ? (
         <Button label={poll.redriving ? 'Trying again…' : 'Try again'} variant="secondary" disabled={poll.redriving} onPress={() => void poll.redrive()} />
@@ -258,6 +264,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   copy: { color: colors.ink, fontSize: 15, lineHeight: 22, textAlign: 'center', paddingVertical: 12 },
+  uploadAck: { color: colors.ok, fontSize: 14, fontWeight: '800', textAlign: 'center', paddingBottom: 4 },
   elapsed: { color: colors.muted, fontSize: 13, textAlign: 'center', paddingBottom: 8 },
   blockedTitle: {
     fontSize: 16,

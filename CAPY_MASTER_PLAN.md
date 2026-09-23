@@ -10,7 +10,7 @@ Current final architecture:
 - Media: Cloudflare R2
 - Email: Resend
 - Background jobs: Modal-native async worker (no QStash)
-- Heavy AI: Modal T4, scale-to-zero, used only for image/video/face workloads
+- Heavy AI: Modal, scale-to-zero; ordinary image/text moderation uses the CPU tier and bounded video safety may use heavier inference
 - Source of truth: GitHub `main`
 
 ## Non-negotiable guardrails
@@ -26,11 +26,11 @@ Current final architecture:
 10. Do not claim a feature is complete unless its real mobile flow is implemented and tested end-to-end.
 
 ## Known current state
-- Backend is substantially implemented.
-- `mobile_app/` is still only a React Native foundation/connectivity shell and needs the real app screens/navigation/state.
-- Mobile API backend already contains a large number of auth/social/quiz/parent/admin routes.
-- Existing source audits currently pass.
-- Modal AI scale-to-zero and model cache are already configured; do not modify unless required by a failing contract.
+- Backend and React Native mobile application are substantially implemented.
+- Kids, Parent and Admin flows, feed/reels/stories/search, posting, chat, quizzes and controls have source implementations and automated coverage.
+- Remaining release work is integration evidence: coherent EAS/Modal identities, guarded retained-DB migration, live dependency verification and sequential physical Android journeys.
+- Current progress authority is `docs/ASTRA_RELEASE_LEDGER.md`; historical audit documents are evidence only.
+- Modal scale-to-zero and the shared model cache remain required; identity/config changes must be contract-tested.
 
 ## Completion definition
 A fresh user must be able to complete this full path:
@@ -192,9 +192,9 @@ Do not retrain models unless a concrete failing benchmark requires it.
 Current policy:
 - deterministic rules for obvious grooming/sexual/bullying text.
 - CPU-friendly checks where possible.
-- Modal T4 only for heavy image/video/face inference.
+- Modal T4 only for intentionally heavy visual/video validation paths; routine image/text checks stay on bounded CPU paths where configured.
 - image/video moderation must fail closed when total safety inference fails.
-- scene-aware video sampling remains bounded.
+- video moderation uses 3–8 scene-aware/uniform frames; clips that cannot meet the temporal-coverage contract within the cap route to REVIEW.
 
 Improve accuracy through:
 - test fixtures for safe/unsafe/borderline examples.
@@ -234,7 +234,7 @@ Mandatory final checks:
 - upload/moderation state tests
 - messaging interaction tests
 - parent-control enforcement tests
-- face error-path tests
+- parent Android device-auth error-path tests
 
 Create a final `docs/FINAL_E2E_MATRIX.md` containing every major user journey and PASS/FAIL evidence.
 
@@ -253,7 +253,7 @@ Then delegate 3–5 non-overlapping implementation tasks at a time.
 
 Recommended order:
 1. mobile shell/auth/API contract
-2. parent + child onboarding/face/quiz
+2. parent + child onboarding/device-auth/quiz
 3. kids feed/profile/social
 4. posting/R2/moderation lifecycle
 5. chat
@@ -287,13 +287,14 @@ Replit must not redesign the architecture or replace working services.
 Cloud changes happen only after the codebase is complete locally/CI.
 Final intended sequence:
 1. merge all reviewed PRs.
-2. deploy Modal AI once if code changed.
-3. deploy Modal web once.
-4. apply DB migrations once.
-5. seed quizzes once/idempotently.
-6. passive readiness checks.
-7. build Android APK.
-8. run controlled end-to-end test.
-9. check Modal billing and ensure idle containers return to zero.
+2. verify a Neon restore point and guarded retained-DB history.
+3. apply reviewed pending dbmate migrations once.
+4. deploy Modal AI once if code changed.
+5. deploy Modal web once.
+6. seed quizzes once/idempotently.
+7. run strict dependency/readiness checks.
+8. build the current Android APK.
+9. run one controlled end-to-end device test, then widen testers.
+10. check Modal billing and ensure idle containers return to zero.
 
 No repeated deployment cycle during feature development.

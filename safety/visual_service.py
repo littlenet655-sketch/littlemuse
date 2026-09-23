@@ -1,4 +1,4 @@
-import os,tempfile,subprocess
+import math,os,tempfile,subprocess
 from .common import env_flag,normalize_signals,timed_call,timeout_seconds
 from .scene_sampler import combined_frame_indices
 
@@ -550,25 +550,32 @@ def _retired_video_audio_contract(ap=None):
 
 
 def _video_sample_count(path,max_frames=None):
-    """Single-frame video policy (2026-09-23): exactly one representative frame
-    per video is AI-scored, keeping video moderation at the cost of a single
-    image check. Temporal coverage is intentionally not attempted; pass
-    max_frames explicitly only for tests/debug tooling."""
+    """Choose a small scene-aware/time-distributed frame budget with a hard cap."""
     if max_frames is not None:
         try:return max(1,int(max_frames))
         except (TypeError,ValueError):pass
-    return 1
+    duration=max(0.0,video_duration_seconds(path))
+    try:interval=max(2.0,float(os.getenv('LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS','8')))
+    except ValueError:interval=8.0
+    try:min_frames=max(2,int(os.getenv('LITTLENET_VIDEO_MIN_FRAMES','3')))
+    except ValueError:min_frames=3
+    try:cap=max(min_frames,int(os.getenv('LITTLENET_VIDEO_MAX_FRAMES','8')))
+    except ValueError:cap=8
+    desired=max(min_frames,int(math.ceil(max(duration,1.0)/interval))+1)
+    return min(cap,desired)
 
 
 def video_sampling_coverage(path, requested):
-    """Single-frame policy: one frame is the complete temporal budget, so the
-    video stays eligible for auto-allow on that frame's own merits."""
+    """Describe whether the bounded sample meets the auto-allow time-gap contract."""
     duration=max(0.0,video_duration_seconds(path))
+    try:max_gap=max(2.0,float(os.getenv('LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS','12')))
+    except ValueError:max_gap=12.0
+    required=max(1,int(math.ceil(duration/max_gap))+1) if duration else 1
     return {
         'duration_seconds':round(duration,3),
-        'max_auto_allow_gap_seconds':None,
-        'required_frames_for_auto_allow':1,
-        'coverage_complete':int(requested)>=1,
+        'max_auto_allow_gap_seconds':max_gap,
+        'required_frames_for_auto_allow':required,
+        'coverage_complete':int(requested)>=required,
     }
 
 
@@ -582,8 +589,8 @@ def _video_frames(path,max_frames):
         if not good:continue
         fd,tmp=tempfile.mkstemp(suffix='.jpg');os.close(fd);cv2.imwrite(tmp,frame)
         try:
-            # Frame OCR stays off unless explicitly enabled: per-frame OCR would
-            # blow the moderation time budget on video.
+            # Frame OCR stays off unless explicitly enabled: OCR across the
+            # bounded video frame set can otherwise dominate moderation time.
             signals=check_image(tmp,ocr=env_flag('LITTLENET_ENABLE_OCR_VIDEO_FRAMES'));outs.append(signals)
             if decide(signals).action=='BLOCK':break
         finally:

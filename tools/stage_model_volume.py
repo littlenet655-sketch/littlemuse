@@ -35,7 +35,7 @@ MODEL_FILES = [
     os.path.join("littlenet_text_safety", "tokenizer_config.json"),
 ]
 
-VOLUME_NAME = "littlenet-model-cache"
+VOLUME_NAME = os.getenv("LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache")
 
 
 def _verify_local(rel: str) -> Path:

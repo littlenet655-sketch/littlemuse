@@ -1,7 +1,7 @@
 # LittleNet Production Readiness Assessment
 
-**Assessment date:** 2026-09-20  
-**Re-audit branch:** `audit/repo-completion-20260920`  
+**Assessment synchronized:** 2026-09-23  
+**Current release-hardening branch:** `fix/release-coherence-20260923`  
 **Classification:** **PRODUCTION CANDIDATE — LIVE/DEVICE VERIFICATION PENDING**
 
 Evidence states:
@@ -28,8 +28,8 @@ Evidence states:
 | Recommendation/feed sessions | **AUTOMATED_TESTED** | Safe ranking + stable sessions + feedback/impression batching exist. |
 | Social Reel JIT playback | **IMPLEMENTED** | Page metadata no longer mints playback credentials for unseen social Reels; current/adjacent player fetches JIT. |
 | APK release workflow | **IMPLEMENTED** | EAS workflow now waits for a preview APK, downloads it and retains build/SHA evidence. Must be triggered with real Expo credentials. |
-| Guardian camera | **UNVERIFIED ON DEVICE** | Physical current-APK test required. |
-| Child face enrollment/login | **UNVERIFIED ON DEVICE** | Physical current-APK test required. |
+| Parent OTP + Android device authentication | **UNVERIFIED ON DEVICE** | Physical current-APK Parent journey required; face/liveness is retired from scope. |
+| Child password login + compulsory quiz | **UNVERIFIED ON DEVICE** | Physical current-APK Child journey required; child face auth is retired from scope. |
 | Reel TTFF/rebuffer/background resume | **UNVERIFIED ON DEVICE** | Must be measured on current APK. |
 | Two-child publication visibility | **UNVERIFIED ON DEVICE** | Must be proven with two eligible demo children. |
 | Push delivery | **UNVERIFIED ON DEVICE** | Requires real Expo device token. |
@@ -46,6 +46,10 @@ Production must satisfy:
 6. Hard-bounced addresses are not automatically unsuppressed.
 
 ## Video contract
+
+Moderation samples a bounded 3–8 scene-aware/uniform frame set. If the configured
+temporal-coverage requirement cannot be met within the cap, the clip stays
+private for REVIEW rather than being auto-published from sparse evidence.
 
 Default safe path:
 
@@ -75,13 +79,14 @@ If Stream is unavailable, not configured, still encoding or token generation fai
 
 Do not label LittleNet **PRODUCTION READY** until the current merged commit has:
 
-1. green backend/security/mobile CI;
-2. live Modal deployment + strict preflight;
-3. enabled Resend webhook + delivered OTP evidence;
-4. current EAS preview APK artifact;
-5. physical Android parent/guardian/child face journey;
-6. safe image and Reel ALLOW/playback journey;
-7. second-child visibility;
-8. REVIEW/BLOCK non-leakage;
-9. push delivery if push is part of the demo claim;
-10. raw staging load evidence before making high-scale performance claims.
+1. green backend/security/mobile CI on the exact release commit;
+2. verified Neon restore point plus guarded retained-DB reconciliation with zero pending migrations;
+3. live `littlemuse-ai` + `littlemuse-web` deployment and strict dependency preflight;
+4. enabled Resend webhook + delivered OTP evidence;
+5. current EAS preview APK artifact built against the verified live URL;
+6. physical Android Parent OTP → device-auth → child password → quiz journey;
+7. safe image and Reel ALLOW/playback journey;
+8. second-child visibility plus Parent control/chat enforcement;
+9. REVIEW/BLOCK non-leakage;
+10. push delivery if push is part of the demo claim;
+11. raw staging load evidence before making high-scale performance claims.
