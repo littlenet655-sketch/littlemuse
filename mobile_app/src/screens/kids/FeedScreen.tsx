@@ -15,6 +15,7 @@ import type { FeedItem } from '../../api/kidsFeed';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
 import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
+import { QuizBreakCard, isQuizMarker, withQuizBreaks, type QuizMarker } from '../../components/QuizBreakCard';
 
 /**
  * Server sends more than the base StoryItem declares: owner id and whether the
@@ -221,11 +222,16 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visibleVideo = viewableItems.find((entry) => {
-      const item = entry.item as FeedItem | undefined;
-      return Boolean(entry.isViewable && item?.media_type?.toUpperCase() === 'VIDEO');
+      const item = entry.item as FeedItem | QuizMarker | undefined;
+      return Boolean(
+        entry.isViewable &&
+          item &&
+          !isQuizMarker(item) &&
+          item.media_type?.toUpperCase() === 'VIDEO',
+      );
     });
-    const item = visibleVideo?.item as FeedItem | undefined;
-    setActiveVideoKey(item ? `${item.source_type}:${item.source_id}` : null);
+    const item = visibleVideo?.item as FeedItem | QuizMarker | undefined;
+    setActiveVideoKey(item && !isQuizMarker(item) ? `${item.source_type}:${item.source_id}` : null);
   }).current;
   const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
   const feed = useFeed('feed', 10, feedMode);
@@ -253,6 +259,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     () => feed.items.filter((it) => !hiddenKeys.has(feedKey(it))),
     [feed.items, hiddenKeys],
   );
+
+  const displayItems = useMemo(() => withQuizBreaks(visibleItems), [visibleItems]);
 
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
     if (!session) return;
@@ -290,7 +298,10 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, online, feed.error]);
 
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem | QuizMarker }) => {
+    if (isQuizMarker(item)) {
+      return <QuizBreakCard token={session?.token} />;
+    }
     const key = feedKey(item);
     return (
       <FeedRow
@@ -302,7 +313,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         onDeletedItem={deletedItem}
       />
     );
-  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
+  }, [session?.token, focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem]);
 
   if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
@@ -311,8 +322,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   return (
     <Screen>
       <FlatList
-        data={visibleItems}
-        keyExtractor={(it) => feedKey(it)}
+        data={displayItems}
+        keyExtractor={(it) => (isQuizMarker(it) ? it.markerId : feedKey(it))}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
