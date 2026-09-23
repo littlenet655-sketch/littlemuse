@@ -42,8 +42,6 @@ FROM (VALUES
   ('Healthy Habits', 'A parent says screen time is over. What do you do?', 'Keep playing secretly', 'Stop and do something else', 'Argue for one more hour', 'Hide the phone', 'Stop and do something else', 'Parents set limits to keep you healthy. There is always tomorrow.'),
   ('Healthy Habits', 'You see something scary in a video. What should you do?', 'Keep watching', 'Close it and tell a parent', 'Share it with friends', 'Watch it again', 'Close it and tell a parent', 'Close scary things right away and tell a parent.'),
   ('Healthy Habits', 'You get a message threatening to share a private photo. What do you do first?', 'Do what they say', 'Save it as proof and tell a trusted adult', 'Reply with anger', 'Delete everything', 'Save it as proof and tell a trusted adult', 'Save the message and tell a trusted adult. They will handle it.')
-  CROSS JOIN (VALUES ('6-8'), ('9-11'), ('12-13'), ('14-18')) AS age(age_group)
-  ON CONFLICT (question, age_group) DO NOTHING;
 ) AS q(category, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
 CROSS JOIN (VALUES ('6-8'), ('9-11'), ('12-13'), ('14-18')) AS age(age_group)
 ON CONFLICT (question, age_group) DO NOTHING;
