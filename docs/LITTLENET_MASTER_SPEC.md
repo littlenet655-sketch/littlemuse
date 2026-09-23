@@ -390,7 +390,6 @@ CLIP
 YOLO
 Detoxify
 scene-aware video sampling
-server face services
 
 Never claim unsupported accuracy.
 
@@ -546,7 +545,7 @@ Prioritize exact polish for demo-critical screens:
 Welcome
 Parent signup
 OTP
-Face verification
+Parent device authentication
 Child onboarding
 Feed
 Reels
