@@ -58,8 +58,8 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
   const showVideoPlaceholder = !allowed && params.mediaType === 'VIDEO';
 
   return (
-    <Screen>
-      <BrandHeader title="Safety check" subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`} />
+    <Screen hasNativeHeader={false}>
+      <BrandHeader title="Safety check" subtitle={allowed ? 'Your post is live!' : `Post #${postId}: ${poll.status}`}  onBack={() => navigation.goBack()} />
 
       {previewUri ? (
         <Card style={styles.previewCard}>
