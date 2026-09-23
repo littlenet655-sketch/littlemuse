@@ -73,9 +73,12 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
   const serverMedia = poll.result?.media_url || undefined;
   const localImagePreview = !allowed && !isVideo ? params.localUri : undefined;
   const localVideoPreview = !allowed && isVideo ? params.localUri : undefined;
-  const previewUri = allowed ? serverPoster || (!isVideo ? serverMedia : undefined) || localImagePreview : localImagePreview;
+  const previewUri = !isVideo
+    ? (allowed ? serverPoster || serverMedia || localImagePreview : localImagePreview)
+    : undefined;
   const videoPreviewUri = isVideo ? (allowed ? serverMedia : localVideoPreview) : undefined;
-  const showVideoPlaceholder = isVideo && !videoPreviewUri && !serverPoster;
+  const videoPosterFallback = isVideo && !videoPreviewUri ? serverPoster : undefined;
+  const showVideoPlaceholder = isVideo && !videoPreviewUri && !videoPosterFallback;
 
   return (
     <Screen hasNativeHeader={false}>
@@ -96,6 +99,16 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
           <VideoPreview uri={videoPreviewUri} />
           <View style={styles.previewTag}>
             <Feather name={allowed ? 'check-circle' : 'clock'} size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Checking your video'}</Text>
+          </View>
+        </Card>
+      ) : null}
+
+      {videoPosterFallback ? (
+        <Card style={styles.previewCard}>
+          <Image source={{ uri: videoPosterFallback }} style={styles.preview} resizeMode="cover" />
+          <View style={styles.previewTag}>
+            <Feather name="film" size={12} color="#FFFFFF" />
             <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Checking your video'}</Text>
           </View>
         </Card>
