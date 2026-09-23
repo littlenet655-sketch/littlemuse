@@ -285,7 +285,7 @@ const ReelCell = memo(function ReelCell({
 
 export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, refreshMe } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   // Measure the actual navigator viewport: raw device height includes the tab
   // bar on some Android devices and causes cells to land between pages.
@@ -293,9 +293,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
-  // Compulsory brain break after each five loaded reels; the backend owns the
-  // authoritative five-view latch and the card only unlocks after that latch clears.
-  const displayItems = useMemo(() => withQuizBreaks(feed.items), [feed.items]);
+  // Server-authoritative random threshold in {2, 3, 4, 5}.
+  const reelThreshold = session?.user?.quiz_interval ?? 5;
+  const displayItems = useMemo(() => withQuizBreaks(feed.items, reelThreshold), [feed.items, reelThreshold]);
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -310,6 +310,15 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // duplicate toggle requests. Keys are action-scoped so a like in flight
   // never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
+
+  // Server latch persistence: if the server says a compulsory quiz is required,
+  // lock scrolling and pause playback immediately (e.g. after app restart, tab change).
+  useEffect(() => {
+    if (session?.user?.quiz_required) {
+      setQuizLocked(true);
+      setPaused(true);
+    }
+  }, [session?.user?.quiz_required]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {
@@ -333,6 +342,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       const item = firstRow?.item;
       if (item && isQuizMarker(item) && !completedQuizMarkers.has(item.markerId)) {
         setQuizLocked(true);
+        setPaused(true);
       }
     }
   }, [completedQuizMarkers]);
@@ -504,9 +514,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             token={session?.token}
             fullscreen
             completed={done}
-            onCompleted={() => {
+            onCompleted={async () => {
               setCompletedQuizMarkers((current) => new Set(current).add(item.markerId));
               setQuizLocked(false);
+              setPaused(false);
+              if (session?.token) {
+                await refreshMe();
+              }
             }}
           />
         </View>
@@ -517,9 +531,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       item={item}
       index={index}
       activeIndex={activeIndex}
-      active={shouldPlayReel(index, activeIndex, foreground && focused)}
-      nearby={shouldLoadReel(index, activeIndex)}
-      paused={paused}
+      active={!quizLocked && shouldPlayReel(index, activeIndex, foreground && focused)}
+      nearby={!quizLocked && shouldLoadReel(index, activeIndex)}
+      paused={paused || quizLocked}
       token={session?.token}
       reelHeight={REEL_HEIGHT}
       windowWidth={windowWidth}
@@ -534,7 +548,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [completedQuizMarkers, activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [completedQuizMarkers, activeIndex, foreground, focused, paused, quizLocked, session?.token, refreshMe, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -699,6 +713,24 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         getItemLayout={(_, index) => ({ length: REEL_HEIGHT, offset: REEL_HEIGHT * index, index })}
         renderItem={renderReelItem}
       />
+
+      {/* Full-screen non-skippable brain break lock if server has latch active */}
+      {quizLocked && !isQuizMarker(displayItems[activeIndex]) ? (
+        <View style={[StyleSheet.absoluteFill, styles.lockedOverlay]}>
+          <QuizBreakCard
+            token={session?.token}
+            fullscreen
+            completed={false}
+            onCompleted={async () => {
+              setQuizLocked(false);
+              setPaused(false);
+              if (session?.token) {
+                await refreshMe();
+              }
+            }}
+          />
+        </View>
+      ) : null}
 
       {/* Instagram-style bottom action sheet — same actions as the old Alert menu */}
       {sheetItem ? (
@@ -1068,5 +1100,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.brand,
+  },
+  lockedOverlay: {
+    backgroundColor: '#000000',
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

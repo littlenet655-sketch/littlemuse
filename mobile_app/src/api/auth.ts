@@ -21,6 +21,7 @@ export interface SessionUser {
   quiz_required: boolean;
   posts_seen: number;
   quiz_interval: number;
+  next_quiz_threshold?: number;
 }
 
 export interface LoginResponse {
@@ -125,6 +126,8 @@ export interface QuizResponse {
   ok: boolean;
   reason: 'onboarding' | 'feed_break' | 'practice';
   required: boolean;
+  quiz_interval?: number;
+  next_quiz_threshold?: number;
   quizzes: QuizItem[];
 }
 

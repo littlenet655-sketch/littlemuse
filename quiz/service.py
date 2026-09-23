@@ -1,9 +1,15 @@
+import secrets
 from datetime import date
 from database.connection import fetch_one, fetch_all, execute, get_db_connection
 
-# Product-locked doom-scroll intervention. Parent Mode may make it MORE
-# frequent, but never less frequent than the LittleNet safety default.
+# Product-locked doom-scroll intervention. The server randomly selects a threshold
+# in {2, 3, 4, 5} after every completed compulsory break and persists it.
 FEED_QUIZ_INTERVAL = 5
+ALLOWED_QUIZ_THRESHOLDS = (2, 3, 4, 5)
+
+def roll_quiz_threshold() -> int:
+    """Return an unpredictable server-authoritative quiz threshold from {2, 3, 4, 5}."""
+    return secrets.choice(ALLOWED_QUIZ_THRESHOLDS)
 
 # ─── Age helpers ──────────────────────────────────────────────────────────────
 
@@ -189,39 +195,82 @@ def setting(cid):
     return fetch_one('SELECT * FROM parent_quiz_settings WHERE child_id=%s', (cid,))
 
 
-def feed_quiz_interval(cid):
+def feed_quiz_interval(cid, row=None):
     """Return the server-authoritative view threshold for the next brain break.
 
-    LittleNet default is 5.
+    LittleNet chooses an unpredictable random threshold in {2, 3, 4, 5} persisted in PostgreSQL.
     Parent may configure a MORE frequent intervention: 1, 2, 3, 4, or 5.
     Never allow > 5 for a child. Child cannot disable it.
     """
-    threshold = FEED_QUIZ_INTERVAL
+    threshold = None
+    if row and row.get('next_quiz_threshold') is not None:
+        try:
+            val = int(row['next_quiz_threshold'])
+            if 2 <= val <= 5:
+                threshold = val
+        except (TypeError, ValueError):
+            pass
+
+    if threshold is None:
+        try:
+            r = fetch_one('SELECT next_quiz_threshold FROM child_quiz_progress WHERE child_id=%s', (cid,))
+            if r and r.get('next_quiz_threshold') is not None:
+                val = int(r['next_quiz_threshold'])
+                if 2 <= val <= 5:
+                    threshold = val
+        except Exception:
+            pass
+
+    if threshold is None:
+        threshold = FEED_QUIZ_INTERVAL
+
     s = setting(cid)
     if s:
         raw_freq = s.get('quiz_frequency')
         if raw_freq is not None:
             try:
                 freq = int(raw_freq)
-                threshold = min(FEED_QUIZ_INTERVAL, max(1, freq))
+                threshold = min(threshold, max(1, freq))
             except (TypeError, ValueError):
-                threshold = FEED_QUIZ_INTERVAL
+                pass
     return threshold
 
 
 def feed_quiz_state(cid):
-    row = fetch_one(
-        '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids
-           FROM child_quiz_progress WHERE child_id=%s''',
-        (cid,)
-    ) or {}
+    row = None
+    try:
+        row = fetch_one(
+            '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids,next_quiz_threshold
+               FROM child_quiz_progress WHERE child_id=%s''',
+            (cid,)
+        )
+    except Exception:
+        row = fetch_one(
+            '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids
+               FROM child_quiz_progress WHERE child_id=%s''',
+            (cid,)
+        )
+    row = row or {}
+    interval = feed_quiz_interval(cid, row=row)
+    persisted_threshold = row.get('next_quiz_threshold')
+    if persisted_threshold is None:
+        persisted_threshold = interval
+    else:
+        try:
+            persisted_threshold = int(persisted_threshold)
+            if not (2 <= persisted_threshold <= 5):
+                persisted_threshold = interval
+        except (TypeError, ValueError):
+            persisted_threshold = interval
+
     return {
         'posts_seen': int(row.get('posts_seen') or 0),
         'required': bool(row.get('quiz_required')),
         'quiz_id': int(row['required_quiz_id']) if row.get('required_quiz_id') else None,
         'required_at': row.get('required_at'),
         'viewed_post_ids': list(row.get('viewed_post_ids') or []),
-        'interval': feed_quiz_interval(cid),
+        'next_quiz_threshold': persisted_threshold,
+        'interval': interval,
     }
 
 
@@ -260,21 +309,54 @@ def record_feed_view(cid, post_id, source_type="POST"):
         if not visible:
             return {'accepted': False, **feed_quiz_state(cid)}
 
-    threshold = feed_quiz_interval(cid)
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,viewed_post_ids)
-                   VALUES(%s,0,FALSE,'[]'::jsonb) ON CONFLICT(child_id) DO NOTHING''',
-                (cid,)
-            )
-            cur.execute(
-                '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids
-                   FROM child_quiz_progress WHERE child_id=%s FOR UPDATE''',
-                (cid,)
-            )
+            init_threshold = roll_quiz_threshold()
+            try:
+                cur.execute(
+                    '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,viewed_post_ids,next_quiz_threshold)
+                       VALUES(%s,0,FALSE,'[]'::jsonb,%s) ON CONFLICT(child_id) DO NOTHING''',
+                    (cid, init_threshold)
+                )
+                cur.execute(
+                    '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids,next_quiz_threshold
+                       FROM child_quiz_progress WHERE child_id=%s FOR UPDATE''',
+                    (cid,)
+                )
+            except Exception:
+                conn.rollback()
+                cur.execute(
+                    '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,viewed_post_ids)
+                       VALUES(%s,0,FALSE,'[]'::jsonb) ON CONFLICT(child_id) DO NOTHING''',
+                    (cid,)
+                )
+                cur.execute(
+                    '''SELECT posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids
+                       FROM child_quiz_progress WHERE child_id=%s FOR UPDATE''',
+                    (cid,)
+                )
             row = cur.fetchone() or {}
+
+            next_thresh = row.get('next_quiz_threshold')
+            if next_thresh is None:
+                next_thresh = init_threshold
+                try:
+                    cur.execute(
+                        'UPDATE child_quiz_progress SET next_quiz_threshold=%s WHERE child_id=%s AND next_quiz_threshold IS NULL',
+                        (next_thresh, cid)
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    next_thresh = int(next_thresh)
+                    if not (2 <= next_thresh <= 5):
+                        next_thresh = init_threshold
+                except (TypeError, ValueError):
+                    next_thresh = init_threshold
+
+            threshold = feed_quiz_interval(cid, row={'next_quiz_threshold': next_thresh})
             if row.get('quiz_required'):
                 conn.commit()
                 return {
@@ -282,6 +364,7 @@ def record_feed_view(cid, post_id, source_type="POST"):
                     'posts_seen': int(row.get('posts_seen') or 0),
                     'required': True,
                     'quiz_id': int(row['required_quiz_id']) if row.get('required_quiz_id') else None,
+                    'next_quiz_threshold': next_thresh,
                     'interval': threshold,
                 }
             seen = [x for x in (row.get('viewed_post_ids') or [])]
@@ -309,6 +392,7 @@ def record_feed_view(cid, post_id, source_type="POST"):
             'posts_seen': count,
             'required': required,
             'quiz_id': None,
+            'next_quiz_threshold': next_thresh,
             'interval': threshold,
         }
     except Exception:
@@ -416,14 +500,26 @@ def bump(cid):
 
 
 def reset(cid):
-    execute(
-        '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids)
-           VALUES(%s,0,FALSE,NULL,NULL,'[]'::jsonb)
-           ON CONFLICT(child_id) DO UPDATE
-             SET posts_seen=0,quiz_required=FALSE,required_quiz_id=NULL,required_at=NULL,
-                 viewed_post_ids='[]'::jsonb,last_updated=NOW()''',
-        (cid,)
-    )
+    new_threshold = roll_quiz_threshold()
+    try:
+        execute(
+            '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids,next_quiz_threshold)
+               VALUES(%s,0,FALSE,NULL,NULL,'[]'::jsonb,%s)
+               ON CONFLICT(child_id) DO UPDATE
+                 SET posts_seen=0,quiz_required=FALSE,required_quiz_id=NULL,required_at=NULL,
+                     viewed_post_ids='[]'::jsonb,next_quiz_threshold=%s,last_updated=NOW()''',
+            (cid, new_threshold, new_threshold)
+        )
+    except Exception:
+        execute(
+            '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids)
+               VALUES(%s,0,FALSE,NULL,NULL,'[]'::jsonb)
+               ON CONFLICT(child_id) DO UPDATE
+                 SET posts_seen=0,quiz_required=FALSE,required_quiz_id=NULL,required_at=NULL,
+                     viewed_post_ids='[]'::jsonb,last_updated=NOW()''',
+            (cid,)
+        )
+    return new_threshold
 
 # ─── Learning challenges ──────────────────────────────────────────────────────
 

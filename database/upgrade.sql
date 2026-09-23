@@ -59,6 +59,7 @@ ALTER TABLE child_quiz_progress ADD COLUMN IF NOT EXISTS quiz_required BOOLEAN N
 ALTER TABLE child_quiz_progress ADD COLUMN IF NOT EXISTS required_quiz_id INTEGER REFERENCES quizzes(quiz_id) ON DELETE SET NULL;
 ALTER TABLE child_quiz_progress ADD COLUMN IF NOT EXISTS required_at TIMESTAMP;
 ALTER TABLE child_quiz_progress ADD COLUMN IF NOT EXISTS viewed_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE child_quiz_progress ADD COLUMN IF NOT EXISTS next_quiz_threshold INTEGER NOT NULL DEFAULT 5 CHECK(next_quiz_threshold BETWEEN 2 AND 5);
 CREATE INDEX IF NOT EXISTS idx_child_quiz_required ON child_quiz_progress(child_id) WHERE quiz_required=TRUE;
 
 -- Parent verification and approval extensions

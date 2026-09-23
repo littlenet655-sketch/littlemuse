@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS child_quiz_progress (
  required_quiz_id INTEGER REFERENCES quizzes(quiz_id) ON DELETE SET NULL,
  required_at TIMESTAMP,
  viewed_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+ next_quiz_threshold INTEGER NOT NULL DEFAULT 5 CHECK(next_quiz_threshold BETWEEN 2 AND 5),
  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS child_quiz_attempts (
