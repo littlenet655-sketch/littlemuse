@@ -46,8 +46,8 @@ def run_probe() -> dict:
     if not base.startswith("https://") or not db_url or len(secret) < 16:
         raise RuntimeError("release probe environment is incomplete")
 
-    child_a = 999201
-    child_b = 999202
+    child_a = 2
+    child_b = 3
 
     conn = psycopg2.connect(db_url)
     try:
