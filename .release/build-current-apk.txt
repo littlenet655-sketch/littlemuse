@@ -1,2 +1,2 @@
-Build standalone preview APK from current main against the verified LittleNet Modal backend.
-Rebuild after verified backend URL fallback fix.
+Build standalone release APK from current main after APK findings fixes.
+Backend deployment is green at the verified LittleMuse Modal URL; this build is the installable fallback because Expo cloud token is not configured in GitHub.
