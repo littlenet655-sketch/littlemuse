@@ -21,14 +21,17 @@ uploads = modal.Volume.from_name(os.getenv("LITTLENET_UPLOADS_VOLUME", "littlemu
 # checkpoints are absent, safety.littlenet_trained_image.available() stays
 # False and moderation fails closed to the legacy stack — mounting the
 # volume never weakens moderation.
-model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
+model_cache = modal.Volume.from_name(
+    os.getenv("LITTLENET_MODEL_CACHE_VOLUME", "littlenet-model-cache"),
+    create_if_missing=True,
+)
 web_secret = modal.Secret.from_name(
     os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"),
     required_keys=["DATABASE_URL", "SECRET_KEY", "BASE_URL", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
 )
-email_secret = modal.Secret.from_name("littlenet-email")
+email_secret = modal.Secret.from_name(os.getenv("LITTLENET_EMAIL_SECRET", "littlenet-email"))
 r2_secret = modal.Secret.from_name(
-    "littlenet-r2",
+    os.getenv("LITTLENET_R2_SECRET", "littlenet-r2"),
     required_keys=["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"],
 )
 
@@ -231,6 +234,75 @@ def curated_poster_backfill(apply: bool = False, limit: int = 250):
     return run(apply=bool(apply), limit=int(limit))
 
 
+def _migration_status_local():
+    """Return a non-mutating dbmate history check for a retained release DB."""
+    os.chdir("/root/littlenet")
+    import re
+    from database.connection import get_db_connection
+
+    migration_dir = ROOT / "db" / "migrations"
+    known = {}
+    for path in migration_dir.glob("*.sql"):
+        match = re.match(r"^(\d+)_", path.name)
+        if match:
+            known[match.group(1)] = path.name
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.schema_migrations') AS rel")
+            row = cur.fetchone()
+            if not row or not row["rel"]:
+                return {
+                    "ok": False,
+                    "tracked": False,
+                    "error": "schema_migrations_missing",
+                    "pending": sorted(known),
+                    "unknown_applied": [],
+                }
+            cur.execute("SELECT version FROM schema_migrations")
+            applied = {str(r["version"]) for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    unknown = sorted(applied - set(known))
+    pending = sorted(set(known) - applied)
+    adoption = "20260906180000"
+    missing_adoption = bool(applied and adoption not in applied)
+    return {
+        "ok": not unknown and not missing_adoption,
+        "tracked": True,
+        "applied_count": len(applied),
+        "known_count": len(known),
+        "pending": pending,
+        "unknown_applied": unknown,
+        "missing_adoption_marker": missing_adoption,
+    }
+
+
+@app.function(image=web_image, secrets=[web_secret], timeout=120)
+def database_migration_status():
+    return _migration_status_local()
+
+
+@app.function(image=web_image, secrets=[web_secret], timeout=300)
+def migrate_retained_database():
+    """Apply dbmate deltas only after retained-db history is proven coherent."""
+    os.chdir("/root/littlenet")
+    before = _migration_status_local()
+    if not before.get("ok"):
+        raise RuntimeError(f"Refusing retained DB migration: {before}")
+    subprocess.run(
+        ["dbmate", "--no-dump-schema", "--migrations-dir", "db/migrations", "up"],
+        check=True,
+        env=os.environ.copy(),
+    )
+    after = _migration_status_local()
+    if not after.get("ok") or after.get("pending"):
+        raise RuntimeError(f"Retained DB migration did not converge: {after}")
+    return {"ok": True, "before": before, "after": after}
+
+
 @app.function(image=web_image, secrets=[web_secret], timeout=300)
 def init_database():
     os.chdir("/root/littlenet")
@@ -376,12 +448,21 @@ def main(
     curated_poster_limit: int = 250,
     deep_ai_probe: bool = False,
     secret_preflight: bool = False,
+    migration_status_check: bool = False,
+    migrate_db: bool = False,
 ):
     """Release helper. Deep AI probing is opt-in because it wakes the T4."""
     if secret_preflight:
         report = web_secret_preflight.remote()
         print(f"secret-preflight {json.dumps(report, sort_keys=True)}")
         return
+    if migration_status_check:
+        report = database_migration_status.remote()
+        print("migration-status", json.dumps(report, sort_keys=True))
+        if not report.get("ok"):
+            raise RuntimeError(f"Retained database migration history is not safe: {report}")
+    if migrate_db:
+        print("database-migration", migrate_retained_database.remote())
     if init_db:
         print("database", init_database.remote())
     if seed:

@@ -18,7 +18,7 @@ on:
         required: false
         type: string
       migrate_database:
-        description: Apply PostgreSQL schema/upgrades before validation
+        description: Apply reviewed dbmate deltas to a retained release database
         required: true
         type: boolean
         default: false
@@ -38,6 +38,9 @@ env:
   LITTLENET_WEB_SECRET: littlemuse-web-secrets
   LITTLENET_AI_SECRET: littlemuse-ai-secrets
   LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_MODEL_CACHE_VOLUME: littlenet-model-cache
+  LITTLENET_R2_SECRET: littlenet-r2
+  LITTLENET_EMAIL_SECRET: littlenet-email
   LITTLENET_R2_WRITE_PREFIX: littlemuse
 
 jobs:
@@ -80,13 +83,14 @@ jobs:
           test -n "$MODAL_TOKEN_ID"
           test -n "$MODAL_TOKEN_SECRET"
           modal token info
-      - name: Refuse automatic migration of a retained release database
-        if: ${{ inputs.migrate_database }}
-        run: |
-          echo 'Use the reviewed LittleMuse database reconciliation procedure before deploying.'
-          exit 1
       - name: Stage trained moderation models into the Modal volume
         run: python tools/stage_model_volume.py
+      - name: Validate retained database migration history
+        if: ${{ inputs.migrate_database }}
+        run: modal run modal_web.py --migration-status-check
+      - name: Apply reviewed pending dbmate migrations
+        if: ${{ inputs.migrate_database }}
+        run: modal run modal_web.py --migrate-db
       - run: modal deploy modal_ai.py
       - run: modal deploy modal_web.py
       - run: modal run modal_web.py --seed
