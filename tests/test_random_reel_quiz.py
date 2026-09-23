@@ -244,9 +244,9 @@ def test_migration_and_schema_coherence():
 
 
 def test_mobile_compulsory_gate_is_reels_only_source_contract():
-    api = _text("mobile/api.py")
-    feed = _text("mobile_app/src/screens/kids/FeedScreen.tsx")
-    reels = _text("mobile_app/src/screens/kids/ReelsScreen.tsx")
+    api = text("mobile/api.py")
+    feed = text("mobile_app/src/screens/kids/FeedScreen.tsx")
+    reels = text("mobile_app/src/screens/kids/ReelsScreen.tsx")
     assert 'if surface == "REELS":' in api
     assert 'if surf == "REELS":' in api
     assert "withQuizBreaks(visibleItems" not in feed

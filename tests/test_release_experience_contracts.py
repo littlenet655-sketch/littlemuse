@@ -34,15 +34,18 @@ def test_feed_and_reels_remain_cursor_paginated():
     assert "onEndReached={feed.loadMore}" in reels
 
 
-def test_quiz_break_is_five_and_cannot_be_scrolled_past_while_locked():
-    helper = text("mobile_app/src/kids/quizBreaks.ts")
+def test_random_reel_brain_break_is_server_driven_and_feed_stays_optional():
     feed = text("mobile_app/src/screens/kids/FeedScreen.tsx")
     reels = text("mobile_app/src/screens/kids/ReelsScreen.tsx")
     service = text("quiz/service.py")
-    assert "QUIZ_EVERY_N = 5" in helper
-    assert "FEED_QUIZ_INTERVAL = 5" in service
-    assert "scrollEnabled={!quizLocked}" in feed
+    assert "ALLOWED_QUIZ_THRESHOLDS = (2, 3, 4, 5)" in service
+    assert "Quiz Zone" in feed
+    assert "scrollEnabled={!quizLocked}" not in feed
+    assert "withQuizBreaks(visibleItems" not in feed
+    assert "const displayItems = feed.items" in reels
     assert "scrollEnabled={!quizLocked}" in reels
+    assert "if (result.quiz_required)" in reels
+    assert "withQuizBreaks(feed.items" not in reels
 
 
 def test_perf_hardening_has_no_cross_request_discovery_ttl():
