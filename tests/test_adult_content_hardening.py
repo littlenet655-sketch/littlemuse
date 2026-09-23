@@ -51,11 +51,13 @@ def test_clip_uses_its_own_visual_thresholds():
     assert decide(_visual({'clip':{'adult':0.75,'sexual':0.75}}), 'STRICT').action == 'BLOCK'
 
 
-def test_video_single_frame_nsfw_evidence_is_enforced():
+def test_video_sampled_frame_nsfw_evidence_is_enforced():
     signals=_visual({
-        'sampled_frames':1,
+        'sampled_frames':3,
         'frames':[
+            {'nudenet':0.05},
             {'falconsai':0.76},
+            {'clip':{'adult':0.04,'sexual':0.04}},
         ],
     }, category='VIDEO')
     assert decide(signals, 'STRICT').action == 'BLOCK'
@@ -91,15 +93,17 @@ def test_detoxify_multilingual_sexual_head_is_consumed(monkeypatch):
     assert text_service._DETOX_NAME == 'multilingual'
 
 
-def test_three_minute_reel_requests_single_frame(monkeypatch):
+def test_three_minute_reel_is_hard_capped(monkeypatch):
     monkeypatch.setattr(visual_service,'video_duration_seconds',lambda _path:180.0)
-    monkeypatch.setenv('LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS','3')
-    monkeypatch.setenv('LITTLENET_VIDEO_MAX_FRAMES','60')
-    assert visual_service._video_sample_count('fake.mp4') == 1
+    monkeypatch.setenv('LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS','8')
+    monkeypatch.setenv('LITTLENET_VIDEO_MIN_FRAMES','3')
+    monkeypatch.setenv('LITTLENET_VIDEO_MAX_FRAMES','8')
+    assert visual_service._video_sample_count('fake.mp4') == 8
 
 
-def test_short_video_samples_single_frame(monkeypatch):
+def test_short_video_keeps_multiple_points(monkeypatch):
     monkeypatch.setattr(visual_service,'video_duration_seconds',lambda _path:9.0)
-    monkeypatch.setenv('LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS','3')
-    monkeypatch.setenv('LITTLENET_VIDEO_MAX_FRAMES','60')
-    assert visual_service._video_sample_count('fake.mp4') == 1
+    monkeypatch.setenv('LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS','8')
+    monkeypatch.setenv('LITTLENET_VIDEO_MIN_FRAMES','3')
+    monkeypatch.setenv('LITTLENET_VIDEO_MAX_FRAMES','8')
+    assert visual_service._video_sample_count('fake.mp4') == 3

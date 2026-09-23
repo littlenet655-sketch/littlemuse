@@ -10,7 +10,7 @@ Current final architecture:
 - Media: Cloudflare R2
 - Email: Resend
 - Background jobs: Modal-native async worker (no QStash)
-- Heavy AI: Modal T4, scale-to-zero, used only for image/video/face workloads
+- Heavy AI: Modal, scale-to-zero; ordinary image/text moderation uses the CPU tier and bounded video safety may use heavier inference
 - Source of truth: GitHub `main`
 
 ## Non-negotiable guardrails
@@ -26,11 +26,11 @@ Current final architecture:
 10. Do not claim a feature is complete unless its real mobile flow is implemented and tested end-to-end.
 
 ## Known current state
-- Backend is substantially implemented.
-- `mobile_app/` is still only a React Native foundation/connectivity shell and needs the real app screens/navigation/state.
-- Mobile API backend already contains a large number of auth/social/quiz/parent/admin routes.
-- Existing source audits currently pass.
-- Modal AI scale-to-zero and model cache are already configured; do not modify unless required by a failing contract.
+- Backend and React Native mobile application are substantially implemented.
+- Kids, Parent and Admin flows, feed/reels/stories/search, posting, chat, quizzes and controls have source implementations and automated coverage.
+- Remaining release work is integration evidence: coherent EAS/Modal identities, guarded retained-DB migration, live dependency verification and sequential physical Android journeys.
+- Current progress authority is `docs/ASTRA_RELEASE_LEDGER.md`; historical audit documents are evidence only.
+- Modal scale-to-zero and the shared model cache remain required; identity/config changes must be contract-tested.
 
 ## Completion definition
 A fresh user must be able to complete this full path:
@@ -194,7 +194,7 @@ Current policy:
 - CPU-friendly checks where possible.
 - Modal T4 only for heavy image/video/face inference.
 - image/video moderation must fail closed when total safety inference fails.
-- scene-aware video sampling remains bounded.
+- video moderation uses 3–8 scene-aware/uniform frames; clips that cannot meet the temporal-coverage contract within the cap route to REVIEW.
 
 Improve accuracy through:
 - test fixtures for safe/unsafe/borderline examples.

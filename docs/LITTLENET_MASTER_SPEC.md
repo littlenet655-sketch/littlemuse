@@ -69,58 +69,30 @@ OTP:
 - expiration supported
 - never fake delivery success
 
-Guardian camera:
-- native Expo Camera
-- on-device face precheck before upload
-- one face
-- adequate face size
-- centered
-- acceptable head pose
-- understandable local error messages
-- offline retry must preserve a valid captured photo where safe
+Parent identity/authentication:
+- email OTP proves inbox ownership
+- guardian 18+ declaration and consent are server-authoritative
+- Android system authentication (biometric/PIN/device credential) gates Parent Mode
+- no parent or child face-recognition/liveness pipeline is part of the locked product scope
+- auth failures must be understandable and fail closed
 
 Server remains authoritative.
 
-## C. CURRENT REAL-DEVICE BLOCKER
+## C. CURRENT RELEASE GATES
 
-THIS IS THE FIRST P0 BUG.
+The historical guardian-camera P0 is retired because face/liveness authentication
+was removed from the product scope on 2026-09-22.
 
-A real Android APK was built from:
+Current release gates are evidence gates, not known missing features:
 
-f48aafa1bce0fb1344dfc8aec57f70770d8dfc0b
-
-Build:
-970b8614-50b6-4e7c-abe0-f40958926efb
-
-The APK installed and:
-
-- Parent signup worked far enough to reach Adult Check.
-- Camera permission worked.
-- Native front camera preview worked.
-- Face oval/UI worked.
-
-But after pressing:
-
-Take live selfie
-
-the app displayed:
-
-undefined is not a function
-
-Current suspected location:
-
-mobile_app/src/camera/facePrecheck.ts
-
-using:
-
-@react-native-ml-kit/face-detection@2.0.1
-
-Do NOT assume the exact root cause.
-Prove which runtime function is undefined.
-
-This bug MUST be fixed before broader device validation continues.
-
-Never bypass ML Kit by silently uploading unchecked frames.
+- source/security/mobile CI must pass on the exact release commit;
+- live Modal web/AI identities and secrets must match the release workflow;
+- retained Neon migration history must pass the guarded dbmate reconciliation check;
+- a current-HEAD EAS APK must be built against the verified live HTTPS backend;
+- one Android device must complete the sequential Parent → Child → Feed/Reels →
+  Create → Moderation → Parent/Admin journeys in PHYSICAL_DEVICE_CHECKLIST.md;
+- live R2/Resend/Modal and cross-user publication behavior must be exercised before
+  claiming end-to-end verification.
 
 ## D. CHILD ONBOARDING PIPELINE
 
@@ -422,8 +394,10 @@ server face services
 
 Never claim unsupported accuracy.
 
-Video moderation uses bounded scene/frame sampling rather than pretending every
-video frame is processed if that is the actual implementation.
+Video moderation uses bounded PySceneDetect + uniformly distributed frame
+sampling. Runtime targets at least 3 and at most 8 frames. If a longer clip
+cannot meet the configured temporal-coverage gap within that hard cap, it must
+remain private for REVIEW rather than being auto-allowed from sparse evidence.
 
 Policy outcomes:
 
@@ -547,17 +521,18 @@ Never use heliumdb as LittleNet product evidence.
 
 ## U. MODAL
 
-Existing workspace/apps:
+Canonical release app identities:
 
-netlittle2
-littlenet-web
-littlenet-ai
+littlemuse-web
+littlemuse-ai
 
-Maintain scale-to-zero.
+Shared retained resources may keep existing names (for example
+littlenet-model-cache, littlenet-r2 and littlenet-email) and are referenced
+through environment-configurable names.
 
-Routine health should not unnecessarily wake expensive GPU workloads.
-
-Do not create replacement apps.
+Maintain scale-to-zero. Routine health should not unnecessarily wake expensive
+GPU workloads. App/secret/volume identities must be asserted by CI so a merge
+cannot silently point web code at a different Modal app.
 
 ## V. UI TARGET
 

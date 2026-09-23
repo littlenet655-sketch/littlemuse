@@ -12,6 +12,7 @@ This file lists only limitations that remain after the final React Native/mobile
 4. **Cross-user publication evidence** — source contracts cover publication invalidation and feed eligibility, but a live two-account run should prove Child A ALLOW content appears for eligible Child B.
 5. **Real-device Reel measurements** — one-active-player, buffering/retry, signed playback and background behavior are implemented; TTFF/rebuffer metrics require a real network/device measurement.
 6. **Optional Cloudflare Stream** — private Stream integration remains opt-in. R2 is the current safe fallback; do not enable Stream until its credentials and live playback path are verified.
+7. **Bounded video moderation** — the release policy intentionally caps visual moderation at 8 scene-aware/uniform frames. Longer clips that cannot satisfy the temporal-coverage contract are REVIEW-only rather than being silently auto-published.
 
 ## Evidence limitations, not missing product features
 
