@@ -76,15 +76,14 @@ image = (
             "HF_HUB_CACHE": "/cache/huggingface/hub",
             "TORCH_HOME": "/cache/torch",
             "LITTLENET_DETOXIFY_MODEL": "multilingual",
-            # Scene-aware sampling protects short scene changes. The bounded
-            # uniform fallback prevents long reels from multiplying GPU work.
-            # Cost-bounded video scan: short clips retain <=4s temporal spacing.
-            # Long clips stop at 24 frames and fail to REVIEW rather than burning
-            # unbounded GPU time to auto-allow them.
+            # Single-frame video policy (2026-09-23): exactly one representative
+            # frame per video is AI-scored, keeping video moderation at the
+            # cost of a single image check. Temporal coverage is intentionally
+            # not attempted.
             "LITTLENET_VIDEO_SAMPLE_INTERVAL_SECONDS": "4",
-            "LITTLENET_VIDEO_MAX_FRAMES": "24",
-            # Longer videos remain private for review if this temporal coverage
-            # cannot be met within the full-model frame budget.
+            "LITTLENET_VIDEO_MAX_FRAMES": "1",
+            # The single representative frame is the complete temporal budget;
+            # videos stay eligible for auto-allow on that frame's own merits.
             "LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS": "4",
             "LITTLENET_ENABLE_SCENEDETECT": "1",
             "LITTLENET_SCENEDETECT_THRESHOLD": "27",

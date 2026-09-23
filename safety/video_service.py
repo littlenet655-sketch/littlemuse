@@ -70,7 +70,7 @@ def _sample_frames(path: str, requested: int):
 
 
 def check_video(path: str, max_frames=None):
-    """Moderate a video using scene-aware + time-distributed frame evidence."""
+    """Moderate a video using its single representative frame (scene-preferred)."""
     from .remote_client import enabled, moderate_file
 
     if enabled():
