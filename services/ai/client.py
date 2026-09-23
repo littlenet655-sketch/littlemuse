@@ -117,39 +117,79 @@ class AIServiceClient:
     def generate_quiz_batch(
         self,
         age_group: str = "9-11",
-        grade_level: str = "Grade 4",
+        grade_level: Optional[str] = None,
         categories: Optional[List[str]] = None,
         count: int = 10,
-        difficulty: str = "MEDIUM",
-        language: str = "en"
+        difficulty: Optional[str] = None,
+        language: str = "en",
+        excluded_stems: Optional[List[str]] = None
     ) -> QuizBatchResult:
         """
         Asynchronously generates high-quality multiple-choice questions for the quiz bank.
         Gracefully returns empty list on failure so caller can fall back to existing bank.
+        Tailors simplicity, topics, and cognitive difficulty strictly by the child's age group.
         """
         if not self.is_k2_available():
             logger.info("K2 unavailable for batch quiz generation; returning empty pool.")
             return QuizBatchResult(questions=[])
 
-        cats = categories or ["Digital Safety", "Kindness", "Stranger Safety", "Healthy Habits"]
+        # Age-specific curriculum customization
+        if age_group == "6-8":
+            grade = grade_level or "Grade 1-2"
+            cats = categories or ["Animals & Pets", "Colors & Shapes", "Fruits & Vegetables", "Good Daily Habits", "Simple Numbers (1-10)", "Kindness & Safety"]
+            diff = difficulty or "EASY"
+            age_guidance = (
+                "CRITICAL INSTRUCTION FOR AGE 6-8: Questions must be VERY SIMPLE, CHEERFUL, and INTUITIVE. "
+                "Use short, basic words a 6 to 8-year-old child easily understands. "
+                "Questions should be about everyday things: colors (e.g. 'What color is a ripe banana?'), "
+                "animals (e.g. 'What sound does a cow make?'), basic counting/math (e.g. 'What is 3 + 2?'), "
+                "or simple daily habits (e.g. 'What should you do before eating dinner?'). "
+                "Keep options short and clear under 40 characters. DO NOT ask complex scientific, technical, or historical questions."
+            )
+        elif age_group == "9-11":
+            grade = grade_level or "Grade 4-5"
+            cats = categories or ["Science & Nature", "Animals & Wildlife", "India General Knowledge", "Basic Math & Riddles", "Solar System", "Online Safety"]
+            diff = difficulty or "MEDIUM"
+            age_guidance = (
+                "INSTRUCTION FOR AGE 9-11: Questions should be fun, educational, and engaging for elementary students. "
+                "Topics include foundational science (plants, water cycle, planets), famous landmarks, simple arithmetic, and friendly online safety."
+            )
+        elif age_group == "12-13":
+            grade = grade_level or "Grade 7-8"
+            cats = categories or ["Earth & Ecosystems", "General Science", "History & Culture", "Logic & Puzzles", "Technology Basics", "Smart Internet Habits"]
+            diff = difficulty or "MEDIUM"
+            age_guidance = (
+                "INSTRUCTION FOR AGE 12-13: Middle-school curriculum level. Encourage curiosity, scientific concepts, environmental awareness, and logical thinking."
+            )
+        else: # 14-18
+            grade = grade_level or "Grade 9-12"
+            cats = categories or ["Applied Science", "Tech & Coding", "Civics & World GK", "Logical Reasoning", "Cyber Safety & Privacy"]
+            diff = difficulty or "MEDIUM"
+            age_guidance = (
+                "INSTRUCTION FOR AGE 14-18: High school level. Engaging, intellectually stimulating questions covering technology, science, logical reasoning, and real-world digital literacy."
+            )
+
+        exclusions_text = ""
+        if excluded_stems:
+            sample_exclusions = [s.strip() for s in excluded_stems if s.strip()][:15]
+            if sample_exclusions:
+                exclusions_text = "\nDO NOT repeat or duplicate any of these questions:\n- " + "\n- ".join(sample_exclusions)
+
         system_prompt = (
-            f"You are a child safety teacher writing quiz questions for children in age group '{age_group}' ({grade_level}). "
-            f"Generate {count} multiple-choice questions. Topics to mix: {', '.join(cats)}. "
-            f"Language: '{language}'. "
-            "SIMPLICITY RULES (follow strictly):\n"
-            "- Use short, simple everyday words a 7-year-old can read. No jargon, no technical terms.\n"
-            "- Question is ONE short sentence, under 120 characters. Scenario-based: 'What should you do if...?' or 'Is it okay to...?'\n"
-            "- Each option is a short phrase, under 40 characters.\n"
+            f"You are a child education curriculum designer. Generate {count} multiple-choice questions "
+            f"for children in age group '{age_group}' ({grade}).\n"
+            f"{age_guidance}\n"
+            f"Topics to mix: {', '.join(cats)}. Difficulty level: '{diff}'. Language: '{language}'.{exclusions_text}\n"
+            "Requirements:\n"
             "- Exactly 4 distinct options (option_a, option_b, option_c, option_d)\n"
             "- correct_answer must EXACTLY match one of the 4 options verbatim\n"
-            "- Include a 1-sentence kid-friendly explanation of why it is correct\n"
-            "- Every question must have a clear safe/unsafe or kind/unkind answer. Never ambiguous.\n"
-            "- Difficulty: 'EASY'\n"
+            "- Include a clear, 1-2 sentence kid-friendly explanation of why it is correct\n"
+            "- Strict educational value and age appropriateness\n"
             "Return JSON: {\"questions\": [{\"category\": \"...\", \"question\": \"...\", \"option_a\": \"...\", "
             "\"option_b\": \"...\", \"option_c\": \"...\", \"option_d\": \"...\", \"correct_answer\": \"...\", "
-            "\"explanation\": \"...\", \"difficulty\": \"EASY\", \"language\": \"en\"}]}"
+            f"\"explanation\": \"...\", \"difficulty\": \"{diff}\", \"language\": \"{language}\"}}]}}"
         )
-        user_content = f"Generate {count} verified questions for {age_group}."
+        user_content = f"Generate {count} simple, verified, non-repeating questions for age group {age_group}."
 
         try:
             raw_json, telemetry = self.k2.generate(system_prompt, user_content, temperature=0.3)

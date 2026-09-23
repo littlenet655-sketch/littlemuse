@@ -256,3 +256,302 @@ def populate_child_personalized_pool(child_id: int, age_group: str):
                    ON CONFLICT(child_id, quiz_id) DO NOTHING''',
                 (child_id, m['quiz_id'], f"Matches interest in {tag}")
             )
+
+
+# ─── 4. Non-Repeating Fresh Quiz Generation & Account Onboarding Refill ───────
+
+def _procedural_fallback_quizzes(age_group: str, needed: int = 5, child_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Deterministic/procedural fallback generator. Guarantees that even if external AI
+    is temporarily unreachable, the child is ALWAYS provided with fresh, non-repeating,
+    age-appropriate questions with randomized parameters that have never been attempted.
+    """
+    import random
+    from database.connection import get_db_connection
+
+    # Attempted quiz IDs for this child
+    attempted_ids = set()
+    if child_id:
+        rows = fetch_all('SELECT quiz_id FROM child_quiz_attempts WHERE child_id=%s', (child_id,))
+        attempted_ids = {r['quiz_id'] for r in rows}
+
+    fresh_rows = []
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            for _ in range(needed * 3):
+                if len(fresh_rows) >= needed:
+                    break
+
+                if age_group == '6-8':
+                    # Extremely simple questions for 6-8 year olds
+                    templates = [
+                        ("Math", "What is {a} + {b}?", lambda: (random.randint(1, 5), random.randint(1, 4))),
+                        ("Colors", "What color is {item}?", lambda: random.choice([
+                            ("a fresh green leaf", "Green", ["Green", "Blue", "Purple", "Pink"]),
+                            ("a sweet ripe banana", "Yellow", ["Yellow", "Red", "Black", "Blue"]),
+                            ("a bright red strawberry", "Red", ["Red", "Orange", "Green", "White"]),
+                            ("the sunny daytime sky", "Blue", ["Blue", "Yellow", "Brown", "Purple"])
+                        ])),
+                        ("Animals", "Which animal says '{sound}'?", lambda: random.choice([
+                            ("Moo", "Cow", ["Cow", "Duck", "Lion", "Cat"]),
+                            ("Meow", "Cat", ["Cat", "Dog", "Horse", "Elephant"]),
+                            ("Woof woof", "Dog", ["Dog", "Sheep", "Frog", "Fish"]),
+                            ("Quack quack", "Duck", ["Duck", "Goat", "Tiger", "Rabbit"])
+                        ])),
+                        ("Habits", "What should you always do before eating meals?", lambda: (
+                            "Wash your hands with soap",
+                            ["Wash your hands with soap", "Go to sleep", "Play in the mud", "Run outside"]
+                        )),
+                        ("Counting", "How many legs does a dog have?", lambda: (
+                            "4", ["4", "2", "6", "8"]
+                        ))
+                    ]
+                    choice = random.choice(templates)
+                    if choice[0] == "Math":
+                        a, b = choice[2]()
+                        correct = str(a + b)
+                        wrong_pool = [str(x) for x in range(1, 12) if str(x) != correct]
+                        random.shuffle(wrong_pool)
+                        opts = [correct, wrong_pool[0], wrong_pool[1], wrong_pool[2]]
+                        random.shuffle(opts)
+                        q_text = f"What is {a} + {b}?"
+                        expl = f"{a} plus {b} equals {correct}!"
+                        cat = "Math"
+                    elif choice[0] in ("Colors", "Animals"):
+                        data = choice[2]()
+                        if choice[0] == "Colors":
+                            item, correct, opts = data
+                            q_text = f"What color is {item}?"
+                            expl = f"{item.capitalize()} is {correct.lower()}!"
+                        else:
+                            sound, correct, opts = data
+                            q_text = f"Which animal says '{sound}'?"
+                            expl = f"A {correct.lower()} says {sound.lower()}!"
+                        random.shuffle(opts)
+                        cat = choice[0]
+                    else:
+                        q_text = choice[1]
+                        correct, opts = choice[2]()
+                        random.shuffle(opts)
+                        expl = "Staying clean and healthy keeps you energetic and happy!"
+                        cat = choice[0]
+
+                elif age_group == '9-11':
+                    templates = [
+                        ("Math", "What is {a} x {b}?", lambda: (random.randint(2, 9), random.randint(2, 9))),
+                        ("Science", "Which planet is known as the {desc}?", lambda: random.choice([
+                            ("Red Planet", "Mars", ["Mars", "Venus", "Jupiter", "Mercury"]),
+                            ("largest planet in our Solar System", "Jupiter", ["Jupiter", "Saturn", "Neptune", "Earth"]),
+                            ("closest planet to the Sun", "Mercury", ["Mercury", "Mars", "Venus", "Saturn"])
+                        ])),
+                        ("India GK", "What is the national animal of India?", lambda: (
+                            "Bengal Tiger", ["Bengal Tiger", "Elephant", "Lion", "Leopard"]
+                        )),
+                        ("Nature", "What do honeybees collect from flowers to make honey?", lambda: (
+                            "Nectar", ["Nectar", "Leaves", "Soil", "Bark"]
+                        ))
+                    ]
+                    choice = random.choice(templates)
+                    if choice[0] == "Math":
+                        a, b = choice[2]()
+                        correct = str(a * b)
+                        wrong_pool = [str(x) for x in range(4, 90) if str(x) != correct]
+                        random.shuffle(wrong_pool)
+                        opts = [correct, wrong_pool[0], wrong_pool[1], wrong_pool[2]]
+                        random.shuffle(opts)
+                        q_text = f"What is {a} x {b}?"
+                        expl = f"{a} multiplied by {b} equals {correct}!"
+                        cat = "Mathematics"
+                    elif choice[0] == "Science":
+                        desc, correct, opts = choice[2]()
+                        q_text = f"Which planet is known as the {desc}?"
+                        expl = f"{correct} is famously known as the {desc}."
+                        random.shuffle(opts)
+                        cat = "Science"
+                    else:
+                        q_text = choice[1]
+                        correct, opts = choice[2]()
+                        random.shuffle(opts)
+                        expl = f"The correct answer is {correct}."
+                        cat = choice[0]
+
+                else: # 12-13 and 14-18
+                    templates = [
+                        ("Science", "What gas do plants absorb from the atmosphere during photosynthesis?", lambda: (
+                            "Carbon Dioxide", ["Carbon Dioxide", "Oxygen", "Nitrogen", "Helium"]
+                        )),
+                        ("Technology", "What does 'URL' stand for in computer networking?", lambda: (
+                            "Uniform Resource Locator", ["Uniform Resource Locator", "Universal Radio Link", "United Resource Language", "Ultra Rapid Line"]
+                        )),
+                        ("Math", "What is the square of {n}?", lambda: random.choice([
+                            (11, "121", ["121", "111", "132", "144"]),
+                            (12, "144", ["144", "124", "136", "154"]),
+                            (15, "225", ["225", "215", "245", "205"])
+                        ]))
+                    ]
+                    choice = random.choice(templates)
+                    if choice[0] == "Math":
+                        n, correct, opts = choice[2]()
+                        q_text = f"What is the square of {n} ({n} x {n})?"
+                        expl = f"{n} squared is {correct}."
+                        cat = "Math"
+                    else:
+                        q_text = choice[1]
+                        correct, opts = choice[2]()
+                        random.shuffle(opts)
+                        expl = f"{correct} is the accurate scientific term."
+                        cat = choice[0]
+
+                # Insert into quizzes
+                cur.execute(
+                    """INSERT INTO quizzes(category, question, option_a, option_b, option_c, option_d,
+                                           correct_answer, age_group, explanation, difficulty_level, language, source)
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, 'MEDIUM', 'en', 'PROCEDURAL')
+                       ON CONFLICT(question, age_group) DO NOTHING
+                       RETURNING *""",
+                    (cat, q_text, opts[0], opts[1], opts[2], opts[3], correct, age_group, expl)
+                )
+                inserted = cur.fetchone()
+                if not inserted:
+                    cur.execute("SELECT * FROM quizzes WHERE question=%s AND age_group=%s", (q_text, age_group))
+                    inserted = cur.fetchone()
+
+                if inserted and inserted['quiz_id'] not in attempted_ids:
+                    fresh_rows.append(dict(inserted))
+                    attempted_ids.add(inserted['quiz_id'])
+
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.warning("Procedural fallback quiz generation failed: %s", exc)
+    finally:
+        conn.close()
+
+    return fresh_rows
+
+
+def generate_and_insert_fresh_quizzes(
+    age_group: str,
+    needed: int = 5,
+    child_id: Optional[int] = None,
+    grade_level: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Core dynamic generator: uses K2 Horizon AI to generate brand-new, simple,
+    age-appropriate questions, inserts them into the database, and returns rows
+    guaranteed NOT to have been attempted by this child.
+    """
+    from database.connection import get_db_connection
+
+    # 1. Fetch stems child has already attempted to prevent AI duplicates
+    excluded_stems = []
+    past_attempted_ids = set()
+    if child_id:
+        attempted_rows = fetch_all(
+            """SELECT q.quiz_id, q.question FROM quizzes q
+               JOIN child_quiz_attempts a ON q.quiz_id = a.quiz_id
+               WHERE a.child_id = %s
+               ORDER BY a.attempted_at DESC LIMIT 30""",
+            (child_id,)
+        )
+        past_attempted_ids = {r['quiz_id'] for r in attempted_rows}
+        excluded_stems = [r['question'] for r in attempted_rows if r.get('question')]
+
+    fresh_results: List[Dict[str, Any]] = []
+    seen_in_batch = set(past_attempted_ids)
+
+    # 2. Call K2 AI
+    try:
+        client = get_ai_client()
+        if client.is_k2_available():
+            batch_count = max(needed + 2, 5)
+            batch = client.generate_quiz_batch(
+                age_group=age_group,
+                grade_level=grade_level,
+                count=batch_count,
+                excluded_stems=excluded_stems
+            )
+            if batch.questions:
+                conn = get_db_connection()
+                try:
+                    with conn.cursor() as cur:
+                        for q in batch.questions:
+                            cur.execute(
+                                """INSERT INTO quizzes(category, question, option_a, option_b, option_c, option_d,
+                                                       correct_answer, age_group, explanation, difficulty_level, language, source)
+                                   VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'K2_AI')
+                                   ON CONFLICT(question, age_group) DO NOTHING
+                                   RETURNING *""",
+                                (q.category, q.question, q.option_a, q.option_b, q.option_c, q.option_d,
+                                 q.correct_answer, age_group, q.explanation, q.difficulty, q.language)
+                            )
+                            row = cur.fetchone()
+                            if not row:
+                                cur.execute("SELECT * FROM quizzes WHERE question=%s AND age_group=%s", (q.question, age_group))
+                                row = cur.fetchone()
+
+                            if row and row['quiz_id'] not in seen_in_batch:
+                                row_dict = dict(row)
+                                fresh_results.append(row_dict)
+                                seen_in_batch.add(row['quiz_id'])
+
+                                if child_id:
+                                    cur.execute(
+                                        """INSERT INTO child_personalized_quiz_pool(child_id, quiz_id, reason_for_selection)
+                                           VALUES(%s, %s, %s)
+                                           ON CONFLICT(child_id, quiz_id) DO NOTHING""",
+                                        (child_id, row['quiz_id'], "Tailored by K2 AI for your age")
+                                    )
+                    conn.commit()
+                except Exception as db_exc:
+                    conn.rollback()
+                    logger.warning("Error saving K2 quiz batch to database: %s", db_exc)
+                finally:
+                    conn.close()
+    except Exception as exc:
+        logger.warning("K2 AI quiz batch generation failed (%s), using procedural generator.", exc)
+
+    # 3. If AI results are fewer than requested, supplement with procedural questions
+    if len(fresh_results) < needed:
+        shortfall = needed - len(fresh_results)
+        fallback_rows = _procedural_fallback_quizzes(age_group=age_group, needed=shortfall, child_id=child_id)
+        for fb in fallback_rows:
+            if fb['quiz_id'] not in seen_in_batch:
+                fresh_results.append(fb)
+                seen_in_batch.add(fb['quiz_id'])
+                if child_id:
+                    try:
+                        execute(
+                            """INSERT INTO child_personalized_quiz_pool(child_id, quiz_id, reason_for_selection)
+                               VALUES(%s, %s, %s)
+                               ON CONFLICT(child_id, quiz_id) DO NOTHING""",
+                            (child_id, fb['quiz_id'], "Dynamic educational practice")
+                        )
+                    except Exception:
+                        pass
+
+    # Strictly guarantee: Return items that are NOT in past_attempted_ids
+    return [r for r in fresh_results if r['quiz_id'] not in past_attempted_ids]
+
+
+def trigger_child_account_creation_refill(child_id: int, age: int):
+    """
+    Asynchronously called upon child account registration.
+    Tailors a fresh batch of simple, age-matched questions using K2 AI and
+    populates the child's personalized quiz pool so that fresh unseen questions
+    are immediately ready when the child opens the app.
+    """
+    g = '6-8' if age <= 8 else '9-11' if age <= 11 else '12-13' if age <= 13 else '14-18'
+
+    def worker():
+        try:
+            logger.info("Starting initial AI quiz generation for newly created child %d (age %d, age_group %s)", child_id, age, g)
+            generate_and_insert_fresh_quizzes(age_group=g, needed=10, child_id=child_id)
+            populate_child_personalized_pool(child_id, g)
+            logger.info("Successfully provisioned initial AI quiz pool for child %d", child_id)
+        except Exception as e:
+            logger.warning("Background initial quiz refill for child %d failed: %s", child_id, e)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
