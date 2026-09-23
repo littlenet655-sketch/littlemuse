@@ -72,10 +72,14 @@ def test_retained_database_migration_is_guarded_before_web_deploy():
     deploy = (ROOT / ".github/workflows/deploy-modal.yml").read_text(encoding="utf-8")
     status = "modal run modal_web.py --migration-status-check"
     migrate = "modal run modal_web.py --migrate-db"
+    current = "modal run modal_web.py --require-db-current"
     web_deploy = "modal deploy modal_web.py"
-    assert status in deploy and migrate in deploy
-    assert deploy.index(status) < deploy.index(migrate) < deploy.index(web_deploy)
+    assert status in deploy and migrate in deploy and current in deploy
+    assert deploy.index(status) < deploy.index(migrate) < deploy.index(current) < deploy.index(web_deploy)
     assert "Refuse automatic migration" not in deploy
+    web = (ROOT / "modal_web.py").read_text(encoding="utf-8")
+    assert "schema_migrations_empty" in web
+    assert "baseline_schema_missing" in web
 
 
 def test_video_release_policy_is_bounded_and_fail_safe():

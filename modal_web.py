@@ -234,28 +234,64 @@ def curated_poster_backfill(apply: bool = False, limit: int = 250):
     return run(apply=bool(apply), limit=int(limit))
 
 
+def _assess_migration_history(known, applied, baseline_present):
+    known = {str(v) for v in known}
+    applied = {str(v) for v in applied}
+    unknown = sorted(applied - known)
+    pending = sorted(known - applied)
+    adoption = "20260906180000"
+    missing_adoption = adoption not in applied
+    error = None
+    if not baseline_present:
+        error = "baseline_schema_missing"
+    elif not applied:
+        error = "schema_migrations_empty"
+    elif unknown:
+        error = "unknown_applied_migrations"
+    elif missing_adoption:
+        error = "dbmate_adoption_marker_missing"
+    return {
+        "ok": error is None,
+        "tracked": True,
+        "baseline_tables_present": bool(baseline_present),
+        "applied_count": len(applied),
+        "known_count": len(known),
+        "pending": pending,
+        "unknown_applied": unknown,
+        "missing_adoption_marker": missing_adoption,
+        "error": error,
+    }
+
+
 def _migration_status_local():
-    """Return a non-mutating dbmate history check for a retained release DB."""
+    """Return a non-mutating dbmate + baseline check for a retained release DB."""
     os.chdir("/root/littlenet")
     import re
     from database.connection import get_db_connection
 
     migration_dir = ROOT / "db" / "migrations"
-    known = {}
+    known = set()
     for path in migration_dir.glob("*.sql"):
         match = re.match(r"^(\d+)_", path.name)
         if match:
-            known[match.group(1)] = path.name
+            known.add(match.group(1))
 
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.schema_migrations') AS rel")
-            row = cur.fetchone()
-            if not row or not row["rel"]:
+            cur.execute(
+                """SELECT
+                       to_regclass('public.schema_migrations') AS migrations,
+                       to_regclass('public.users') AS users,
+                       to_regclass('public.child_profiles') AS child_profiles
+                """
+            )
+            row = cur.fetchone() or {}
+            if not row.get("migrations"):
                 return {
                     "ok": False,
                     "tracked": False,
+                    "baseline_tables_present": bool(row.get("users") and row.get("child_profiles")),
                     "error": "schema_migrations_missing",
                     "pending": sorted(known),
                     "unknown_applied": [],
@@ -265,19 +301,8 @@ def _migration_status_local():
     finally:
         conn.close()
 
-    unknown = sorted(applied - set(known))
-    pending = sorted(set(known) - applied)
-    adoption = "20260906180000"
-    missing_adoption = bool(applied and adoption not in applied)
-    return {
-        "ok": not unknown and not missing_adoption,
-        "tracked": True,
-        "applied_count": len(applied),
-        "known_count": len(known),
-        "pending": pending,
-        "unknown_applied": unknown,
-        "missing_adoption_marker": missing_adoption,
-    }
+    baseline_present = bool(row.get("users") and row.get("child_profiles"))
+    return _assess_migration_history(known, applied, baseline_present)
 
 
 @app.function(image=web_image, secrets=[web_secret], timeout=120)
@@ -450,6 +475,7 @@ def main(
     secret_preflight: bool = False,
     migration_status_check: bool = False,
     migrate_db: bool = False,
+    require_db_current: bool = False,
 ):
     """Release helper. Deep AI probing is opt-in because it wakes the T4."""
     if secret_preflight:
@@ -463,6 +489,11 @@ def main(
             raise RuntimeError(f"Retained database migration history is not safe: {report}")
     if migrate_db:
         print("database-migration", migrate_retained_database.remote())
+    if require_db_current:
+        report = database_migration_status.remote()
+        print("database-current", json.dumps(report, sort_keys=True))
+        if not report.get("ok") or report.get("pending"):
+            raise RuntimeError(f"Retained database is not current for this release: {report}")
     if init_db:
         print("database", init_database.remote())
     if seed:

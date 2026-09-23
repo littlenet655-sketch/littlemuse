@@ -86,11 +86,12 @@ jobs:
       - name: Stage trained moderation models into the Modal volume
         run: python tools/stage_model_volume.py
       - name: Validate retained database migration history
-        if: ${{ inputs.migrate_database }}
         run: modal run modal_web.py --migration-status-check
       - name: Apply reviewed pending dbmate migrations
         if: ${{ inputs.migrate_database }}
         run: modal run modal_web.py --migrate-db
+      - name: Require database schema current for this release
+        run: modal run modal_web.py --require-db-current
       - run: modal deploy modal_ai.py
       - run: modal deploy modal_web.py
       - run: modal run modal_web.py --seed
