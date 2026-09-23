@@ -685,7 +685,7 @@ def _process_media_job_impl(
             ext = "mp4" if media_type == "VIDEO" else "jpg"
             media_mime = "video/mp4" if ext == "mp4" else "image/jpeg"
             namespace = "stories" if kind.lower() == "story" else "reels" if kind.lower() == "reel" else "posts"
-            published_media_ref = f"uploads/r2/{namespace}/{child_id}/{post_id}_media.{ext}"
+            published_media_ref = object_storage.new_reference(f"{namespace}/{child_id}/{post_id}_media.{ext}")
             published_poster_ref = None
 
             if object_storage.enabled():
@@ -699,7 +699,7 @@ def _process_media_job_impl(
                     skip_audio_strip=(media_type == "VIDEO"),
                 )
                 if final_poster_local and final_poster_local.is_file():
-                    published_poster_ref = f"uploads/r2/{namespace}/{child_id}/{post_id}_poster.jpg"
+                    published_poster_ref = object_storage.new_reference(f"{namespace}/{child_id}/{post_id}_poster.jpg")
                     object_storage.upload_file(
                         str(final_poster_local), f"{namespace}/{child_id}/{post_id}_poster.jpg", content_type="image/jpeg"
                     )
@@ -868,7 +868,7 @@ def sanitize_and_promote_media(
         namespace = "stories" if kind.lower() == "story" else "reels" if kind.lower() == "reel" else "posts"
 
         if object_storage.enabled():
-            published_media_ref = f"uploads/r2/{namespace}/{child_id}/{post_id}_media.{ext}"
+            published_media_ref = object_storage.new_reference(f"{namespace}/{child_id}/{post_id}_media.{ext}")
             published_poster_ref = None
             # VIDEO bytes were already audio-stripped by _make_video_derivatives
             # (fail-closed); skip upload_file's redundant second strip. All
@@ -880,7 +880,7 @@ def sanitize_and_promote_media(
                 skip_audio_strip=(ext == "mp4"),
             )
             if final_poster_local and final_poster_local.is_file():
-                published_poster_ref = f"uploads/r2/{namespace}/{child_id}/{post_id}_poster.jpg"
+                published_poster_ref = object_storage.new_reference(f"{namespace}/{child_id}/{post_id}_poster.jpg")
                 object_storage.upload_file(
                     str(final_poster_local), f"{namespace}/{child_id}/{post_id}_poster.jpg", content_type="image/jpeg"
                 )

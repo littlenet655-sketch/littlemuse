@@ -16,10 +16,10 @@ import modal
 
 ROOT = Path(__file__).resolve().parent
 
-app = modal.App("littlenet-ai")
+app = modal.App(os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai"))
 model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
-ai_secret = modal.Secret.from_name("littlenet-ai-secrets", required_keys=["AI_SHARED_SECRET"])
-web_secret = modal.Secret.from_name("littlenet-web-secrets")
+ai_secret = modal.Secret.from_name(os.getenv("LITTLENET_AI_SECRET", "littlemuse-ai-secrets"), required_keys=["AI_SHARED_SECRET"])
+web_secret = modal.Secret.from_name(os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"))
 r2_secret = modal.Secret.from_name("littlenet-r2")
 
 image = (
@@ -68,7 +68,7 @@ image = (
             "LITTLENET_TRAINED_IMAGE_V2_PATH": "/cache/models/littlenet_core_safety_v2.pth",
             "LITTLENET_TRAINED_IMAGE_V3_PATH": "/cache/models/littlenet_weapons_violence_v3.pth",
             # Text model resolves the same way as the image ensemble: the volume
-            # path is authoritative. tools/sync_modal_volume.py stages the
+            # path is authoritative. tools/stage_model_volume.py stages the
             # 541MB littlenet_text_safety/ directory into littlenet-model-cache.
             "LITTLENET_TRAINED_TEXT_PATH": "/cache/models/littlenet_text_safety",
             "LITTLENET_ENABLE_TRAINED_TEXT": "1",
@@ -98,6 +98,7 @@ image = (
             "LITTLENET_CLIP_REVIEW_THRESHOLD": "0.40",
             "LITTLENET_CLIP_BLOCK_THRESHOLD": "0.65",
             "LITTLENET_DEPLOY_VERSION": "13",
+            "LITTLENET_R2_WRITE_PREFIX": os.getenv("LITTLENET_R2_WRITE_PREFIX", "littlemuse"),
         }
     )
     .add_local_dir(
@@ -125,6 +126,14 @@ def _secret_fingerprint(value: str | None) -> dict[str, object]:
         "present": True,
         "fingerprint": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
     }
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @app.function(
@@ -272,7 +281,12 @@ def trained_image_preflight():
         "v2": {"path": str(v2), "exists": v2.is_file(), "bytes": v2.stat().st_size if v2.is_file() else 0},
         "v3": {"path": str(v3), "exists": v3.is_file(), "bytes": v3.stat().st_size if v3.is_file() else 0},
     }
-    if report["available"]:
+    report["hashes_ok"] = (
+        v2.is_file() and v3.is_file()
+        and _file_sha256(v2) == "8a9ccfbfd5f59b65143bb90131750db75ff54b895e82d31af04b1e2ccafd431c"
+        and _file_sha256(v3) == "f028ddfa0264ad9570ec6411666143eb57ec9f9159ca218dd6e27f2c413591e8"
+    )
+    if report["available"] and report["hashes_ok"]:
         try:
             _, v2_ckpt, _, v3_ckpt = trained._models()
             report["v2"]["labels"] = list(v2_ckpt.get("labels") or [])
@@ -324,7 +338,8 @@ def trained_text_preflight():
         "expected_bytes": TRAINED_TEXT_SAFETENSORS_BYTES,
     }
     report["bytes_ok"] = report["weights_bytes"] == TRAINED_TEXT_SAFETENSORS_BYTES
-    if report["available"] and report["bytes_ok"]:
+    report["hash_ok"] = report["bytes_ok"] and _file_sha256(weights) == "7eb1f37efdd95a1f363ed76377e65e512c2f986140a50fea404cdcd5598fe875"
+    if report["available"] and report["hash_ok"]:
         try:
             trained.reset_for_tests()
             pipe = trained._pipeline()
@@ -346,6 +361,8 @@ def trained_text_preflight():
             report["error"] = (
                 "trained_text_bytes_mismatch: pointer-sized or corrupt artifact"
             )
+        else:
+            report["error"] = "trained_text_sha256_mismatch"
     return report
 
 

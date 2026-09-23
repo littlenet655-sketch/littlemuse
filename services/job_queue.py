@@ -66,8 +66,8 @@ class LocalJobQueue(JobQueue):
 class ModalJobQueue(JobQueue):
     """Production provider: asynchronously spawn the deployed Modal media worker."""
 
-    def __init__(self, app_name: str = "littlenet-web", function_name: str = "process_media_job_background"):
-        self.app_name = app_name
+    def __init__(self, app_name: str | None = None, function_name: str = "process_media_job_background"):
+        self.app_name = app_name or os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web")
         self.function_name = function_name
 
     def enqueue(self, job_type: str, payload: dict[str, Any], deduplication_id: str | None = None) -> str:

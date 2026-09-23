@@ -17,7 +17,7 @@ on:
         description: Apply PostgreSQL schema/upgrades before validation
         required: true
         type: boolean
-        default: true
+        default: false
       warm_ai_models:
         description: Run the expensive one-time T4 model warmup after deploy
         required: true
@@ -28,7 +28,13 @@ permissions:
   contents: read
 
 env:
-  LIVE_URL: ${{ inputs.live_url || vars.LITTLENET_LIVE_URL || 'https://netlittle2--littlenet-web-web.modal.run' }}
+  LIVE_URL: ${{ inputs.live_url || vars.LITTLENET_LIVE_URL }}
+  LITTLENET_WEB_MODAL_APP: littlemuse-web
+  LITTLENET_AI_MODAL_APP: littlemuse-ai
+  LITTLENET_WEB_SECRET: littlemuse-web-secrets
+  LITTLENET_AI_SECRET: littlemuse-ai-secrets
+  LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_R2_WRITE_PREFIX: littlemuse
 
 jobs:
   deploy:
@@ -70,9 +76,11 @@ jobs:
           test -n "$MODAL_TOKEN_ID"
           test -n "$MODAL_TOKEN_SECRET"
           modal token info
-      - name: Apply database schema and migrations
+      - name: Refuse automatic migration of a retained release database
         if: ${{ inputs.migrate_database }}
-        run: modal run modal_web.py --init-db
+        run: |
+          echo 'Use the reviewed LittleMuse database reconciliation procedure before deploying.'
+          exit 1
       - name: Stage trained moderation models into the Modal volume
         run: python tools/stage_model_volume.py
       - run: modal deploy modal_ai.py

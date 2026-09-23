@@ -57,10 +57,16 @@ def _verify_local(rel: str) -> Path:
 def main() -> None:
     print(f"Staging trained models into modal.Volume('{VOLUME_NAME}')...")
     vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+    existing = {entry.path.lstrip("/"): entry.size for entry in vol.listdir("/models")}
+    if "models/littlenet_text_safety" in existing:
+        existing.update({entry.path.lstrip("/"): entry.size for entry in vol.listdir("/models/littlenet_text_safety")})
     with vol.batch_upload(force=True) as batch:
         for rel in MODEL_FILES:
             local = _verify_local(rel)
             remote_path = "/models/" + rel.replace("\\", "/")
+            if existing.get(remote_path.lstrip("/")) == local.stat().st_size:
+                print(f"Reusing {remote_path} ({local.stat().st_size} bytes)")
+                continue
             print(f"Uploading {local} -> {remote_path} ({local.stat().st_size} bytes)")
             batch.put_file(str(local), remote_path)
     print("Model staging finished. Verifying volume listing...")

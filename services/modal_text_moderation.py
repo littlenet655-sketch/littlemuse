@@ -41,7 +41,7 @@ def moderate_text(text: str) -> dict[str, Any]:
 
     import modal
 
-    app_name = os.getenv("LITTLENET_AI_MODAL_APP", "littlenet-ai").strip() or "littlenet-ai"
+    app_name = os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai").strip() or "littlemuse-ai"
     function_name = _cpu_function_name()
 
     fn = modal.Function.from_name(app_name, function_name)

@@ -12,8 +12,8 @@ import subprocess
 import modal
 
 ROOT = Path(__file__).resolve().parent
-app = modal.App("littlenet-web")
-uploads = modal.Volume.from_name("littlenet-uploads", create_if_missing=True)
+app = modal.App(os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web"))
+uploads = modal.Volume.from_name(os.getenv("LITTLENET_UPLOADS_VOLUME", "littlemuse-uploads"), create_if_missing=True)
 # Private trained-moderation checkpoints (littlenet_core_safety_v2.pth,
 # littlenet_weapons_violence_v3.pth, littlenet_text_safety/). Mounted on the
 # media workers so the trained 18+/weapons/violence ensemble runs inside the
@@ -23,7 +23,7 @@ uploads = modal.Volume.from_name("littlenet-uploads", create_if_missing=True)
 # volume never weakens moderation.
 model_cache = modal.Volume.from_name("littlenet-model-cache", create_if_missing=True)
 web_secret = modal.Secret.from_name(
-    "littlenet-web-secrets",
+    os.getenv("LITTLENET_WEB_SECRET", "littlemuse-web-secrets"),
     required_keys=["DATABASE_URL", "SECRET_KEY", "BASE_URL", "AI_SERVICE_URL", "AI_SHARED_SECRET"],
 )
 email_secret = modal.Secret.from_name("littlenet-email")
@@ -73,6 +73,9 @@ web_image = (
             "DBMATE_NO_DUMP_SCHEMA": "true",
             "DBMATE_STRICT": "true",
             "LITTLENET_DEPLOY_VERSION": "14",
+            "LITTLENET_WEB_MODAL_APP": os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web"),
+            "LITTLENET_AI_MODAL_APP": os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai"),
+            "LITTLENET_R2_WRITE_PREFIX": os.getenv("LITTLENET_R2_WRITE_PREFIX", "littlemuse"),
         }
     )
     .add_local_dir(
