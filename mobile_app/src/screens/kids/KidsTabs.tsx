@@ -87,16 +87,17 @@ export function KidsTabsShell({ navigation, route, render }: ChildScreenProps<'K
         </View>
       ) : null}
       <View style={styles.body}>{render(active)}</View>
-      <View
-        style={[
-          styles.tabs,
-          isReels && styles.tabsDark,
-          {
-            paddingBottom: Math.max(insets.bottom, 8),
-            height: 54 + Math.max(insets.bottom, 8),
-          },
-        ]}
-      >
+      {active !== 'CreateTab' ? (
+        <View
+          style={[
+            styles.tabs,
+            isReels && styles.tabsDark,
+            {
+              paddingBottom: Math.max(insets.bottom, 8),
+              height: 54 + Math.max(insets.bottom, 8),
+            },
+          ]}
+        >
         {TABS.map((t) => {
           const isOn = active === t.key;
           const isCreate = t.key === 'CreateTab';
@@ -132,7 +133,8 @@ export function KidsTabsShell({ navigation, route, render }: ChildScreenProps<'K
             </Pressable>
           );
         })}
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 }
