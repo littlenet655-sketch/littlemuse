@@ -7,6 +7,10 @@ name: Deploy & Validate LittleNet Live
 # - 'auth/**'
 # - 'mailg/**'
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.release/deploy-live.txt'
   workflow_dispatch:
     inputs:
       live_url:
