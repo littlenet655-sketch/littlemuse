@@ -27,16 +27,16 @@ image = (
     .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "libgomp1")
     .pip_install(
         "numpy==1.26.4",
-        "torch>=2.13,<2.14",
-        "torchvision>=0.28,<0.29",
-        "transformers>=5.0",  # v5 verified end-to-end with littlenet_text_safety
+        "torch==2.13.0",
+        "torchvision==0.28.0",
+        "transformers==5.0.0",  # v5 verified end-to-end with littlenet_text_safety
         "detoxify==0.5.2",
         # Declared dep of detoxify==0.5.2 (sentencepiece>=0.1.94); its
         # multilingual toxicity model's tokenizer. Keep in sync with
         # requirements-text.txt.
         "sentencepiece==0.2.2",
-        "nudenet>=3.4,<4",
-        "ultralytics>=8.3,<9",
+        "nudenet==3.4.2",
+        "ultralytics==8.4.159",
         # Non-headless: libgl1 is apt-installed above, and rapidocr-onnxruntime
         # declares opencv-python (not headless) — one cv2 provider avoids a
         # site-packages collision between the two distributions.
@@ -44,7 +44,7 @@ image = (
         # OCR backend for safety/visual_service.py (default-on, fail-closed).
         # Keep in sync with requirements-core.txt.
         "rapidocr-onnxruntime==1.4.4",
-        "scenedetect-headless>=0.7,<0.8",
+        "scenedetect-headless==0.7.1",
         "Flask==3.1.3",
         "python-dotenv==1.2.2",
         "Pillow==12.3.0",

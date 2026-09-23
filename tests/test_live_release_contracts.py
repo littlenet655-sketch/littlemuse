@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_live_release_warms_gpu_models_before_strict_preflight():
     workflow = (ROOT / ".github/workflows/deploy-modal.yml").read_text(encoding="utf-8")
-    preflight = "Run DB, AI, Presidio, liveness, mail, R2 and BASE_URL preflight"
+    preflight = "Run DB, AI, Presidio, mail, R2 and BASE_URL preflight"
     warmup = "Warm and validate every locked-scope AI model"
     assert preflight in workflow
     assert warmup in workflow

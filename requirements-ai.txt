@@ -1,6 +1,6 @@
 -r requirements-text.txt
-torchvision>=0.28,<0.29
-nudenet>=3.4,<4
-ultralytics>=8.3,<9
+torchvision==0.28.0
+nudenet==3.4.2
+ultralytics==8.4.159
 opencv-python-headless==4.11.0.86
-scenedetect-headless>=0.7,<0.8
+scenedetect-headless==0.7.1

@@ -2,5 +2,5 @@
 # Deterministic regex rules in safety/pii_service.py remain mandatory fail-safe
 # coverage if Presidio or its NLP model is unavailable.
 -r requirements-core.txt
-presidio-analyzer>=2.2,<3
-spacy>=3.8,<4
+presidio-analyzer==2.2.364
+spacy==3.8.16

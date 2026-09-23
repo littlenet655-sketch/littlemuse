@@ -7,6 +7,7 @@ from database.connection import fetch_one, fetch_all, execute, get_db_connection
 from mailg.send_email import send_email
 from config import Config
 from services.identity import validate_username, validate_name
+from auth import login_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -572,14 +573,24 @@ def login_user(identifier, password):
     row = fetch_one('SELECT * FROM users WHERE LOWER(email)=%s OR LOWER(username)=%s', (val.lower(), val.lower()))
     if not row:
         return None
+    # Per-account failed-login throttle (T1-007). Keyed by the canonical
+    # user_id so username/email aliases share one budget. A locked account
+    # returns None exactly like a wrong password — the lockout is never
+    # revealed, and no distinct throttling response exists.
+    uid = row['user_id']
+    if login_throttle.is_locked(uid):
+        return None
     # Tolerate accidental leading/trailing whitespace in a pasted password, but
     # otherwise require a real bcrypt match. No hardcoded credential bypass.
     if not check_password(pwd, row['password_hash']) and not (
         pwd != pwd.strip() and check_password(pwd.strip(), row['password_hash'])
     ):
+        login_throttle.record_failure(uid)
         return None
     if row['account_status']!='ACTIVE' and row['account_status'] != 'PENDING_APPROVAL':
         return None
+    # Successful authentication clears the accumulated failure state.
+    login_throttle.clear(uid)
     return row
 
 def profile_exists(child_id):

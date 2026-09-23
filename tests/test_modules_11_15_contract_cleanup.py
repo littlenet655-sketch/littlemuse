@@ -165,9 +165,6 @@ def test_profile_supported_fields_persisted(client):
             headers=headers,
             json={
                 "bio": "Building AI models and drawing planets!",
-                "school_name": "Starlight Academy",
-                "current_class": "Grade 6",
-                "location": "Bengaluru",
                 "skills": ["Python", "Robotics"],
                 "interests": ["Astronomy", "Math"],
                 "ambitions": ["AI Researcher"],
@@ -177,3 +174,27 @@ def test_profile_supported_fields_persisted(client):
         assert res.get_json()["ok"] is True
         mock_create.assert_called_once()
         mock_tags.assert_called_once_with(202, ["Python", "Robotics"], ["Astronomy", "Math"], ["AI Researcher"])
+
+
+def test_profile_parent_managed_fields_rejected(client):
+    # c4c5414: children cannot edit discovery identity fields (school_name,
+    # location, current_class, date_of_birth) — those are parent-managed.
+    headers = _child_headers(202)
+    with patch("mobile.api.fetch_one", return_value={"user_id": 202, "role": "CHILD", "account_status": "ACTIVE"}), \
+         patch("mobile.api._child_gate", return_value=None), \
+         patch("mobile.api.get_child_profile", return_value={"child_id": 202, "full_name": "Test Child"}), \
+         patch("mobile.api.create_child_profile") as mock_create:
+        for field, value in (
+            ("school_name", "Starlight Academy"),
+            ("current_class", "Grade 6"),
+            ("location", "Bengaluru"),
+            ("date_of_birth", "2015-01-01"),
+        ):
+            res = client.put(
+                "/api/mobile/v1/kids/profile",
+                headers=headers,
+                json={field: value},
+            )
+            assert res.status_code == 400, field
+            assert res.get_json()["error"] == "profile_field_parent_managed", field
+        mock_create.assert_not_called()

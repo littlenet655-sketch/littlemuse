@@ -17,8 +17,8 @@
 #
 -r requirements-core.txt
 numpy==1.26.4
-torch>=2.13,<2.14
-transformers>=5.0  # v5 verified end-to-end with littlenet_text_safety (checkpoint saved under transformers 5.0.0; 4.x breaks predict())
+torch==2.13.0
+transformers==5.0.0  # v5 verified end-to-end with littlenet_text_safety (checkpoint saved under transformers 5.0.0; 4.x breaks predict())
 detoxify==0.5.2
 # Declared dependency of detoxify==0.5.2 (requires sentencepiece>=0.1.94);
 # needed by its multilingual (XLM-RoBERTa) toxicity model tokenizer.
