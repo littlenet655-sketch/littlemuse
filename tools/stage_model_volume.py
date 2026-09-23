@@ -56,7 +56,7 @@ def _verify_local(rel: str) -> Path:
 
 def main() -> None:
     print(f"Staging trained models into modal.Volume('{VOLUME_NAME}')...")
-    vol = modal.Volume.from_name(VOLUME_NAME)
+    vol = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
     with vol.batch_upload(force=True) as batch:
         for rel in MODEL_FILES:
             local = _verify_local(rel)
