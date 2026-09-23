@@ -77,6 +77,7 @@ from services.controls import (
 from services.curated_feed import (
     _child_real_age,
     authorize_curated_media,
+    fetch_curated_candidates,
     get_feed_page,
     record_feed_impression,
     search_curated_content,
@@ -3118,7 +3119,7 @@ def register_mobile_api(bp):
         else:
             posts = discoverable_posts(uid, False, 30, 0)
 
-        curated = search_curated_content(uid, q, limit=20) if q else []
+        curated = search_curated_content(uid, q, limit=20) if q else fetch_curated_candidates(uid, "FEED", 20)
         for item in curated:
             if item.get("media_reference"):
                 item["media_url"] = _asset_url(item["media_reference"])
