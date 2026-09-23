@@ -1,5 +1,14 @@
+import time as _time
 from datetime import date
 from database.connection import fetch_one,fetch_all,execute
+
+# In-process TTL cache for discoverable_child_ids. The query does a full scan
+# with unindexable TRIM(LOWER()) comparisons and runs on every feed/reels/
+# discover session build. Candidates are always re-authorized per item by
+# _media_allowed/post_visible_to with fresh block/mute checks, so a short
+# staleness window here cannot widen access.
+_discoverable_cache = {}
+_DISCOVERABLE_CACHE_TTL = 300
 
 def profile_exists(cid):return bool(fetch_one('SELECT 1 FROM child_profiles WHERE child_id=%s',(cid,)))
 def get_child_profile(cid):return fetch_one('SELECT * FROM child_profiles WHERE child_id=%s',(cid,))
@@ -52,7 +61,19 @@ def discoverable_child_ids(cid):
     - a friend-of-an-ACTIVE-friend.
 
     If school/class data is missing, no broad fallback is used.
+
+    Results are cached in-process for 5 minutes (see _DISCOVERABLE_CACHE_TTL).
     """
+    now = _time.monotonic()
+    hit = _discoverable_cache.get(cid)
+    if hit and now - hit[0] < _DISCOVERABLE_CACHE_TTL:
+        return list(hit[1])
+    ids = _discoverable_child_ids_uncached(cid)
+    _discoverable_cache[cid] = (now, ids)
+    return list(ids)
+
+
+def _discoverable_child_ids_uncached(cid):
     rows=fetch_all('''WITH viewer AS (
           SELECT cp.school_name,cp.current_class,pcm.parent_id
           FROM child_profiles cp

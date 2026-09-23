@@ -231,10 +231,11 @@ def _require_mobile(*roles):
 
     return decorator
 
-def _onboarding_state(uid: int) -> dict:
+def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
     """Authoritative gate state: only the onboarding quiz gates Kids Mode."""
-    quiz_required = bool(feed_quiz_state(uid).get("required") or needs_onboarding_quiz(uid))
-    return {"quiz_required": quiz_required}
+    if quiz_state is None:
+        quiz_state = {"required": bool(feed_quiz_state(uid).get("required") or needs_onboarding_quiz(uid))}
+    return {"quiz_required": bool(quiz_state.get("required"))}
 
 def _kid_self_resets_today(child_id: int) -> int:
     row = fetch_one(
@@ -342,7 +343,7 @@ def _post_json(row, viewer_id=None):
 
     return _clean(out)
 
-def _mobile_user_payload(user):
+def _mobile_user_payload(user, quiz_state: dict | None = None):
     profile = None
     quiz_required = False
     posts_seen = 0
@@ -350,10 +351,16 @@ def _mobile_user_payload(user):
     if user.get("role") == "CHILD":
         uid = int(user["user_id"])
         profile = _profile_json(get_child_profile(uid))
-        q_state = feed_quiz_state(uid)
-        quiz_required = bool(q_state.get("required") or needs_onboarding_quiz(uid))
-        posts_seen = int(q_state.get("posts_seen", 0))
-        quiz_interval = int(q_state.get("interval", 4))
+        if quiz_state is None:
+            q_state = feed_quiz_state(uid)
+            quiz_state = {
+                "required": bool(q_state.get("required") or needs_onboarding_quiz(uid)),
+                "posts_seen": int(q_state.get("posts_seen", 0)),
+                "interval": int(q_state.get("interval", 4)),
+            }
+        quiz_required = bool(quiz_state.get("required"))
+        posts_seen = int(quiz_state.get("posts_seen", 0))
+        quiz_interval = int(quiz_state.get("interval", 4))
     return {
         "user_id": int(user["user_id"]),
         "username": user.get("username"),
@@ -373,15 +380,26 @@ def _mobile_login_response(user, method="PASSWORD"):
         started = start_session(user["user_id"])
         usage_key = started.get("session_key") if started else None
     token = _issue_token(user, usage_key)
+    # Compute the quiz state once and share it: _mobile_user_payload and
+    # _onboarding_state each used to query it separately.
+    quiz_state = None
+    if user["role"] == "CHILD":
+        uid = int(user["user_id"])
+        qs = feed_quiz_state(uid)
+        quiz_state = {
+            "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+            "posts_seen": int(qs.get("posts_seen", 0)),
+            "interval": int(qs.get("interval", 4)),
+        }
     response = {
         "ok": True,
         "token": token,
         "auth_method": method,
-        "user": _mobile_user_payload(user),
+        "user": _mobile_user_payload(user, quiz_state=quiz_state),
     }
     if user["role"] == "CHILD":
         uid = int(user["user_id"])
-        response["onboarding"] = _onboarding_state(uid)
+        response["onboarding"] = _onboarding_state(uid, quiz_state=quiz_state)
     return jsonify(_clean(response))
 
 def _media_allowed(uid: int, role: str, ref: str) -> bool:
@@ -450,6 +468,182 @@ def _media_allowed(uid: int, role: str, ref: str) -> bool:
             return owns(uid, f["child_id"])
         return can_discover_child(uid, f["child_id"])
     return ref == "uploads/profile_pictures/download.webp" and role in {"CHILD", "PARENT", "ADMIN"}
+
+def _media_allowed_many(uid: int, role: str, refs) -> dict:
+    """Batch version of _media_allowed for feed/reels loops.
+
+    Returns {ref: bool} with decisions identical to calling _media_allowed once
+    per ref. Instead of ~10 sequential DB round trips per media item (four
+    table lookups plus per-item surface/visibility checks), this does one
+    lookup per table for all refs and one visibility query for all posts.
+
+    Policy logic mirrors _media_allowed exactly; only data fetching is
+    batched. Callers must pass role already upper-cased. Refs that are not R2
+    references are still evaluated (the curated/posts/message/profile tables
+    only match real keys), so callers may pass any refs through.
+    """
+    from services.request_cache import memo as _req_memo
+    from services.social import _age_group, child_surface_open
+
+    clean = []
+    seen = set()
+    for r in refs or []:
+        s = str(r).strip() if r else ""
+        if s and s not in seen:
+            seen.add(s)
+            clean.append(s)
+    decisions = {r: False for r in clean}
+    if not clean:
+        return decisions
+    role_u = str(role or "").upper()
+
+    def _owns_cached(child_id):
+        return _req_memo(("owns", uid, child_id), lambda: bool(owns(uid, child_id)))
+
+    # --- one lookup per table across all refs (same precedence as _media_allowed) ---
+    cur_by_ref = {}
+    for row in fetch_all(
+        """SELECT cma.delivery_object_key, cma.original_object_key, cma.poster_object_key, cma.thumbnail_object_key,
+                  cc.content_id, cc.min_age, cc.max_age, cc.publish_status, cat.display_name, cat.active,
+                  cma.moderation_status, cma.is_safe
+           FROM curated_media_assets cma
+           JOIN curated_content cc ON cc.asset_id = cma.asset_id
+           JOIN content_categories cat ON cat.category_id = cc.category_id
+           WHERE cma.delivery_object_key = ANY(%s) OR cma.original_object_key = ANY(%s)
+              OR cma.poster_object_key = ANY(%s) OR cma.thumbnail_object_key = ANY(%s)""",
+        (clean, clean, clean, clean),
+    ) or []:
+        for k in ("delivery_object_key", "original_object_key", "poster_object_key", "thumbnail_object_key"):
+            v = row.get(k)
+            if v in seen and v not in cur_by_ref:
+                cur_by_ref[v] = row
+
+    post_by_ref = {}
+    for row in fetch_all(
+        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path
+           FROM posts
+           WHERE media_path = ANY(%s) OR story_music_path = ANY(%s)
+              OR poster_path = ANY(%s) OR source_media_path = ANY(%s)""",
+        (clean, clean, clean, clean),
+    ) or []:
+        for k in ("media_path", "story_music_path", "poster_path", "source_media_path"):
+            v = row.get(k)
+            if v in seen and v not in post_by_ref:
+                post_by_ref[v] = row
+
+    msg_by_ref = {}
+    for row in fetch_all(
+        "SELECT sender_child_id, receiver_child_id, moderation_status, media_path FROM child_messages WHERE media_path = ANY(%s)",
+        (clean,),
+    ) or []:
+        v = row.get("media_path")
+        if v in seen and v not in msg_by_ref:
+            msg_by_ref[v] = row
+
+    prof_by_ref = {}
+    for row in fetch_all(
+        "SELECT child_id, profile_picture FROM child_profiles WHERE profile_picture = ANY(%s)",
+        (clean,),
+    ) or []:
+        v = row.get("profile_picture")
+        if v in seen and v not in prof_by_ref:
+            prof_by_ref[v] = row
+
+    # --- batched equivalent of post_visible_to for every matched social post ---
+    visible_post_ids = set()
+    child_post_ids = []
+    curated_terminal = role_u in {"ADMIN", "PARENT", "CHILD"}
+    for ref, p in post_by_ref.items():
+        if ref in cur_by_ref and curated_terminal:
+            continue  # curated precedence: posts table is never consulted
+        mod_status = (p.get("moderation_status") or "").upper()
+        if mod_status == "BLOCKED":
+            continue
+        if ref == p.get("source_media_path") or mod_status == "REVIEW":
+            continue  # handled per-ref below without post_visible_to
+        if role_u == "CHILD":
+            child_post_ids.append(p["post_id"])
+    if child_post_ids and child_surface_open(uid):
+        cats = effective_categories(uid)
+        age_group = _age_group(uid)
+        for vr in fetch_all(
+            """SELECT p.post_id, p.is_reel, p.is_story FROM posts p
+               WHERE p.post_id = ANY(%s)
+                 AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE
+                 AND p.content_category = ANY(%s) AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
+                 AND (p.child_id=%s OR EXISTS(SELECT 1 FROM followers f WHERE f.child_id=%s AND f.following_child_id=p.child_id AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
+                 AND p.child_id NOT IN (
+                   SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
+                   UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
+                   UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)""",
+            (child_post_ids, uid, cats, age_group, age_group, uid, uid, uid, uid, uid),
+        ) or []:
+            if vr.get("is_reel") and not feature_allowed(uid, "reels"):
+                continue
+            if vr.get("is_story") and not feature_allowed(uid, "stories"):
+                continue
+            visible_post_ids.add(vr["post_id"])
+
+    from services.curated_feed import _child_real_age
+
+    for ref in clean:
+        cur = cur_by_ref.get(ref)
+        if cur is not None and cur.get("content_id") is not None:
+            # Curated policy (mirrors _media_allowed; other roles fall through).
+            if role_u in {"ADMIN", "PARENT"}:
+                decisions[ref] = True
+                continue
+            if role_u == "CHILD":
+                if cur.get("publish_status") == "PUBLISHED" and cur.get("moderation_status") == "ALLOWED" \
+                        and cur.get("is_safe") and cur.get("active") \
+                        and cur.get("display_name") in effective_categories(uid):
+                    child_age = _child_real_age(uid)
+                    decisions[ref] = bool(cur["min_age"] <= child_age <= cur["max_age"])
+                else:
+                    decisions[ref] = False
+                continue
+        p = post_by_ref.get(ref)
+        if p is not None:
+            mod_status = (p.get("moderation_status") or "").upper()
+            if mod_status == "BLOCKED":
+                decisions[ref] = False
+            elif ref == p.get("source_media_path") or mod_status == "REVIEW":
+                if role_u == "ADMIN":
+                    decisions[ref] = True
+                elif role_u == "PARENT":
+                    decisions[ref] = _owns_cached(p["child_id"])
+                else:
+                    decisions[ref] = False
+            elif role_u == "ADMIN":
+                decisions[ref] = True
+            elif role_u == "PARENT":
+                decisions[ref] = _owns_cached(p["child_id"])
+            else:
+                decisions[ref] = p["post_id"] in visible_post_ids
+            continue
+        m = msg_by_ref.get(ref)
+        if m is not None:
+            if role_u == "ADMIN":
+                decisions[ref] = True
+            elif role_u == "PARENT":
+                decisions[ref] = _owns_cached(m["sender_child_id"]) and m.get("moderation_status") == "REVIEW"
+            elif m.get("moderation_status") != "ALLOWED":
+                decisions[ref] = uid == m["sender_child_id"]
+            else:
+                decisions[ref] = uid in {m["sender_child_id"], m["receiver_child_id"]} \
+                    and can_interact(m["sender_child_id"], m["receiver_child_id"])
+            continue
+        f = prof_by_ref.get(ref)
+        if f is not None:
+            if role_u == "ADMIN":
+                decisions[ref] = True
+            elif role_u == "PARENT":
+                decisions[ref] = _owns_cached(f["child_id"])
+            else:
+                decisions[ref] = bool(can_discover_child(uid, f["child_id"]))
+            continue
+        decisions[ref] = ref == "uploads/profile_pictures/download.webp" and role_u in {"CHILD", "PARENT", "ADMIN"}
+    return decisions
 
 def _merge_signals(*signals):
     out = {
@@ -896,9 +1090,18 @@ def register_mobile_api(bp):
     @bp.route("/api/mobile/v1/me")
     @_require_mobile("CHILD", "PARENT", "ADMIN")
     def mobile_me():
-        payload = {"ok": True, "user": _mobile_user_payload(g.mobile_user)}
+        quiz_state = None
         if str(g.mobile_user.get("role")) == "CHILD":
-            payload["onboarding"] = _onboarding_state(int(g.mobile_user["user_id"]))
+            uid = int(g.mobile_user["user_id"])
+            qs = feed_quiz_state(uid)
+            quiz_state = {
+                "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+                "posts_seen": int(qs.get("posts_seen", 0)),
+                "interval": int(qs.get("interval", 4)),
+            }
+        payload = {"ok": True, "user": _mobile_user_payload(g.mobile_user, quiz_state=quiz_state)}
+        if quiz_state is not None:
+            payload["onboarding"] = _onboarding_state(int(g.mobile_user["user_id"]), quiz_state=quiz_state)
         return jsonify(_clean(payload))
 
     @bp.route("/api/mobile/v1/media")
@@ -2739,14 +2942,26 @@ def register_mobile_api(bp):
         session_id = request.args.get("session_id")
         page = get_feed_page(uid, surface="FEED", cursor=cursor, limit=limit, session_id=session_id, mode=mode)
         from services.media_delivery import resolve_media_delivery
+        from services.object_storage import is_reference as _is_r2_reference
+        # One batched authorization pass for the whole page instead of ~10
+        # sequential DB round trips per item (the dominant feed latency cost).
+        _ref_set = set()
+        for _it in page["items"]:
+            for _k in ("media_reference", "poster_reference"):
+                _r = _it.get(_k)
+                if _r:
+                    _rs = str(_r).strip()
+                    if _rs and _is_r2_reference(_rs):
+                        _ref_set.add(_rs)
+        _auth = _media_allowed_many(uid, "CHILD", _ref_set)
         for item in page["items"]:
             if item.get("media_reference"):
-                m_res = resolve_media_delivery(item["media_reference"], viewer_id=uid, viewer_role="CHILD")
+                m_res = resolve_media_delivery(item["media_reference"], viewer_id=uid, viewer_role="CHILD", auth_decisions=_auth)
                 item["media_url"] = m_res.get("url")
                 if m_res.get("expires_at"):
                     item["playback_expires_at"] = m_res["expires_at"]
             if item.get("poster_reference"):
-                p_res = resolve_media_delivery(item["poster_reference"], viewer_id=uid, viewer_role="CHILD")
+                p_res = resolve_media_delivery(item["poster_reference"], viewer_id=uid, viewer_role="CHILD", auth_decisions=_auth)
                 item["poster_url"] = p_res.get("url")
         return jsonify(ok=True, **_clean(page))
 
@@ -2768,6 +2983,16 @@ def register_mobile_api(bp):
         session_id = request.args.get("session_id")
         page = get_feed_page(uid, surface="REELS", cursor=cursor, limit=limit, session_id=session_id)
         from services.media_delivery import resolve_media_delivery
+        from services.object_storage import is_reference as _is_r2_reference
+        # Batch the poster authorization for the whole page (same N+1 fix as feed).
+        _ref_set = set()
+        for _it in page["items"]:
+            _r = _it.get("poster_reference")
+            if _r:
+                _rs = str(_r).strip()
+                if _rs and _is_r2_reference(_rs):
+                    _ref_set.add(_rs)
+        _auth = _media_allowed_many(uid, "CHILD", _ref_set)
         for item in page["items"]:
             source_type = str(item.get("source_type") or "").upper()
 
@@ -2794,6 +3019,7 @@ def register_mobile_api(bp):
                     item["poster_reference"],
                     viewer_id=uid,
                     viewer_role="CHILD",
+                    auth_decisions=_auth,
                 )
                 item["poster_url"] = p_res.get("url")
         return jsonify(ok=True, **_clean(page))

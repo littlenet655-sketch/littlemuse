@@ -3,6 +3,7 @@ import os
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from database.connection import fetch_one, execute
+from services.request_cache import memo as _req_memo
 
 SAFE_CATEGORIES = [
     'Other','Science','Math','Art','Sports','Music','Technology','Education',
@@ -71,6 +72,12 @@ def controls_for_child(child_id):
 
 
 def feature_allowed(child_id,feature):
+    # Checked per post for reels/stories gating; controls cannot change
+    # mid-request, so memoize it on flask.g.
+    return _req_memo(("feature_allowed", child_id, feature), lambda: _feature_allowed_uncached(child_id, feature))
+
+
+def _feature_allowed_uncached(child_id,feature):
     col=FEATURE_COLUMNS.get(feature)
     if not col:return True
     return bool(controls_for_child(child_id).get(col,True))
@@ -85,6 +92,12 @@ CATEGORY_SYNONYMS = {
 
 
 def effective_categories(child_id):
+    # Evaluated once per feed item and per media authorization; parent controls
+    # cannot change mid-request, so memoize it on flask.g.
+    return _req_memo(("effective_categories", child_id), lambda: _effective_categories_uncached(child_id))
+
+
+def _effective_categories_uncached(child_id):
     c=controls_for_child(child_id)
     allowed=[x for x in c['allowed_categories'] if x in SAFE_CATEGORIES]
     if c.get('educational_only_feed'):

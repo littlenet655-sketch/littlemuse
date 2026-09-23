@@ -18,10 +18,17 @@ from typing import Any
 
 from database.connection import execute, fetch_all, fetch_one, get_db_connection
 from services.controls import EDUCATIONAL_CATEGORIES, controls_for_child, effective_categories
+from services.request_cache import memo as _req_memo
 from services.social import _age_group, child_surface_open
 
 
 def _child_real_age(child_id: int) -> int:
+    # Queried once per media authorization in feed loops; the child's age
+    # cannot change mid-request, so memoize it on flask.g.
+    return _req_memo(("_child_real_age", child_id), lambda: _child_real_age_uncached(child_id))
+
+
+def _child_real_age_uncached(child_id: int) -> int:
     row = fetch_one("SELECT age, date_of_birth FROM child_profiles WHERE child_id=%s", (child_id,)) or {}
     age = row.get("age")
     if not age and row.get("date_of_birth"):
