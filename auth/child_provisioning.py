@@ -121,7 +121,7 @@ def create_child_for_verified_parent(parent_id, form):
                 allow_posting, allow_discover, educational_only,
             ),
         )
-        # Default doom-scroll intervention: mandatory age quiz after four viewed items.
+        # Default doom-scroll intervention: mandatory age quiz after five viewed items.
         cur.execute(
             """INSERT INTO parent_quiz_settings(parent_id,child_id,quiz_frequency,mandatory_quiz)
                VALUES(%s,%s,4,TRUE)

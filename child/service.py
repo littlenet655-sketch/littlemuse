@@ -44,6 +44,13 @@ def unfollow_child(a,b):
 def discoverable_child_ids(cid):
     """Return minors the viewer may discover, fresh on every HTTP request.
 
+    Discovery stays limited to legitimate relationship context:
+    - same verified parent/family mapping;
+    - same school AND same class;
+    - an already ACTIVE friendship;
+    - a pending parent-mediated friendship request; or
+    - a friend-of-an-ACTIVE-friend.
+
     The expensive relationship query is memoized only inside the current
     request. Cross-request TTL caching is intentionally forbidden because a
     block, unfriend, parent-approval change, or profile-context change must
