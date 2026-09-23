@@ -394,9 +394,11 @@ scene-aware video sampling
 Never claim unsupported accuracy.
 
 Video moderation uses bounded PySceneDetect + uniformly distributed frame
-sampling. Runtime targets at least 3 and at most 8 frames. If a longer clip
-cannot meet the configured temporal-coverage gap within that hard cap, it must
-remain private for REVIEW rather than being auto-allowed from sparse evidence.
+sampling. Runtime targets at least 3 and at most 8 frames. Under the default
+12-second temporal-gap contract, videos up to 84 seconds can satisfy complete
+coverage with the 8-frame cap. Longer videos intentionally remain private for
+REVIEW unless a future benchmarked release policy raises the frame budget or
+changes the coverage contract; they must never be auto-allowed from sparse evidence.
 
 Policy outcomes:
 

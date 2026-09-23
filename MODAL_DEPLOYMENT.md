@@ -131,8 +131,9 @@ cost cap:
 - maximum 8 frames;
 - target sample interval 8 seconds;
 - auto-allow maximum temporal gap 12 seconds;
-- longer clips that cannot satisfy the coverage contract within 8 frames stay
-  private for REVIEW.
+- with these defaults, videos up to 84 seconds can satisfy complete coverage;
+- videos longer than 84 seconds stay private for REVIEW unless a future
+  benchmarked policy explicitly changes the frame budget or gap contract.
 
 This avoids the unsafe single-frame auto-allow behavior without returning to an
 unbounded/expensive frame scan.
