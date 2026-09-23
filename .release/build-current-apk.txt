@@ -1,1 +1,2 @@
 Build standalone preview APK from current main against the verified LittleNet Modal backend.
+Rebuild after verified backend URL fallback fix.
