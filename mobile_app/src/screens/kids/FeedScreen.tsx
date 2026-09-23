@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
-import { fetchKidsHome, type StoryItem } from '../../api/kidsFeed';
+import { fetchKidsHome, recordFeedImpression, type StoryItem } from '../../api/kidsFeed';
 import { submitRecommendationAction } from '../../api/recommendation';
 import { useAuth } from '../../auth/AuthProvider';
 import { PostCard } from '../../kids/PostCard';
@@ -18,6 +18,8 @@ import type { FeedItem } from '../../api/kidsFeed';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
 import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
+import { QuizBreakCard } from '../../components/QuizBreakCard';
+import { isQuizMarker, withQuizBreaks, type QuizMarker } from '../../kids/quizBreaks';
 
 /**
  * Server sends more than the base StoryItem declares: owner id and whether the
@@ -234,17 +236,53 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [tab, setTab] = useState<FeedTab>('For You');
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
   const [activeVideoKey, setActiveVideoKey] = useState<string | null>(null);
+  const [completedQuizMarkers, setCompletedQuizMarkers] = useState<Set<string>>(new Set());
+  const [quizLocked, setQuizLocked] = useState(false);
+  const reportedViewsRef = useRef<Set<string>>(new Set());
+  const reportedSessionRef = useRef<string | undefined>(undefined);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    const visibleVideo = viewableItems.find((entry) => {
-      const item = entry.item as FeedItem | undefined;
-      return Boolean(entry.isViewable && item?.media_type?.toUpperCase() === 'VIDEO');
-    });
-    const item = visibleVideo?.item as FeedItem | undefined;
-    setActiveVideoKey(item ? `${item.source_type}:${item.source_id}` : null);
-  }).current;
   const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
   const feed = useFeed('feed', 10, feedMode);
+
+  if (reportedSessionRef.current !== feed.sessionId) {
+    reportedSessionRef.current = feed.sessionId;
+    reportedViewsRef.current.clear();
+  }
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const visibleVideo = viewableItems.find((entry) => {
+      const item = entry.item as FeedItem | QuizMarker | undefined;
+      return Boolean(entry.isViewable && item && !isQuizMarker(item) && item.media_type?.toUpperCase() === 'VIDEO');
+    });
+    const videoItem = visibleVideo?.item as FeedItem | QuizMarker | undefined;
+    setActiveVideoKey(videoItem && !isQuizMarker(videoItem) ? `${videoItem.source_type}:${videoItem.source_id}` : null);
+
+    for (const entry of viewableItems) {
+      if (!entry.isViewable) continue;
+      const item = entry.item as FeedItem | QuizMarker | undefined;
+      if (!item) continue;
+      if (isQuizMarker(item)) {
+        if (!completedQuizMarkers.has(item.markerId)) setQuizLocked(true);
+        continue;
+      }
+      if (!session?.token || !feed.sessionId) continue;
+      const sourceId = Number(item.source_id ?? item.post_id ?? 0);
+      if (!sourceId) continue;
+      const key = feedKey(item);
+      if (reportedViewsRef.current.has(key)) continue;
+      reportedViewsRef.current.add(key);
+      void recordFeedImpression(session.token, {
+        session_id: feed.sessionId,
+        source_type: item.source_type ?? 'SOCIAL',
+        source_id: sourceId,
+        surface: 'FEED',
+        watched_ms: 250,
+      }).catch(() => {
+        // Allow a later visibility event to retry transient failures.
+        reportedViewsRef.current.delete(key);
+      });
+    }
+  }, [completedQuizMarkers, feed.sessionId, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {
@@ -272,7 +310,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Quiz break every 5 posts: the marker rows are stable per content index so
   // a refresh keeps each card's identity (and its answered state) in place.
-  const displayItems = visibleItems;
+  const displayItems = useMemo(() => withQuizBreaks(visibleItems), [visibleItems]);
 
   const notInterested = useCallback(async (sourceType: 'SOCIAL' | 'CURATED', sourceId: number) => {
     if (!session) return;
@@ -310,7 +348,20 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     />
   ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, online, feed.error]);
 
-  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem | QuizMarker }) => {
+    if (isQuizMarker(item)) {
+      const done = completedQuizMarkers.has(item.markerId);
+      return (
+        <QuizBreakCard
+          token={session?.token}
+          completed={done}
+          onCompleted={() => {
+            setCompletedQuizMarkers((current) => new Set(current).add(item.markerId));
+            setQuizLocked(false);
+          }}
+        />
+      );
+    }
     const key = feedKey(item);
     return (
       <FeedRow
@@ -322,7 +373,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         onDeletedItem={deletedItem}
       />
     );
-  }, [focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
+  }, [completedQuizMarkers, focused, foreground, activeVideoKey, tab, nav, notInterested, deletedItem, session?.token]);
 
   const listFooter = useMemo(() => {
     // Purely visual gate: show the kit end-of-feed card only when real items
@@ -340,12 +391,13 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     <Screen>
       <FlashList
         data={displayItems}
-        keyExtractor={feedKey}
+        keyExtractor={(item) => isQuizMarker(item) ? item.markerId : feedKey(item)}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
         ListFooterComponent={listFooter}
         renderItem={renderFeedItem}
+        scrollEnabled={!quizLocked}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         drawDistance={1200}

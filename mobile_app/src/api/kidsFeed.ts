@@ -118,7 +118,7 @@ export function recordFeedImpression(
     saved?: boolean;
     replay_count?: number;
   },
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }> {
   return apiRequest(routes.impressions, {
     method: 'POST',
     body: JSON.stringify(params),
@@ -184,8 +184,8 @@ export function recordImpressionBatch(
     saved?: boolean;
     replay_count?: number;
   }>,
-): Promise<{ ok: boolean; processed: number }> {
-  return apiRequest<{ ok: boolean; processed: number }>(
+): Promise<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }> {
+  return apiRequest<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }>(
     routes.impressionsBatch,
     {
       method: 'POST',

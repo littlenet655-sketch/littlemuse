@@ -32,6 +32,8 @@ import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
+import { QuizBreakCard } from '../../components/QuizBreakCard';
+import { isQuizMarker, withQuizBreaks, type QuizMarker } from '../../kids/quizBreaks';
 
 interface ReelCellProps {
   item: FeedItem;
@@ -285,18 +287,23 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  // Full-screen height — true Instagram Reels feel
-  const REEL_HEIGHT = windowHeight;
+  // Measure the actual navigator viewport: raw device height includes the tab
+  // bar on some Android devices and causes cells to land between pages.
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
-  // Quiz break every 5 reels — markers are stable per content index.
-  const displayItems = feed.items;
+  // Compulsory brain break after each five loaded reels; the backend owns the
+  // authoritative five-view latch and the card only unlocks after that latch clears.
+  const displayItems = useMemo(() => withQuizBreaks(feed.items), [feed.items]);
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [completedQuizMarkers, setCompletedQuizMarkers] = useState<Set<string>>(new Set());
+  const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem>>(null);
+  const flatListRef = useRef<FlatList<FeedItem | QuizMarker>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -317,13 +324,18 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
-    const first = viewableItems.find((row) => typeof row.index === 'number')?.index;
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem | QuizMarker }> }) => {
+    const firstRow = viewableItems.find((row) => typeof row.index === 'number');
+    const first = firstRow?.index;
     if (typeof first === 'number') {
       setActiveIndex((current) => current === first ? current : first);
       setPaused(false);
+      const item = firstRow?.item;
+      if (item && isQuizMarker(item) && !completedQuizMarkers.has(item.markerId)) {
+        setQuizLocked(true);
+      }
     }
-  }).current;
+  }, [completedQuizMarkers]);
 
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
@@ -483,7 +495,23 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizMarker; index: number }) => {
+    if (isQuizMarker(item)) {
+      const done = completedQuizMarkers.has(item.markerId);
+      return (
+        <View style={[styles.quizPage, { height: REEL_HEIGHT, width: windowWidth }]}>
+          <QuizBreakCard
+            token={session?.token}
+            fullscreen
+            completed={done}
+            onCompleted={() => {
+              setCompletedQuizMarkers((current) => new Set(current).add(item.markerId));
+              setQuizLocked(false);
+            }}
+          />
+        </View>
+      );
+    }
     return (
     <ReelCell
       item={item}
@@ -506,7 +534,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [completedQuizMarkers, activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -624,7 +652,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={(event) => { const h = event.nativeEvent.layout.height; if (h > 0 && h !== viewportHeight) setViewportHeight(h); }}>
       {/* Top header — kit: "Reels" + chevron (left), camera (right) */}
       <View style={[styles.topHeader, { top: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <View style={styles.topTitleRow}>
@@ -646,12 +674,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem>
+      <FlatList<FeedItem | QuizMarker>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => `reel:${feedKey(it)}`}
+        keyExtractor={(it) => isQuizMarker(it) ? it.markerId : `reel:${feedKey(it)}`}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!quizLocked}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
