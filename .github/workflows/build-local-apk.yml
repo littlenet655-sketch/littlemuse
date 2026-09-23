@@ -16,7 +16,7 @@ jobs:
     env:
       CI: "1"
       NODE_ENV: production
-      EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL || 'https://netlittle2--littlenet-web-web.modal.run' }}
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
