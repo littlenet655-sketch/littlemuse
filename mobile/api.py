@@ -119,6 +119,97 @@ def _json_dict():
         raise _InvalidJsonBody()
     return data
 
+def _send_story_reply_message(uid: int, peer_id: int, story_id: int, text: str):
+    """Send a Story reply through the same moderated 1:1 child-message channel."""
+    cid = conversation(uid, peer_id)
+    if not cid or not can_interact(uid, peer_id):
+        return {"error": "approved_connection_required"}, 403
+    text = str(text or "").strip()
+    if not text:
+        return {"error": "empty_message"}, 400
+    if len(text) > Config.MAX_USER_TEXT_CHARS:
+        return {"error": "message_too_long"}, 400
+
+    pii = scan_pii(text)
+    if pii.get("detected") and pii.get("policy_action") == "BLOCK":
+        parent_notify(uid, "MESSAGE_BLOCKED", "Blocked attempt to share phone/contact info", "/parent/safety/")
+        return {"blocked": True, "error": "contact_sharing_blocked"}, 400
+
+    signals, local_decision = evaluate(uid, "TEXT", text)
+    if local_decision.action == "BLOCK":
+        parent_notify(uid, "MESSAGE_BLOCKED", local_decision.reason, "/parent/safety/")
+        return {"blocked": True, "error": "message_blocked", "reason": local_decision.reason}, 400
+
+    final_decision = local_decision
+    triggers = ("secret", "don't tell", "dont tell", "meet", "photo", "selfie", "private", "snap", "insta", "telegram", "phone", "number", "address", "alone")
+    recent = fetch_all(
+        "SELECT sender_child_id,message_text FROM child_messages WHERE conversation_id=%s ORDER BY sent_at DESC LIMIT 20",
+        (cid,),
+    )
+    from safety.chat_context import contextual_chat_risk
+    context_risk = contextual_chat_risk(recent, text)
+    if local_decision.action == "REVIEW" or any(t in text.lower() for t in triggers) or context_risk["suspicious"]:
+        if context_risk["suspicious"] and local_decision.action == "ALLOW":
+            final_decision = Decision("REVIEW", 50.0, "multi-turn grooming pattern requires review")
+            signals["contextual_cue_families"] = context_risk["cue_families"]
+            signals["contextual_reason_code"] = context_risk["reason_code"]
+        try:
+            from services.ai import get_ai_client
+            ai = get_ai_client().evaluate_chat_safety(recent, uid, peer_id, text)
+            if ai.action == "BLOCK":
+                parent_notify(uid, "MESSAGE_BLOCKED", f"AI detected {ai.primary_category}", "/parent/safety/")
+                return {"blocked": True, "error": "message_blocked", "reason": ai.reason_code}, 400
+            if ai.action == "REVIEW" and local_decision.action == "ALLOW":
+                final_decision = Decision(
+                    "REVIEW",
+                    max(float(local_decision.risk), float(ai.risk_score) * 100.0),
+                    f"contextual safety review: {ai.reason_code}",
+                )
+        except Exception:
+            final_decision = Decision(
+                "REVIEW",
+                max(float(local_decision.risk), 50.0),
+                "contextual safety unavailable",
+            )
+
+    row = execute(
+        """INSERT INTO child_messages(
+               conversation_id,sender_child_id,receiver_child_id,message_type,
+               message_text,shared_post_id,moderation_status
+           ) VALUES(%s,%s,%s,'SHARED_POST',%s,%s,%s)
+           RETURNING child_message_id""",
+        (
+            cid,
+            uid,
+            peer_id,
+            text,
+            story_id,
+            "ALLOWED" if final_decision.action == "ALLOW" else "REVIEW",
+        ),
+        returning=True,
+    )
+    message_id = int(row["child_message_id"])
+    record(uid, "MESSAGE", message_id, signals, final_decision)
+    log(uid, "STORY_REPLY_SENT", {"story_id": story_id, "peer_id": peer_id, "message_id": message_id})
+
+    if final_decision.action == "REVIEW":
+        parent_notify(uid, "REVIEW_REQUIRED", "A Story reply needs safety review", "/parent/safety/")
+    else:
+        sender_name = g.mobile_user.get("full_name") or "A friend"
+        notify(peer_id, "STORY_REPLY", f"{sender_name} replied to your story", f"/chat/{uid}/", uid)
+        try:
+            from services.push_notifications import notify_new_chat_message
+            notify_new_chat_message(peer_id, sender_name, cid)
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "status": final_decision.action,
+        "message_id": message_id,
+    }, 200
+
+
 def _serializer(salt: str) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(Config.SECRET_KEY, salt=salt)
 
@@ -3365,6 +3456,108 @@ def register_mobile_api(bp):
         )
         count_row = fetch_one("SELECT COUNT(*) AS viewer_count FROM story_views WHERE post_id=%s", (story_id,))
         return jsonify(ok=True, viewer_count=int(count_row["viewer_count"] if count_row else 1))
+
+    @bp.route("/api/mobile/v2/kids/stories/<int:story_id>/reaction", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("30 per minute")
+    @_require_mobile("CHILD")
+    def mobile_kids_story_reaction(story_id):
+        gate = _child_gate("stories")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        if not feature_allowed(uid, "messaging"):
+            return jsonify(error="disabled_by_parent", feature="messaging"), 403
+
+        from services.social import story_visible_to
+        if not story_visible_to(uid, story_id):
+            return jsonify(error="story_not_found_or_forbidden"), 404
+        story = fetch_one(
+            """SELECT child_id FROM posts
+               WHERE post_id=%s AND is_story=TRUE AND is_safe=TRUE
+                 AND moderation_status='ALLOWED'
+                 AND created_at>NOW()-INTERVAL '24 hours'""",
+            (story_id,),
+        )
+        if not story:
+            return jsonify(error="story_not_found_or_forbidden"), 404
+        owner_id = int(story["child_id"])
+        if owner_id == uid:
+            return jsonify(error="self_reaction_not_allowed"), 400
+        if not can_interact(uid, owner_id) or not feature_allowed(owner_id, "messaging"):
+            return jsonify(error="approved_connection_required"), 403
+
+        data = _json_dict()
+        emoji = str(data.get("emoji") or "").strip()
+        allowed = {"❤️", "😂", "😮", "👏", "🔥", "⭐"}
+        if emoji and emoji not in allowed:
+            return jsonify(error="invalid_reaction"), 400
+
+        if not emoji:
+            execute("DELETE FROM story_reactions WHERE story_id=%s AND child_id=%s", (story_id, uid))
+            viewer_reaction = None
+        else:
+            execute(
+                """INSERT INTO story_reactions(story_id,child_id,emoji,created_at,updated_at)
+                   VALUES(%s,%s,%s,NOW(),NOW())
+                   ON CONFLICT(story_id,child_id)
+                   DO UPDATE SET emoji=EXCLUDED.emoji,updated_at=NOW()""",
+                (story_id, uid, emoji),
+            )
+            viewer_reaction = emoji
+            actor_name = g.mobile_user.get("full_name") or "A friend"
+            notify(owner_id, "STORY_REACTION", f"{actor_name} reacted {emoji} to your story", f"/stories/{story_id}/", uid)
+            record_signal(
+                uid,
+                "SOCIAL",
+                story_id,
+                "LIKE",
+                metadata={"interaction": "story_reaction", "emoji": emoji},
+            )
+        rows = fetch_all(
+            """SELECT emoji,COUNT(*) AS n
+               FROM story_reactions WHERE story_id=%s
+               GROUP BY emoji ORDER BY emoji""",
+            (story_id,),
+        ) or []
+        counts = {str(row["emoji"]): int(row["n"]) for row in rows}
+        return jsonify(ok=True, viewer_reaction=viewer_reaction, counts=counts)
+
+    @bp.route("/api/mobile/v2/kids/stories/<int:story_id>/reply", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("CHILD")
+    def mobile_kids_story_reply(story_id):
+        gate = _child_gate("messaging")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+
+        from services.social import story_visible_to
+        if not story_visible_to(uid, story_id):
+            return jsonify(error="story_not_found_or_forbidden"), 404
+        story = fetch_one(
+            """SELECT child_id FROM posts
+               WHERE post_id=%s AND is_story=TRUE AND is_safe=TRUE
+                 AND moderation_status='ALLOWED'
+                 AND created_at>NOW()-INTERVAL '24 hours'""",
+            (story_id,),
+        )
+        if not story:
+            return jsonify(error="story_not_found_or_forbidden"), 404
+        owner_id = int(story["child_id"])
+        if owner_id == uid:
+            return jsonify(error="self_reply_not_allowed"), 400
+        if not feature_allowed(owner_id, "messaging"):
+            return jsonify(error="approved_connection_required"), 403
+
+        payload, status_code = _send_story_reply_message(
+            uid,
+            owner_id,
+            story_id,
+            str((_json_dict()).get("text") or ""),
+        )
+        return jsonify(**payload), status_code
 
     @bp.route("/api/mobile/v2/kids/stories/<int:story_id>/viewers")
     @_require_mobile("CHILD")

@@ -34,14 +34,25 @@ export interface FeedItem {
   viewer_saved?: boolean;
 }
 
+export interface StoryMusic {
+  music_id?: number | null;
+  title: string;
+  artist: string;
+  audio_url?: string | null;
+  start_seconds?: number;
+  duration_seconds?: number;
+}
+
 export interface StoryItem {
   post_id: number;
+  child_id?: number;
   full_name?: string;
   avatar_url?: string | null;
   media_type?: string;
   media_url?: string | null;
   poster_url?: string | null;
   caption?: string;
+  story_music?: StoryMusic | null;
 }
 
 export interface FeedPage {
@@ -120,6 +131,30 @@ export function recordStoryView(
   return apiRequest(routes.storyView(storyId), {
     method: 'POST',
     body: JSON.stringify({ completion_ratio: completionRatio }),
+  }, token);
+}
+
+export const STORY_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
+
+export function reactToStory(
+  token: string,
+  storyId: number,
+  emoji: string,
+): Promise<{ ok: boolean; viewer_reaction: string | null; counts: Record<string, number> }> {
+  return apiRequest(routes.storyReaction(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ emoji }),
+  }, token);
+}
+
+export function replyToStory(
+  token: string,
+  storyId: number,
+  text: string,
+): Promise<{ ok: boolean; status: 'ALLOW' | 'REVIEW' | string; message_id: number }> {
+  return apiRequest(routes.storyReply(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ text }),
   }, token);
 }
 

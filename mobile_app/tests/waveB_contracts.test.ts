@@ -16,8 +16,9 @@ describe('Task 1: Complete Navigation / Back Behavior Contracts', () => {
 
     // Verification of draft protection
     assert.match(content, /hasDraft\s*&&\s*!busy/);
-    assert.match(content, /'Discard your post\?'/);
+    assert.match(content, /'Keep this draft\?'/);
     assert.match(content, /'Keep editing'/);
+    assert.match(content, /'Save & close'/);
     assert.match(content, /'Discard'/);
 
     // Hardware back listener cleanup
