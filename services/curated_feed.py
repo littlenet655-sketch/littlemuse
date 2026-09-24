@@ -537,6 +537,7 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                  cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
                  cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
                FROM curated_content cc
+               JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
                JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
                JOIN content_categories cat ON cat.category_id = cc.category_id
                WHERE cc.content_id = ANY(%s)
@@ -693,6 +694,7 @@ def curated_item_visible_to(child_id: int, content_id: int) -> bool:
     row = fetch_one(
         """SELECT 1
              FROM curated_content cc
+             JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
              JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
              JOIN content_categories cat ON cat.category_id = cc.category_id
             WHERE cc.content_id = %s
