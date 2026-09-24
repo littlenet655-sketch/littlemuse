@@ -1878,6 +1878,17 @@ def register_mobile_api(bp):
                 local_source_path=local_mock_path,
             )
         except Exception as exc:
+            try:
+                from services.chat_media import block_reviewed_chat_media
+                block_reviewed_chat_media(
+                    message_id=message_id,
+                    quarantine_ref=session_row.get("object_key") if session_row else None,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "chat media quarantine cleanup failed after moderation exception upload=%s",
+                    upload_id,
+                )
             execute(
                 "UPDATE child_messages SET moderation_status='BLOCKED',media_path=NULL WHERE child_message_id=%s",
                 (message_id,),
