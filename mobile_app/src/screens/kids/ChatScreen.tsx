@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { fetchChat, fetchChatUpdates, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
+import { completeChatImageUpload, fetchChat, fetchChatUpdates, requestChatImageUpload, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
+import { putFileToSignedUrl } from '../../kids/directUpload';
+import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity } from '../../kids/postMedia';
 import { CHAT_BLOCKED_COPY, dedupeChat, isChatMessagePending } from '../../kids/social';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
@@ -92,6 +94,7 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
   const [shareNotice, setShareNotice] = useState('');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [mediaSending, setMediaSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   /** Message whose per-bubble timestamp is revealed (tap a bubble to toggle). */
   const [showTimeFor, setShowTimeFor] = useState<number | null>(null);
@@ -287,6 +290,69 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
     }
   }
 
+  async function sendPhoto(source: 'gallery' | 'camera') {
+    if (!session || !peerId || mediaSending || sending) return;
+    if (!online) {
+      setSendError('You are offline. Reconnect to send a photo.');
+      return;
+    }
+    setMediaSending(true);
+    setSendError('');
+    setInfo('Preparing your photo for a safety check…');
+    try {
+      const picked = source === 'camera'
+        ? await capturePostMedia('image')
+        : await pickGalleryMedia('image');
+      if (!picked) {
+        setInfo('');
+        return;
+      }
+      validateMediaIdentity(picked.fileName, picked.mimeType);
+      const sizeBytes = picked.fileSize && picked.fileSize > 0
+        ? picked.fileSize
+        : localMediaSize(picked.uri);
+      const upload = await requestChatImageUpload(session.token, peerId, {
+        filename: picked.fileName,
+        sizeBytes,
+        mimeType: picked.mimeType,
+      });
+      setInfo('Uploading privately for safety review…');
+      await putFileToSignedUrl(upload.upload_url, picked.uri, upload.required_headers);
+      setInfo('Checking your photo before it enters the chat…');
+      const result = await completeChatImageUpload(session.token, upload.upload_id);
+      await load('refresh');
+      if (result.status === 'REVIEW') {
+        setInfo('Your photo is waiting for a safety check. Only you can see it for now.');
+      } else {
+        setInfo('');
+      }
+    } catch (err) {
+      setInfo('');
+      setSendError(
+        err instanceof ApiError && (err.code.includes('blocked') || err.code.includes('image_blocked'))
+          ? 'That photo cannot be shared here because it did not pass the safety check.'
+          : err instanceof ApiError
+            ? err.message
+            : 'Could not send that photo. Try again.',
+      );
+    } finally {
+      setMediaSending(false);
+    }
+  }
+
+  function choosePhotoSource() {
+    if (mediaSending || sending || !online) return;
+    Alert.alert(
+      'Send a photo',
+      'Photos stay private and are safety-checked before your friend can see them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Photo library', onPress: () => void sendPhoto('gallery') },
+        { text: 'Camera', onPress: () => void sendPhoto('camera') },
+      ],
+    );
+  }
+
   useEffect(() => {
     if (session && peerId && postId) {
       sharePostToChat(session.token, peerId, postId)
@@ -417,6 +483,22 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
                       </Text>
                     </View>
                   </Pressable>
+                ) : m.message_type === 'IMAGE' ? (
+                  m.media_url ? (
+                    <Image
+                      source={{ uri: m.media_url }}
+                      style={styles.messageImage}
+                      resizeMode="cover"
+                      accessibilityLabel={pending ? 'Photo waiting for safety review' : 'Photo message'}
+                    />
+                  ) : (
+                    <View style={styles.imageUnavailable}>
+                      <Feather name="image" size={22} color={isOwn ? '#FFFFFF' : colors.muted} />
+                      <Text style={[styles.msg, isOwn && styles.msgOwn, pending && styles.pendingMsg]}>
+                        {pending ? 'Photo waiting for safety check' : 'Photo unavailable'}
+                      </Text>
+                    </View>
+                  )
                 ) : (
                   <Text style={[styles.msg, isOwn && styles.msgOwn, pending && styles.pendingMsg]}>
                     {m.message_text}
@@ -452,6 +534,16 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
           }}
         />
         <View style={styles.inputRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send a photo"
+            accessibilityState={{ disabled: mediaSending || sending || !online }}
+            disabled={mediaSending || sending || !online}
+            onPress={choosePhotoSource}
+            style={[styles.mediaButton, (mediaSending || sending || !online) && styles.sendButtonDisabled]}
+          >
+            <Feather name={mediaSending ? 'loader' : 'camera'} size={18} color={colors.brand} />
+          </Pressable>
           <TextInput
             style={styles.chatInput}
             value={text}
@@ -554,6 +646,8 @@ const styles = StyleSheet.create({
   seenLabel: { fontSize: 11, color: colors.muted, marginTop: 3, marginRight: 4, fontWeight: '600' },
   sharedCard: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedText: { textDecorationLine: 'underline' },
+  messageImage: { width: 220, height: 220, borderRadius: 14, backgroundColor: '#D8D8D8' },
+  imageUnavailable: { width: 190, minHeight: 88, alignItems: 'center', justifyContent: 'center', gap: 8 },
   typingBubble: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -587,6 +681,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: '#EFEFEF',
+  },
+  mediaButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
   },
   chatInput: {
     flex: 1,
