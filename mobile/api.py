@@ -1582,7 +1582,7 @@ def register_mobile_api(bp):
     @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comments", methods=["GET"])
     @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comment", methods=["GET", "POST"])
     @csrf.exempt
-    @limiter.limit("60 per hour")
+    @limiter.limit("12 per minute", methods=["POST"])
     @_require_mobile("CHILD")
     def mobile_comment(post_id):
         gate = _child_gate()
@@ -1610,34 +1610,32 @@ def register_mobile_api(bp):
             except (TypeError, ValueError):
                 before_id = None
 
-            params = [post_id, uid, uid, uid]
-            cursor_clause = ""
+            base_sql = """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
+                                  u.full_name, u.username, cp.profile_picture
+                           FROM comments c
+                           JOIN users u ON u.user_id = c.child_id
+                           LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
+                           WHERE c.post_id = %s
+                             AND c.moderation_status = 'ALLOWED'
+                             AND NOT EXISTS (
+                               SELECT 1 FROM blocked_users b
+                               WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
+                                  OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
+                             )
+                             AND NOT EXISTS (
+                               SELECT 1 FROM muted_users m
+                               WHERE m.muter_id=%s AND m.muted_id=c.child_id
+                             )"""
             if before_id:
-                cursor_clause = " AND c.comment_id < %s"
-                params.append(before_id)
-            params.append(limit + 1)
-            rows = fetch_all(
-                f"""SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
-                           u.full_name, u.username, cp.profile_picture
-                    FROM comments c
-                    JOIN users u ON u.user_id = c.child_id
-                    LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
-                    WHERE c.post_id = %s
-                      AND c.moderation_status = 'ALLOWED'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM blocked_users b
-                        WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
-                           OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM muted_users m
-                        WHERE m.muter_id=%s AND m.muted_id=c.child_id
-                      )
-                      {cursor_clause}
-                    ORDER BY c.comment_id DESC
-                    LIMIT %s""",
-                tuple(params),
-            ) or []
+                rows = fetch_all(
+                    base_sql + " AND c.comment_id < %s ORDER BY c.comment_id DESC LIMIT %s",
+                    (post_id, uid, uid, uid, before_id, limit + 1),
+                ) or []
+            else:
+                rows = fetch_all(
+                    base_sql + " ORDER BY c.comment_id DESC LIMIT %s",
+                    (post_id, uid, uid, uid, limit + 1),
+                ) or []
             has_more = len(rows) > limit
             page = rows[:limit]
             out = []
@@ -2961,20 +2959,24 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             before_id = None
 
-        params = [child_id]
-        cursor_clause = ""
         if before_id:
-            cursor_clause = " AND log_id < %s"
-            params.append(before_id)
-        params.append(limit + 1)
-        rows = fetch_all(
-            f"""SELECT log_id,activity_type,activity_data,created_at
-                FROM activity_logs
-                WHERE child_id=%s {cursor_clause}
-                ORDER BY log_id DESC
-                LIMIT %s""",
-            tuple(params),
-        ) or []
+            rows = fetch_all(
+                """SELECT log_id,activity_type,activity_data,created_at
+                   FROM activity_logs
+                   WHERE child_id=%s AND log_id < %s
+                   ORDER BY log_id DESC
+                   LIMIT %s""",
+                (child_id, before_id, limit + 1),
+            ) or []
+        else:
+            rows = fetch_all(
+                """SELECT log_id,activity_type,activity_data,created_at
+                   FROM activity_logs
+                   WHERE child_id=%s
+                   ORDER BY log_id DESC
+                   LIMIT %s""",
+                (child_id, limit + 1),
+            ) or []
         has_more = len(rows) > limit
         page = rows[:limit]
         next_cursor = int(page[-1]["log_id"]) if has_more and page else None
