@@ -95,10 +95,9 @@ export function sendTyping(token: string, peerId: number): Promise<{ ok: boolean
 }
 
 export function sendChatText(token: string, peerId: number, messageText: string, replyToMessageId?: number | null): Promise<{ ok: boolean; status: string; message_id?: number }> {
-  return postJson(routes.chat(peerId), {
-    message_text: messageText,
-    reply_to_message_id: replyToMessageId ?? null,
-  }, token);
+  const body: Record<string, unknown> = { message_text: messageText };
+  if (replyToMessageId != null) body.reply_to_message_id = replyToMessageId;
+  return postJson(routes.chat(peerId), body, token);
 }
 
 export const MESSAGE_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
