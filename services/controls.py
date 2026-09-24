@@ -22,6 +22,7 @@ FEATURE_COLUMNS = {
     'posting':'allow_posting',
     'discover':'allow_discover',
     'comments':'allow_comments',
+    'group_chats':'allow_group_chats',
 }
 
 
@@ -43,6 +44,8 @@ def _defaults(child_id=None):
         'allow_posting':True,
         'allow_discover':True,
         'allow_comments':True,
+        # Existing children do not silently gain group-chat permission.
+        'allow_group_chats':False,
         'quiet_hours_enabled':False,
         'quiet_start':'21:00',
         'quiet_end':'07:00',
@@ -166,19 +169,20 @@ def save_controls(parent_id,child_id,form):
         'allow_posting':'allow_posting' in form,
         'allow_discover':'allow_discover' in form,
         'allow_comments':'allow_comments' in form,
+        'allow_group_chats':'allow_group_chats' in form,
         'quiet_hours_enabled':'quiet_hours_enabled' in form,
         'educational_only_feed':'educational_only_feed' in form,
     }
     execute('''INSERT INTO parent_control_settings(
-        child_id,parent_id,allow_reels,allow_stories,allow_messaging,allow_posting,allow_discover,allow_comments,
+        child_id,parent_id,allow_reels,allow_stories,allow_messaging,allow_posting,allow_discover,allow_comments,allow_group_chats,
         quiet_hours_enabled,quiet_start,quiet_end,educational_only_feed,allowed_categories,updated_at
-      ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::time,%s::time,%s,%s::jsonb,NOW())
+      ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::time,%s::time,%s,%s::jsonb,NOW())
       ON CONFLICT(child_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,allow_reels=EXCLUDED.allow_reels,
       allow_stories=EXCLUDED.allow_stories,allow_messaging=EXCLUDED.allow_messaging,allow_posting=EXCLUDED.allow_posting,
-      allow_discover=EXCLUDED.allow_discover,allow_comments=EXCLUDED.allow_comments,quiet_hours_enabled=EXCLUDED.quiet_hours_enabled,
+      allow_discover=EXCLUDED.allow_discover,allow_comments=EXCLUDED.allow_comments,allow_group_chats=EXCLUDED.allow_group_chats,quiet_hours_enabled=EXCLUDED.quiet_hours_enabled,
       quiet_start=EXCLUDED.quiet_start,quiet_end=EXCLUDED.quiet_end,educational_only_feed=EXCLUDED.educational_only_feed,
       allowed_categories=EXCLUDED.allowed_categories,updated_at=NOW()''',(
         child_id,parent_id,values['allow_reels'],values['allow_stories'],values['allow_messaging'],values['allow_posting'],
-        values['allow_discover'],values['allow_comments'],values['quiet_hours_enabled'],qstart,qend,values['educational_only_feed'],json.dumps(allowed)))
+        values['allow_discover'],values['allow_comments'],values['allow_group_chats'],values['quiet_hours_enabled'],qstart,qend,values['educational_only_feed'],json.dumps(allowed)))
     _controls_cache.pop(child_id, None)
     return controls_for_child(child_id)
