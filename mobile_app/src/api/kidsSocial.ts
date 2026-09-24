@@ -85,7 +85,7 @@ export function addComment(token: string, postId: number, text: string): Promise
   return postJson(routes.addComment(postId), { text }, token);
 }
 
-export function deleteComment(token: string, postId: number, commentId: number): Promise<{ ok: boolean }> {
+export function deleteComment(token: string, postId: number, commentId: number): Promise<{ ok: boolean; comments_count: number }> {
   return del(routes.deleteComment(postId, commentId), token);
 }
 
