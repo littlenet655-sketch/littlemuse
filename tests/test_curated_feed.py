@@ -1,7 +1,11 @@
 """Comprehensive tests for the curated content and merged feed recommendation architecture."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
 
 from services.curated_feed import (
     apply_category_diversity,
