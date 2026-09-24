@@ -65,8 +65,9 @@ def controls_for_child(child_id):
         out = _defaults(child_id)
     else:
         out=_defaults(child_id);out.update(dict(row))
-        cats=out.get('allowed_categories') or list(SAFE_CATEGORIES)
-        out['allowed_categories']=[c for c in cats if c in SAFE_CATEGORIES] or list(SAFE_CATEGORIES)
+        raw_cats=out.get('allowed_categories')
+        cats=list(SAFE_CATEGORIES) if raw_cats is None else list(raw_cats)
+        out['allowed_categories']=[c for c in cats if c in SAFE_CATEGORIES]
         out['quiet_start']=_clock(out.get('quiet_start'),'21:00')
         out['quiet_end']=_clock(out.get('quiet_end'),'07:00')
     _controls_cache[child_id] = {'data': out, 'time': now}
@@ -104,7 +105,11 @@ def _effective_categories_uncached(child_id):
     allowed=[x for x in c['allowed_categories'] if x in SAFE_CATEGORIES]
     if c.get('educational_only_feed'):
         allowed=[x for x in allowed if x in EDUCATIONAL_CATEGORIES]
-    base = allowed or (EDUCATIONAL_CATEGORIES if c.get('educational_only_feed') else list(SAFE_CATEGORIES))
+    # An explicitly empty parent selection is a deny-all policy. Never widen
+    # it back to every safe category.
+    if not allowed:
+        return []
+    base = allowed
     expanded = list(base)
     for cat in base:
         for syn in CATEGORY_SYNONYMS.get(cat, []):
@@ -152,7 +157,6 @@ def quiet_hours_active(child_id, at=None):
 
 def save_controls(parent_id,child_id,form):
     allowed=[x for x in form.getlist('allowed_categories') if x in SAFE_CATEGORIES]
-    if not allowed: allowed=list(SAFE_CATEGORIES)
     qstart=_clock(form.get('quiet_start'),'21:00');qend=_clock(form.get('quiet_end'),'07:00')
     _parse_clock(qstart);_parse_clock(qend)
     values={
