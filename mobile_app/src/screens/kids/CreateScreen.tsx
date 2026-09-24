@@ -3,7 +3,7 @@ import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleShee
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
-import { completeUpload, formatBytes, requestUploadSession, type UploadSession, type UploadStage } from '../../api/kidsUpload';
+import { completeUpload, fetchCuratedMusic, formatBytes, requestUploadSession, type CuratedMusicTrack, type UploadSession, type UploadStage } from '../../api/kidsUpload';
 import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
@@ -66,6 +66,45 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
 
 type CreateTabParams = { initialKind?: Kind } | undefined;
 
+function StoryMusicPreview({ track }: { track: CuratedMusicTrack }) {
+  const [playing, setPlaying] = useState(false);
+  const player = useVideoPlayer(track.audio_url, (instance) => {
+    instance.loop = true;
+    instance.volume = 0.7;
+    instance.audioMixingMode = 'duckOthers';
+  });
+
+  useEffect(() => () => {
+    try { player.pause(); } catch {}
+  }, [player]);
+
+  function toggle() {
+    if (playing) {
+      player.pause();
+      setPlaying(false);
+    } else {
+      player.currentTime = 0;
+      player.play();
+      setPlaying(true);
+    }
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={playing ? `Pause preview of ${track.title}` : `Preview ${track.title}`}
+      onPress={toggle}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm }}
+    >
+      <Feather name={playing ? 'pause-circle' : 'play-circle'} size={22} color={colors.brand} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.ink, fontWeight: '800' }}>{track.title}</Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>{track.artist} · {Math.round(track.duration_seconds)}s</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>) {
   const { session } = useAuth();
   // Deep links (e.g. the "+ Story" button in StoriesScreen) can request an
@@ -94,6 +133,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const [location, setLocation] = useState('');
   const [contentCategory, setContentCategory] = useState('');
   const [commentsEnabled, setCommentsEnabled] = useState(true);
+  const [storyMusicId, setStoryMusicId] = useState<number | null>(null);
+  const [musicStart, setMusicStart] = useState(0);
+  const [musicDuration, setMusicDuration] = useState(30);
   const [draftHydrating, setDraftHydrating] = useState(true);
   const homeQuery = useQuery({
     queryKey: [...kidsKeys.home, session?.token ?? 'signed-out'],
@@ -101,6 +143,17 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     queryFn: () => fetchKidsHome(session!.token),
     staleTime: 120_000,
   });
+  const musicQuery = useQuery({
+    queryKey: ['kids', 'curated-story-music', session?.token ?? 'signed-out'],
+    enabled: Boolean(session?.token && kind === 'story'),
+    queryFn: () => fetchCuratedMusic(session!.token),
+    staleTime: 10 * 60_000,
+  });
+  const musicTracks = musicQuery.data?.tracks ?? [];
+  const selectedMusic = useMemo(
+    () => musicTracks.find((track) => track.music_id === storyMusicId) ?? null,
+    [musicTracks, storyMusicId],
+  );
   const parentAllowsComments = homeQuery.data?.controls?.allow_comments !== false;
   const categoryPolicyReady = Boolean(homeQuery.data?.controls);
   const allowedCategories = useMemo(() => {
@@ -159,6 +212,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       setLocation(draft?.location ?? '');
       setContentCategory(draft?.contentCategory ?? '');
       setCommentsEnabled(draft?.commentsEnabled ?? true);
+      setStoryMusicId(draft?.storyMusicId ?? null);
+      setMusicStart(draft?.musicStart ?? 0);
+      setMusicDuration(draft?.musicDuration ?? 30);
       setMedia(draft?.media ?? null);
       setStatus(draft && draftHasContent(draft) ? 'Draft restored.' : '');
       resetPipelineState();
@@ -175,9 +231,12 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     location,
     contentCategory,
     commentsEnabled,
+    storyMusicId,
+    musicStart,
+    musicDuration,
     media,
     updatedAt: Date.now(),
-  }), [kind, caption, tags, location, contentCategory, commentsEnabled, media]);
+  }), [kind, caption, tags, location, contentCategory, commentsEnabled, storyMusicId, musicStart, musicDuration, media]);
 
   // Debounced persistence keeps drafts durable across app/background/process
   // restarts without writing AsyncStorage on every keystroke.
@@ -379,6 +438,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         locationName: location.trim(),
         commentsEnabled: kind !== 'story' && parentAllowsComments && commentsEnabled,
+        musicId: kind === 'story' ? storyMusicId : null,
+        musicStart: kind === 'story' ? musicStart : 0,
+        musicDuration: kind === 'story' ? musicDuration : 30,
       });
       resetPipelineState();
       if (draftUserId) await clearCreateDraft(draftUserId, kind);
@@ -394,6 +456,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       setCaption('');
       setTags('');
       setLocation('');
+      setStoryMusicId(null);
+      setMusicStart(0);
+      setMusicDuration(30);
     } catch (err) {
       if (isUploadCancelled(err)) {
         // The presigned session survives a cancel: retry resumes the PUT.
@@ -645,6 +710,47 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           ) : null}
           {homeQuery.isError ? <Text style={styles.categoryHint}>Parent controls could not be verified. Sharing stays locked until they refresh.</Text> : null}
         </View>
+
+        {kind === 'story' ? (
+          <View style={styles.tagSection}>
+            <Text style={styles.tagLabel}>STORY MUSIC</Text>
+            <Text style={styles.categoryHint}>Only pre-approved royalty-free tracks are available.</Text>
+            <View style={styles.tagRow}>
+              <Pressable
+                disabled={busy}
+                onPress={() => setStoryMusicId(null)}
+                style={[styles.tagChip, storyMusicId === null && styles.categoryChipActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: storyMusicId === null }}
+                accessibilityLabel="No story music"
+              >
+                <Text style={[styles.tagChipText, storyMusicId === null && styles.categoryChipTextActive]}>No music</Text>
+              </Pressable>
+              {musicTracks.map((track) => (
+                <Pressable
+                  key={track.music_id}
+                  disabled={busy}
+                  onPress={() => {
+                    setStoryMusicId(track.music_id);
+                    setMusicStart(0);
+                    setMusicDuration(Math.max(1, Math.min(30, Math.round(track.duration_seconds || 30))));
+                  }}
+                  style={[styles.tagChip, storyMusicId === track.music_id && styles.categoryChipActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: storyMusicId === track.music_id }}
+                  accessibilityLabel={`Story music ${track.title} by ${track.artist}`}
+                >
+                  <Text style={[styles.tagChipText, storyMusicId === track.music_id && styles.categoryChipTextActive]}>
+                    {track.title}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {musicQuery.isPending ? <Text style={styles.categoryHint}>Loading safe music…</Text> : null}
+            {musicQuery.isError ? <Text style={styles.categoryHint}>Music is unavailable right now. You can still share without music.</Text> : null}
+            {selectedMusic ? <StoryMusicPreview key={selectedMusic.music_id} track={selectedMusic} /> : null}
+          </View>
+        ) : null}
 
         <Field
           label="Tags"
