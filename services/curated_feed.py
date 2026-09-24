@@ -106,27 +106,45 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_HAS_CURATED_CREATORS: bool | None = None
+
+def _has_curated_creators() -> bool:
+    global _HAS_CURATED_CREATORS
+    if _HAS_CURATED_CREATORS is None:
+        try:
+            row = fetch_one("SELECT to_regclass('public.curated_creators') IS NOT NULL AS has_table")
+            _HAS_CURATED_CREATORS = bool(row and row.get("has_table"))
+        except Exception:
+            _HAS_CURATED_CREATORS = False
+    return _HAS_CURATED_CREATORS
+
+
 def hydrate_curated_engagement(child_id: int, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach CURATED like/save state without ever touching social post tables."""
     ids = sorted({int(item["source_id"]) for item in items if item.get("source_type") == "CURATED"})
     if not ids:
         return items
-    counts = fetch_all(
-        """SELECT source_id,COUNT(*) AS n FROM content_reactions
-           WHERE source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)
-           GROUP BY source_id""",
-        (ids,),
-    )
-    liked = fetch_all(
-        """SELECT source_id FROM content_reactions
-           WHERE child_id=%s AND source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)""",
-        (child_id, ids),
-    )
-    saved = fetch_all(
-        """SELECT source_id FROM content_saves
-           WHERE child_id=%s AND source_type='CURATED' AND source_id=ANY(%s)""",
-        (child_id, ids),
-    )
+    try:
+        counts = fetch_all(
+            """SELECT source_id,COUNT(*) AS n FROM content_reactions
+               WHERE source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)
+               GROUP BY source_id""",
+            (ids,),
+        )
+        liked = fetch_all(
+            """SELECT source_id FROM content_reactions
+               WHERE child_id=%s AND source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)""",
+            (child_id, ids),
+        )
+        saved = fetch_all(
+            """SELECT source_id FROM content_saves
+               WHERE child_id=%s AND source_type='CURATED' AND source_id=ANY(%s)""",
+            (child_id, ids),
+        )
+    except Exception:
+        counts = []
+        liked = []
+        saved = []
     # Be defensive at this enrichment boundary: feed rendering must still
     # succeed if an engagement query is unavailable/malformed in a partial
     # migration or a test double. Missing engagement rows mean zero/false;
@@ -215,11 +233,22 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
     is_reel = str(surface).upper() == "REELS"
 
     # Strictly fail-closed: must be PUBLISHED, asset must be ALLOWED & is_safe=TRUE, category must be active
-    rows = fetch_all(
-        """SELECT 
-             cc.content_id, cc.creator_id,
+    if _has_curated_creators():
+        creator_cols = """
+             cc.creator_id,
              cr.display_name AS creator_display_name, cr.username AS creator_username,
-             cr.avatar_reference AS creator_avatar_reference,
+             cr.avatar_reference AS creator_avatar_reference,"""
+        creator_join = "JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE"
+    else:
+        creator_cols = """
+             NULL::bigint AS creator_id,
+             'Editorial Creator' AS creator_display_name, 'littlenet_editorial' AS creator_username,
+             NULL::text AS creator_avatar_reference,"""
+        creator_join = ""
+
+    rows = fetch_all(
+        f"""SELECT 
+             cc.content_id, {creator_cols}
              cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
@@ -227,7 +256,7 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
              cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
              cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
            FROM curated_content cc
-           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
+           {creator_join}
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            WHERE cc.publish_status = 'PUBLISHED'
@@ -530,19 +559,30 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
 
     curated_map = {}
     if curated_ids:
+        if _has_curated_creators():
+            c_cols = """
+                 cc.creator_id,
+                 cr.display_name AS creator_display_name, cr.username AS creator_username,
+                 cr.avatar_reference AS creator_avatar_reference,"""
+            c_join = "JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE"
+        else:
+            c_cols = """
+                 NULL::bigint AS creator_id,
+                 'Editorial Creator' AS creator_display_name, 'littlenet_editorial' AS creator_username,
+                 NULL::text AS creator_avatar_reference,"""
+            c_join = ""
+
         c_rows = fetch_all(
-            """SELECT 
-                 cc.content_id, cc.creator_id,
-             cr.display_name AS creator_display_name, cr.username AS creator_username,
-             cr.avatar_reference AS creator_avatar_reference,
-             cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+            f"""SELECT 
+                 cc.content_id, {c_cols}
+                 cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
                  cc.is_reel, cc.editorial_weight, cc.published_at,
                  cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
                  cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
                  cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
                  cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
                FROM curated_content cc
-               JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
+               {c_join}
                JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
                JOIN content_categories cat ON cat.category_id = cc.category_id
                WHERE cc.content_id = ANY(%s)
@@ -697,10 +737,11 @@ def curated_item_visible_to(child_id: int, content_id: int) -> bool:
         return False
     child_age = _child_real_age(child_id)
     age_group = _age_group(child_id)
+    c_join = "JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE" if _has_curated_creators() else ""
     row = fetch_one(
-        """SELECT 1
+        f"""SELECT 1
              FROM curated_content cc
-             JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
+             {c_join}
              JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
              JOIN content_categories cat ON cat.category_id = cc.category_id
             WHERE cc.content_id = %s
@@ -724,14 +765,15 @@ def authorize_curated_media(child_id: int, content_id: int) -> dict[str, Any]:
     cats = effective_categories(child_id)
     child_age = _child_real_age(child_id)
 
+    c_join = "JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE" if _has_curated_creators() else ""
     row = fetch_one(
-        """SELECT 
+        f"""SELECT 
              cc.content_id, cc.publish_status, cc.min_age, cc.max_age, cc.audience_age_group,
              cat.display_name AS category, cat.active AS category_active,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.moderation_status, cma.is_safe
            FROM curated_content cc
-           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
+           {c_join}
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            WHERE cc.content_id = %s""",
@@ -828,11 +870,22 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
         return []
 
     pattern = f"%{cleaned}%"
-    rows = fetch_all(
-        """SELECT DISTINCT
-             cc.content_id, cc.creator_id,
+    if _has_curated_creators():
+        c_cols = """
+             cc.creator_id,
              cr.display_name AS creator_display_name, cr.username AS creator_username,
-             cr.avatar_reference AS creator_avatar_reference,
+             cr.avatar_reference AS creator_avatar_reference,"""
+        c_join = "JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE"
+    else:
+        c_cols = """
+             NULL::bigint AS creator_id,
+             'Editorial Creator' AS creator_display_name, 'littlenet_editorial' AS creator_username,
+             NULL::text AS creator_avatar_reference,"""
+        c_join = ""
+
+    rows = fetch_all(
+        f"""SELECT DISTINCT
+             cc.content_id, {c_cols}
              cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
@@ -840,7 +893,7 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
              cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
              cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
            FROM curated_content cc
-           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
+           {c_join}
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            LEFT JOIN curated_content_hashtags cch ON cch.content_id = cc.content_id
