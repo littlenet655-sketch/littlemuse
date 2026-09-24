@@ -2131,7 +2131,7 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
                 <Text style={styles.muted}>Shows who your child has interacted with, not private message content.</Text>
                 {recentPartners.map((partner) => (
                   <View key={partner.child_id} style={[styles.rowBetween, { marginTop: spacing.md }]}>
-                    <View style={[styles.row, { flex: 1 }]}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                       <Avatar uri={partner.avatar_url} name={partner.full_name ?? partner.username ?? 'Friend'} size={36} />
                       <View style={styles.flex}>
                         <Text style={styles.rowTitle}>{partner.full_name ?? partner.username ?? 'Friend'}</Text>
