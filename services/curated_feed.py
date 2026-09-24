@@ -831,4 +831,4 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
            LIMIT %s""",
         (cats, child_age, child_age, pattern, pattern, pattern, pattern, limit),
     )
-    return [normalize_curated_item(r) for r in rows]
+    return hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in rows])
