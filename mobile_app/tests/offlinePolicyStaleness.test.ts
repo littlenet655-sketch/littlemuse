@@ -16,13 +16,13 @@ function snapshot(overrides: Partial<OfflinePolicySnapshot> = {}): OfflinePolicy
 }
 
 test('fresh cached parent policy may authorize offline Kids Mode', () => {
-  const now = new Date('2026-09-24T10:00:00+05:30');
+  const now = new Date(2026, 8, 24, 10, 0, 0);
   const s = snapshot({ server_synced_at_ms: now.getTime() - 60_000 });
   assert.equal(gateForOfflinePolicy(s, now), null);
 });
 
 test('stale cached policy fails closed even if local accounting recently saved it', () => {
-  const now = new Date('2026-09-24T10:00:00+05:30');
+  const now = new Date(2026, 8, 24, 10, 0, 0);
   const s = snapshot({
     server_synced_at_ms: now.getTime() - OFFLINE_POLICY_MAX_AGE_MS - 1,
   });
@@ -30,7 +30,7 @@ test('stale cached policy fails closed even if local accounting recently saved i
 });
 
 test('quiet hours remain authoritative while cached policy is fresh', () => {
-  const now = new Date('2026-09-24T22:00:00+05:30');
+  const now = new Date(2026, 8, 24, 22, 0, 0);
   const s = snapshot({
     quiet_hours_enabled: true,
     quiet_start: '21:00',
