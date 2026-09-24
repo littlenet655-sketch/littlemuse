@@ -77,6 +77,7 @@ from services.controls import (
 from services.curated_feed import (
     _child_real_age,
     authorize_curated_media,
+    curated_item_visible_to,
     get_feed_page,
     record_feed_impression,
     search_curated_content,
@@ -3238,6 +3239,79 @@ def register_mobile_api(bp):
             return jsonify(error="content_not_found"), 404
         except PermissionError as exc:
             return jsonify(error=str(exc)), 403
+
+    @bp.route("/api/mobile/v2/kids/content/<source_type>/<int:source_id>/<action>", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_source_engagement(source_type, source_id, action):
+        gate = _child_gate()
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        stype = str(source_type or "").upper()
+        act = str(action or "").upper()
+        if stype != "CURATED":
+            return jsonify(error="unsupported_source_type"), 400
+        if act not in {"LIKE", "SAVE", "SHARE"}:
+            return jsonify(error="invalid_engagement_action"), 400
+        if not curated_item_visible_to(uid, source_id):
+            return jsonify(error="content_not_found"), 404
+
+        if act == "LIKE":
+            exists = fetch_one(
+                """SELECT 1 FROM content_reactions
+                   WHERE child_id=%s AND source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                (uid, source_id),
+            )
+            if exists:
+                execute(
+                    """DELETE FROM content_reactions
+                       WHERE child_id=%s AND source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                    (uid, source_id),
+                )
+                liked = False
+            else:
+                execute(
+                    """INSERT INTO content_reactions(child_id,source_type,source_id,reaction_type)
+                       VALUES(%s,'CURATED',%s,'LIKE') ON CONFLICT DO NOTHING""",
+                    (uid, source_id),
+                )
+                liked = True
+                record_signal(uid, "CURATED", source_id, "LIKE")
+            row = fetch_one(
+                """SELECT COUNT(*) AS n FROM content_reactions
+                   WHERE source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                (source_id,),
+            ) or {"n": 0}
+            return jsonify(ok=True, source_type="CURATED", source_id=source_id, liked=liked, likes=int(row["n"]))
+
+        if act == "SAVE":
+            exists = fetch_one(
+                "SELECT 1 FROM content_saves WHERE child_id=%s AND source_type='CURATED' AND source_id=%s",
+                (uid, source_id),
+            )
+            if exists:
+                execute(
+                    "DELETE FROM content_saves WHERE child_id=%s AND source_type='CURATED' AND source_id=%s",
+                    (uid, source_id),
+                )
+                saved = False
+            else:
+                execute(
+                    """INSERT INTO content_saves(child_id,source_type,source_id)
+                       VALUES(%s,'CURATED',%s) ON CONFLICT DO NOTHING""",
+                    (uid, source_id),
+                )
+                saved = True
+                record_signal(uid, "CURATED", source_id, "SAVE")
+            return jsonify(ok=True, source_type="CURATED", source_id=source_id, saved=saved)
+
+        execute(
+            "INSERT INTO content_shares(child_id,source_type,source_id) VALUES(%s,'CURATED',%s)",
+            (uid, source_id),
+        )
+        record_signal(uid, "CURATED", source_id, "SHARE")
+        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=True)
 
     @bp.route("/api/mobile/v2/kids/impressions", methods=["POST"])
     @csrf.exempt
