@@ -60,7 +60,10 @@ def messages(cid, viewer, limit=None, before_id=None, after_id=None):
             AND rm.is_deleted=FALSE
             AND rm.moderation_status='ALLOWED'
            WHERE m.conversation_id = %s AND m.is_deleted = FALSE
-             AND (m.moderation_status = 'ALLOWED' OR m.sender_child_id = %s)
+             AND (
+               m.moderation_status = 'ALLOWED'
+               OR (m.sender_child_id = %s AND m.moderation_status = 'REVIEW')
+             )
              AND (%s::bigint IS NULL OR m.child_message_id < %s::bigint)
              AND (%s::bigint IS NULL OR m.child_message_id > %s::bigint)
            ORDER BY m.sent_at DESC, m.child_message_id DESC
