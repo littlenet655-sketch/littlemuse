@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { addComment, blockUser, deleteComment, deletePost, fetchComments, fetchConnections, fetchPostDetail, muteUser, setPostCommentsEnabled, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
@@ -37,6 +37,7 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const [shareError, setShareError] = useState('');
   const [recipients, setRecipients] = useState<Array<{ user_id?: number; child_id?: number; full_name?: string; username?: string; avatar_url?: string | null }>>([]);
   const [sharing, setSharing] = useState<number | null>(null);
+  const requestedShareRef = useRef(false);
   const nav = navigation as unknown as { goBack: () => void };
   const reasons = ['Unsafe or unkind', 'Personal information', 'Something else'];
 
@@ -71,6 +72,14 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   }
 
   useEffect(() => { void load(); }, [session?.token, postId]);
+
+  useEffect(() => {
+    const shouldOpenShare = Boolean((route.params as { openShare?: boolean } | undefined)?.openShare);
+    if (!shouldOpenShare || !post || requestedShareRef.current) return;
+    requestedShareRef.current = true;
+    void openShare();
+  }, [post, route.params, session?.token]);
+
   // Missing/invalid param (e.g. deep-link tampering): never hang on the
   // loading spinner — show a recoverable state with a way back.
   if (!postId) {
