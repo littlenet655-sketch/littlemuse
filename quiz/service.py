@@ -114,7 +114,17 @@ def quizzes(cid, limit=5):
     # Strict zero-repetition guarantee: never return a question already in child_quiz_attempts for this child
     attempted_rows = fetch_all('SELECT quiz_id FROM child_quiz_attempts WHERE child_id=%s', (cid,))
     attempted_ids = {r['quiz_id'] for r in attempted_rows}
-    return [r for r in rows if r['quiz_id'] not in attempted_ids]
+    result = [r for r in rows if r['quiz_id'] not in attempted_ids]
+    if not result:
+        # Bank exhausted: recycle from age-group bank for voluntary practice so children can always practice
+        recycle_rows = fetch_all(
+            '''SELECT * FROM quizzes
+               WHERE age_group=%s
+               ORDER BY RANDOM() LIMIT %s''',
+            (g, limit)
+        )
+        return recycle_rows or []
+    return result
 
 # ─── Feed quiz — single unseen question injected between reels ────────────────
 

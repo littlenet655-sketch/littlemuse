@@ -376,7 +376,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       tab={tab}
       onTabChange={onTabChange}
       onOpenStories={onOpenStories}
-      onStartQuizZone={() => nav.navigate('Quiz', { returnTo: 'KidsTabs' })}
+      onStartQuizZone={() => nav.navigate('Quiz', { returnTo: 'KidsTabs', autoStart: true })}
       online={online}
       error={feed.error}
     />
@@ -404,9 +404,9 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return <CaughtUpCard />;
   }, [visibleItems.length, feed.hasMore, feed.refreshing]);
 
-  if (feed.loading) return <Screen><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
+  if (feed.loading && tab !== 'Learn') return <Screen><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
-  if (feed.error && feed.items.length === 0) return <Screen><OfflineBanner online={online} /><GateNotice error={feed.error} /><ErrorState message="Could not load your feed." onRetry={feed.retry} /></Screen>;
+  if (feed.error && feed.items.length === 0 && tab !== 'Learn') return <Screen><OfflineBanner online={online} /><GateNotice error={feed.error} /><ErrorState message="Could not load your feed." onRetry={feed.retry} /></Screen>;
 
   return (
     <Screen>
@@ -415,7 +415,23 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         keyExtractor={feedKey}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
-        ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
+        ListEmptyComponent={
+          feed.loading ? (
+            <View style={{ padding: spacing.lg, alignItems: 'center' }}>
+              <LoadingState message="Finding learning picks…" />
+            </View>
+          ) : feed.error ? (
+            <View style={{ padding: spacing.md }}>
+              <GateNotice error={feed.error} />
+              <ErrorState message="Could not load learning posts." onRetry={feed.retry} />
+            </View>
+          ) : (
+            <EmptyState
+              title={tab === 'Learn' ? 'Ready to Learn!' : 'Nothing here yet'}
+              body={tab === 'Learn' ? 'Test your skills in the Quiz Zone above, or check back for new learning posts.' : 'When friends share kind posts, they will appear here.'}
+            />
+          )
+        }
         ListFooterComponent={listFooter}
         renderItem={renderFeedItem}
         onViewableItemsChanged={onViewableItemsChanged}
