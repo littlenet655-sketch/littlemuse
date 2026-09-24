@@ -7,6 +7,7 @@ import { completeUpload, formatBytes, requestUploadSession, type UploadSession, 
 import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
+import { clearCreateDraft, draftHasContent, loadCreateDraft, saveCreateDraft, type CreateDraft } from '../../kids/createDrafts';
 import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { kidsKeys } from '../../query/keys';
@@ -91,8 +92,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
   const [location, setLocation] = useState('');
-  const [contentCategory, setContentCategory] = useState('Other');
+  const [contentCategory, setContentCategory] = useState('');
   const [commentsEnabled, setCommentsEnabled] = useState(true);
+  const [draftHydrating, setDraftHydrating] = useState(true);
   const homeQuery = useQuery({
     queryKey: [...kidsKeys.home, session?.token ?? 'signed-out'],
     enabled: Boolean(session?.token),
@@ -100,16 +102,19 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     staleTime: 120_000,
   });
   const parentAllowsComments = homeQuery.data?.controls?.allow_comments !== false;
+  const categoryPolicyReady = Boolean(homeQuery.data?.controls);
   const allowedCategories = useMemo(() => {
-    const source = homeQuery.data?.controls?.allowed_categories ?? ['Other'];
-    const clean = source.filter((value) => typeof value === 'string' && value.trim().length > 0);
-    return clean.length > 0 ? clean : ['Other'];
+    const source = homeQuery.data?.controls?.allowed_categories;
+    if (!Array.isArray(source)) return [];
+    return source.filter((value) => typeof value === 'string' && value.trim().length > 0);
   }, [homeQuery.data?.controls?.allowed_categories]);
+  const canPublishCategory = categoryPolicyReady && allowedCategories.length > 0 && allowedCategories.includes(contentCategory);
   useEffect(() => {
+    if (!categoryPolicyReady) return;
     if (!allowedCategories.includes(contentCategory)) {
-      setContentCategory(allowedCategories[0] ?? 'Other');
+      setContentCategory(allowedCategories[0] ?? '');
     }
-  }, [allowedCategories, contentCategory]);
+  }, [allowedCategories, categoryPolicyReady, contentCategory]);
   useEffect(() => {
     if (kind === 'story' || !parentAllowsComments) setCommentsEnabled(false);
     else setCommentsEnabled(true);
@@ -135,10 +140,72 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     abortRef.current?.abort();
   }, []);
 
+  const draftUserId = Number(session?.user?.user_id ?? 0);
+
+  // Restore a separate local draft for Post / Story / Reel. If the temporary
+  // media URI no longer exists after a process restart, createDrafts restores
+  // the text/settings while intentionally requiring the child to pick media again.
+  useEffect(() => {
+    if (!draftUserId) {
+      setDraftHydrating(false);
+      return;
+    }
+    let cancelled = false;
+    setDraftHydrating(true);
+    void loadCreateDraft(draftUserId, kind).then((draft) => {
+      if (cancelled) return;
+      setCaption(draft?.caption ?? '');
+      setTags(draft?.tags ?? '');
+      setLocation(draft?.location ?? '');
+      setContentCategory(draft?.contentCategory ?? '');
+      setCommentsEnabled(draft?.commentsEnabled ?? true);
+      setMedia(draft?.media ?? null);
+      setStatus(draft && draftHasContent(draft) ? 'Draft restored.' : '');
+      resetPipelineState();
+      setDraftHydrating(false);
+    });
+    return () => { cancelled = true; };
+  }, [draftUserId, kind]);
+
+  const currentDraft = useMemo<CreateDraft>(() => ({
+    version: 1,
+    kind,
+    caption,
+    tags,
+    location,
+    contentCategory,
+    commentsEnabled,
+    media,
+    updatedAt: Date.now(),
+  }), [kind, caption, tags, location, contentCategory, commentsEnabled, media]);
+
+  // Debounced persistence keeps drafts durable across app/background/process
+  // restarts without writing AsyncStorage on every keystroke.
+  useEffect(() => {
+    if (!draftUserId || draftHydrating || busy) return;
+    const timer = setTimeout(() => {
+      if (draftHasContent(currentDraft)) {
+        void saveCreateDraft(draftUserId, { ...currentDraft, updatedAt: Date.now() });
+      } else {
+        void clearCreateDraft(draftUserId, kind);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [draftUserId, draftHydrating, busy, currentDraft, kind]);
+
+  async function persistDraftNow() {
+    if (!draftUserId) return;
+    if (draftHasContent(currentDraft)) {
+      await saveCreateDraft(draftUserId, { ...currentDraft, updatedAt: Date.now() });
+    } else {
+      await clearCreateDraft(draftUserId, kind);
+    }
+  }
+
   // Draft-loss guard: a kid who picked media or typed a caption should not
   // lose it to an accidental back tap. Blocked only while composing —
   // never during/after a share.
-  const hasDraft = Boolean(media || caption.trim() || tags.trim());
+  const hasDraft = draftHasContent(currentDraft);
   const isDiscardingRef = useRef(false);
 
   function performClose() {
@@ -153,11 +220,21 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   function closeComposer() {
     if (hasDraft && !busy) {
       Alert.alert(
-        'Discard your post?',
-        'You have an unfinished post. Going back will discard it.',
+        'Keep this draft?',
+        'You can save it and continue later, keep editing, or discard it permanently.',
         [
           { text: 'Keep editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: performClose },
+          {
+            text: 'Save & close',
+            onPress: () => { void persistDraftNow().then(performClose); },
+          },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: () => {
+              void clearCreateDraft(draftUserId, kind).finally(performClose);
+            },
+          },
         ],
       );
       return;
@@ -179,16 +256,27 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       if (busy || isDiscardingRef.current) return; // a share in flight or intentional discard must not be interrupted
       e.preventDefault();
       Alert.alert(
-        'Discard your post?',
-        'You have an unfinished post. Going back will discard it.',
+        'Keep this draft?',
+        'Save it for later or discard it permanently.',
         [
           { text: 'Keep editing', style: 'cancel', onPress: () => {} },
+          {
+            text: 'Save & leave',
+            onPress: () => {
+              void persistDraftNow().then(() => {
+                isDiscardingRef.current = true;
+                navigation.dispatch(e.data.action);
+              });
+            },
+          },
           {
             text: 'Discard',
             style: 'destructive',
             onPress: () => {
-              isDiscardingRef.current = true;
-              navigation.dispatch(e.data.action);
+              void clearCreateDraft(draftUserId, kind).finally(() => {
+                isDiscardingRef.current = true;
+                navigation.dispatch(e.data.action);
+              });
             },
           },
         ],
@@ -230,7 +318,13 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   }
 
   async function publish() {
-    if (!session || !media || busy) return;
+    if (!session || !media || busy || draftHydrating) return;
+    if (!canPublishCategory) {
+      setStatus(allowedCategories.length === 0
+        ? 'Posting is paused because your parent has not allowed any content categories.'
+        : 'Choose a parent-approved category before sharing.');
+      return;
+    }
     setBusy(true);
     setError(null);
     // Resume where the last attempt failed: a live upload session is reused so
@@ -287,6 +381,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
         commentsEnabled: kind !== 'story' && parentAllowsComments && commentsEnabled,
       });
       resetPipelineState();
+      if (draftUserId) await clearCreateDraft(draftUserId, kind);
       // Hand the local preview to the status screen; the authoritative
       // published state always comes from the server poll, never this preview.
       nav.navigate('ProcessingStatus', {
@@ -544,7 +639,11 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
               );
             })}
           </View>
-          {homeQuery.isError ? <Text style={styles.categoryHint}>Using the safest available category until parent controls refresh.</Text> : null}
+          {homeQuery.isPending ? <Text style={styles.categoryHint}>Loading parent-approved categories…</Text> : null}
+          {!homeQuery.isPending && allowedCategories.length === 0 ? (
+            <Text style={styles.categoryHint}>Posting is paused until your parent allows at least one content category.</Text>
+          ) : null}
+          {homeQuery.isError ? <Text style={styles.categoryHint}>Parent controls could not be verified. Sharing stays locked until they refresh.</Text> : null}
         </View>
 
         <Field
@@ -629,11 +728,11 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       {/* Submit Button */}
       <Pressable
         onPress={() => void publish()}
-        disabled={busy || !media}
+        disabled={busy || !media || draftHydrating || !canPublishCategory}
         accessibilityRole="button"
         accessibilityLabel={busy ? 'Sharing your post' : 'Share safely'}
-        accessibilityState={{ disabled: busy || !media }}
-        style={[styles.publishBtn, (busy || !media) && styles.publishBtnDisabled]}
+        accessibilityState={{ disabled: busy || !media || draftHydrating || !canPublishCategory }}
+        style={[styles.publishBtn, (busy || !media || draftHydrating || !canPublishCategory) && styles.publishBtnDisabled]}
       >
         {busy ? (
           <ActivityIndicator size="small" color="#FFFFFF" />
