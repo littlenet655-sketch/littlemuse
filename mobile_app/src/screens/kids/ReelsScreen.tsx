@@ -596,7 +596,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     });
   }, [session]);
 
-  const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
 
   // Instagram parity: double-tap always likes, never unlikes.
   const handleDoubleTapLike = useCallback((item: FeedItem) => {

@@ -119,13 +119,13 @@ describe('Task 5: Open Exact Tapped Story Contracts', () => {
     assert.equal(resolveStoryTargetIndex([], 999), 0);
   });
 
-  it('FeedScreen StoriesTray passes tapped story.post_id to Stories navigation', () => {
+  it('FeedScreen StoriesTray passes tapped story to Stories navigation with initialStoryId', () => {
     const filePath = join(SRC, 'screens/kids/FeedScreen.tsx');
     const content = readFileSync(filePath, 'utf-8');
 
-    assert.match(content, /onOpen\(\s*own\?\.post_id\s*\)/);
-    assert.match(content, /onOpen\(\s*story\.post_id\s*\)/);
-    assert.match(content, /nav\.navigate\('Stories',\s*initialStoryId\s*\?\s*\{\s*initialStoryId\s*\}\s*:\s*\{\}\)/);
+    assert.match(content, /onOpen\(\s*own\s*\)/);
+    assert.match(content, /onOpen\(\s*story\s*\)/);
+    assert.match(content, /nav\.navigate\('Stories',\s*story\s*\?\s*\{\s*initialStoryId:\s*story\.post_id/);
   });
 });
 
