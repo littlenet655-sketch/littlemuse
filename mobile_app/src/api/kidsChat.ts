@@ -110,3 +110,36 @@ export function reactToMessage(token: string, peerId: number, messageId: number,
 export function sharePostToChat(token: string, peerId: number, postId: number): Promise<{ ok: boolean; message_id: number }> {
   return postJson(routes.sharePost(peerId), { post_id: postId }, token);
 }
+
+
+export interface ChatUploadSession {
+  ok: boolean;
+  upload_id: string;
+  upload_url: string;
+  object_key: string;
+  expires_at: string;
+  required_headers: Record<string, string>;
+  media_type: 'IMAGE' | 'VIDEO';
+}
+
+export function requestChatUploadSession(
+  token: string,
+  peerId: number,
+  input: { mediaType: 'IMAGE' | 'VIDEO'; filename: string; sizeBytes: number; mimeType: string; extension?: string },
+): Promise<ChatUploadSession> {
+  return postJson(routes.chatUploadSession(peerId), {
+    media_type: input.mediaType,
+    filename: input.filename,
+    size_bytes: input.sizeBytes,
+    mime_type: input.mimeType,
+    extension: input.extension,
+  }, token);
+}
+
+export function completeChatUpload(
+  token: string,
+  peerId: number,
+  uploadId: string,
+): Promise<{ ok: boolean; message_id: number; status: 'ALLOWED' | 'REVIEW' | string; idempotent?: boolean }> {
+  return postJson(routes.chatUploadComplete(peerId, uploadId), {}, token);
+}
