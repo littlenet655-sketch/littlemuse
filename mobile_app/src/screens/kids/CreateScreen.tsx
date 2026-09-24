@@ -10,7 +10,7 @@ import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
 import { clearCreateDraft, draftHasContent, loadCreateDraft, saveCreateDraft, type CreateDraft } from '../../kids/createDrafts';
 import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
-import { kidsKeys } from '../../query/keys';
+import { invalidateSocialCaches, kidsKeys } from '../../query/keys';
 import { IgIcon } from '../../components/IgIcon';
 import { Card, Field, GateNotice, Notice } from '../../ui/components';
 import { NativeVideoView } from '../../ui/nativeViews';
@@ -444,6 +444,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       });
       resetPipelineState();
       if (draftUserId) await clearCreateDraft(draftUserId, kind);
+      // Mark published-content queries stale immediately so returning to the
+      // profile cannot keep showing a fresh pre-upload cache snapshot.
+      void invalidateSocialCaches([done.post_id]);
       // Hand the local preview to the status screen; the authoritative
       // published state always comes from the server poll, never this preview.
       nav.navigate('ProcessingStatus', {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
 import { fetchOtherProfile } from '../../api/kidsProfiles';
@@ -231,12 +232,22 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      {error ? <GateNotice error={error} /> : null}
-      {info ? <Notice tone="info" message={info} /> : null}
+    <FlashList
+      style={styles.container}
+      data={posts}
+      keyExtractor={(post) => String(post.post_id)}
+      numColumns={GRID_COLS}
+      columnWrapperStyle={{ gap: GAP }}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      drawDistance={600}
+      ListHeaderComponent={
+        <>
+          {error ? <GateNotice error={error} /> : null}
+          {info ? <Notice tone="info" message={info} /> : null}
 
-      {/* Instagram-style profile header */}
-      <View style={styles.header}>
+          {/* Instagram-style profile header */}
+          <View style={styles.header}>
         <View style={styles.headRow}>
           {stories.length > 0 ? (
             <Pressable
@@ -350,47 +361,43 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
         </View>
       </View>
 
-      {/* Tab switcher: single grid tab */}
-      <View style={styles.tabBar}>
-        <View style={[styles.tabItem, styles.tabItemActive]}>
-          <Feather name="grid" size={22} color={colors.ink} />
-        </View>
-      </View>
-
-      {/* 3-column square media grid */}
-      {posts.length > 0 ? (
-        <View style={styles.grid}>
-          {posts.map((p) => {
-            const isVid = String(p.media_type ?? '').toUpperCase() === 'VIDEO';
-            const imgUrl = isVid ? p.poster_url || p.media_url : p.media_url;
-            return (
-              <Pressable
-                key={p.post_id}
-                style={styles.gridCell}
-                onPress={() => nav.navigate('PostDetail', { postId: p.post_id })}
-              >
-                {imgUrl ? (
-                  <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
-                ) : (
-                  <View style={styles.gridPlaceholder}>
-                    <Feather name={isVid ? 'play' : 'image'} size={22} color={colors.muted} />
-                  </View>
-                )}
-                {isVid ? (
-                  <View style={styles.videoBadge}>
-                    <Feather name="play" size={11} color="#FFFFFF" />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      ) : (
+          {/* Tab switcher: single grid tab */}
+          <View style={styles.tabBar}>
+            <View style={[styles.tabItem, styles.tabItemActive]}>
+              <Feather name="grid" size={22} color={colors.ink} />
+            </View>
+          </View>
+        </>
+      }
+      ListEmptyComponent={
         <View style={styles.noPosts}>
           <Text style={styles.rel}>No posts yet</Text>
         </View>
-      )}
-    </ScrollView>
+      }
+      renderItem={({ item: post }) => {
+        const isVid = String(post.media_type ?? '').toUpperCase() === 'VIDEO';
+        const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
+        return (
+          <Pressable
+            style={styles.gridCell}
+            onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
+          >
+            {imgUrl ? (
+              <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
+            ) : (
+              <View style={styles.gridPlaceholder}>
+                <Feather name={isVid ? 'play' : 'image'} size={22} color={colors.muted} />
+              </View>
+            )}
+            {isVid ? (
+              <View style={styles.videoBadge}>
+                <Feather name="play" size={11} color="#FFFFFF" />
+              </View>
+            ) : null}
+          </Pressable>
+        );
+      }}
+    />
   );
 }
 

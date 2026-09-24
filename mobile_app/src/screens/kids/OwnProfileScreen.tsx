@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { fetchOwnProfile, updateOwnProfile } from '../../api/kidsProfiles';
 import { fetchSaved } from '../../api/kidsSocial';
@@ -153,12 +154,19 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       size={AVATAR}
     />
   );
+  const currentEmpty = tab === 'edit' ? null : emptyCopy[tab];
 
   return (
     <View style={styles.container}>
-      <ScrollView
+      <FlashList
+        key={tab}
+        data={tab === 'edit' ? [] : list}
+        keyExtractor={(post) => String(post.post_id)}
+        numColumns={GRID_COLS}
+        columnWrapperStyle={{ gap: GAP }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        drawDistance={600}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -167,233 +175,225 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             tintColor={colors.brand}
           />
         }
-      >
-        {error ? <GateNotice error={error} /> : null}
+        ListHeaderComponent={
+          <>
+            {error ? <GateNotice error={error} /> : null}
 
-        {/* Kit top bar: @username + verified + chevron, left; create icon, right */}
-        <View style={styles.topBar}>
-          <View style={styles.userRow}>
-            <Text style={styles.username} numberOfLines={1}>
-              {handle}
-            </Text>
-            <IgIcon name="verified" size={17} color={colors.brand} />
-            <ChevronDown />
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Create post"
-            hitSlop={8}
-            onPress={() => nav.navigate('KidsTabs', { tab: 'CreateTab' })}
-          >
-            <IgIcon name="create" size={27} color={colors.ink} />
-          </Pressable>
-        </View>
-
-        {/* Instagram-style profile header */}
-        <View style={styles.header}>
-          <View style={styles.headRow}>
-            {stories.length > 0 ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open your stories"
-                onPress={() => openStory(stories.find((s) => !(s.viewed === true || s.seen === true)) ?? stories[0])}
-                hitSlop={8}
-              >
-                {hasUnviewedStories ? <StoryRing size={STORY_RING}>{avatar}</StoryRing> : avatar}
-              </Pressable>
-            ) : (
-              avatar
-            )}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNum}>{Number(counts.posts ?? 0)}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
+            {/* Kit top bar: @username + verified + chevron, left; create icon, right */}
+            <View style={styles.topBar}>
+              <View style={styles.userRow}>
+                <Text style={styles.username} numberOfLines={1}>
+                  {handle}
+                </Text>
+                <IgIcon name="verified" size={17} color={colors.brand} />
+                <ChevronDown />
               </View>
               <Pressable
-                style={styles.statItem}
                 accessibilityRole="button"
-                accessibilityLabel="View friends"
-                onPress={() => nav.navigate('Connections', { mode: 'followers' })}
+                accessibilityLabel="Create post"
+                hitSlop={8}
+                onPress={() => nav.navigate('KidsTabs', { tab: 'CreateTab' })}
               >
-                <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
-                <Text style={styles.statLabel}>Classmates</Text>
+                <IgIcon name="create" size={27} color={colors.ink} />
               </Pressable>
-              <View style={styles.statItem}>
-                <Text style={styles.statNum}>{Number(counts.following ?? 0)}</Text>
-                <Text style={styles.statLabel}>Following</Text>
+            </View>
+
+            {/* Instagram-style profile header */}
+            <View style={styles.header}>
+              <View style={styles.headRow}>
+                {stories.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Open your stories"
+                    onPress={() => openStory(stories.find((s) => !(s.viewed === true || s.seen === true)) ?? stories[0])}
+                    hitSlop={8}
+                  >
+                    {hasUnviewedStories ? <StoryRing size={STORY_RING}>{avatar}</StoryRing> : avatar}
+                  </Pressable>
+                ) : (
+                  avatar
+                )}
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statNum}>{Number(counts.posts ?? 0)}</Text>
+                    <Text style={styles.statLabel}>Posts</Text>
+                  </View>
+                  <Pressable
+                    style={styles.statItem}
+                    accessibilityRole="button"
+                    accessibilityLabel="View friends"
+                    onPress={() => nav.navigate('Connections', { mode: 'followers' })}
+                  >
+                    <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
+                    <Text style={styles.statLabel}>Classmates</Text>
+                  </Pressable>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statNum}>{Number(counts.following ?? 0)}</Text>
+                    <Text style={styles.statLabel}>Following</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.bioSection}>
+                <Text style={styles.profileName}>{String(profile?.full_name || 'LittleNet Explorer')}</Text>
+                {typeof profile?.bio === 'string' && profile.bio ? (
+                  <Text style={styles.bioText}>{profile.bio}</Text>
+                ) : (
+                  <Text style={styles.bioPlaceholder}>Learning, sharing kindness, and exploring safely ✨</Text>
+                )}
+              </View>
+
+              {/* Story highlights (kit: ring + grey label underneath) */}
+              {stories.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlights}>
+                  {stories.map((s, i) => {
+                    const label =
+                      typeof s.title === 'string' && s.title
+                        ? s.title
+                        : typeof s.caption === 'string' && s.caption
+                          ? s.caption
+                          : 'Story';
+                    return (
+                      <Pressable
+                        key={String(s.post_id ?? s.id ?? i)}
+                        style={styles.highlight}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open story: ${label}`}
+                        onPress={() => openStory(s)}
+                        hitSlop={6}
+                      >
+                        <StoryRing size={64} seen={s.viewed === true || s.seen === true}>
+                          <Avatar
+                            uri={typeof s.poster_url === 'string' ? s.poster_url : (typeof s.media_url === 'string' ? s.media_url : null)}
+                            name={label}
+                            size={52}
+                          />
+                        </StoryRing>
+                        <Text style={styles.highlightLabel} numberOfLines={1}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+
+              {/* Action buttons: kit light-grey rounded buttons, existing handlers untouched */}
+              <View style={styles.actionsRow}>
+                <Pressable
+                  style={styles.greyBtn}
+                  onPress={() => setTab(tab === 'edit' ? 'posts' : 'edit')}
+                >
+                  <Text style={styles.greyBtnText}>{tab === 'edit' ? 'Close Edit' : 'Edit Profile'}</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.greyBtn}
+                  onPress={() => nav.navigate('SavedContent', {})}
+                >
+                  <Text style={styles.greyBtnText}>Saved</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.greyBtn, styles.logOutBtn]}
+                  onPress={() => void signOut()}
+                >
+                  <Text style={[styles.greyBtnText, styles.logOutText]}>Log Out</Text>
+                </Pressable>
               </View>
             </View>
-          </View>
 
-          <View style={styles.bioSection}>
-            <Text style={styles.profileName}>{String(profile?.full_name || 'LittleNet Explorer')}</Text>
-            {typeof profile?.bio === 'string' && profile.bio ? (
-              <Text style={styles.bioText}>{profile.bio}</Text>
-            ) : (
-              <Text style={styles.bioPlaceholder}>Learning, sharing kindness, and exploring safely ✨</Text>
-            )}
-          </View>
-
-          {/* Story highlights (kit: ring + grey label underneath) */}
-          {stories.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlights}>
-              {stories.map((s, i) => {
-                const label =
-                  typeof s.title === 'string' && s.title
-                    ? s.title
-                    : typeof s.caption === 'string' && s.caption
-                      ? s.caption
-                      : 'Story';
+            {/* Tab switcher: kit icon tabs, active tab has ink icon + top border indicator */}
+            <View style={styles.tabBar}>
+              {(['posts', 'reels', 'saved'] as const).map((t) => {
+                const active = tab === t;
+                const label = t === 'posts' ? 'Posts' : t === 'reels' ? 'Reels' : 'Saved';
+                const color = active ? colors.ink : colors.muted;
                 return (
                   <Pressable
-                    key={String(s.post_id ?? s.id ?? i)}
-                    style={styles.highlight}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open story: ${label}`}
-                    onPress={() => openStory(s)}
-                    hitSlop={6}
+                    key={t}
+                    onPress={() => setTab(t)}
+                    style={[styles.tabItem, active && styles.tabItemActive]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`${label} tab`}
                   >
-                    <StoryRing size={64} seen={s.viewed === true || s.seen === true}>
-                      <Avatar
-                        uri={typeof s.poster_url === 'string' ? s.poster_url : (typeof s.media_url === 'string' ? s.media_url : null)}
-                        name={label}
-                        size={52}
-                      />
-                    </StoryRing>
-                    <Text style={styles.highlightLabel} numberOfLines={1}>
-                      {label}
-                    </Text>
+                    {t === 'posts' ? (
+                      <GridGlyph size={24} color={color} />
+                    ) : (
+                      <IgIcon name={t === 'reels' ? 'reels' : 'bookmark'} size={24} color={color} />
+                    )}
                   </Pressable>
                 );
               })}
-            </ScrollView>
-          ) : null}
+            </View>
 
-          {/* Action buttons: kit light-grey rounded buttons, existing handlers untouched */}
-          <View style={styles.actionsRow}>
+            {/* Edit form */}
+            {tab === 'edit' ? (
+              <Card style={styles.editCard}>
+                <Field label="Full name" value={name} onChangeText={setName} />
+                <Field label="Bio" value={bio} onChangeText={setBio} multiline placeholder="Tell your friends what you like…" />
+                {savedMsg ? <Notice tone="ok" message={savedMsg} /> : null}
+                <Button
+                  label={saving ? 'Saving…' : 'Save changes'}
+                  disabled={saving}
+                  onPress={() => {
+                    if (!session) return;
+                    setSaving(true);
+                    setSaveError(null);
+                    updateOwnProfile(session.token, { full_name: name, bio })
+                      .then((updated) => {
+                        queryClient.setQueryData([...kidsKeys.ownProfile, session.token], updated);
+                        setSavedMsg('Profile updated!');
+                        void invalidateSocialCaches();
+                      })
+                      .catch((reason: unknown) => setSaveError(reason))
+                      .finally(() => setSaving(false));
+                  }}
+                />
+              </Card>
+            ) : null}
+          </>
+        }
+        ListEmptyComponent={
+          currentEmpty ? (
+            <EmptyState icon={currentEmpty.icon} title={currentEmpty.title} body={currentEmpty.body} />
+          ) : null
+        }
+        renderItem={({ item: post }) => {
+          const isVid = post.media_type?.toUpperCase() === 'VIDEO';
+          const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
+          return (
             <Pressable
-              style={styles.greyBtn}
-              onPress={() => setTab(tab === 'edit' ? 'posts' : 'edit')}
+              style={styles.gridCell}
+              accessibilityRole="button"
+              accessibilityLabel={isVid ? `Open reel ${post.post_id}` : `Open post ${post.post_id}`}
+              onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
             >
-              <Text style={styles.greyBtnText}>{tab === 'edit' ? 'Close Edit' : 'Edit Profile'}</Text>
-            </Pressable>
-            <Pressable
-              style={styles.greyBtn}
-              onPress={() => nav.navigate('SavedContent', {})}
-            >
-              <Text style={styles.greyBtnText}>Saved</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.greyBtn, styles.logOutBtn]}
-              onPress={() => void signOut()}
-            >
-              <Text style={[styles.greyBtnText, styles.logOutText]}>Log Out</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Tab switcher: kit icon tabs, active tab has ink icon + top border indicator */}
-        <View style={styles.tabBar}>
-          {(['posts', 'reels', 'saved'] as const).map((t) => {
-            const active = tab === t;
-            const label = t === 'posts' ? 'Posts' : t === 'reels' ? 'Reels' : 'Saved';
-            const color = active ? colors.ink : colors.muted;
-            return (
-              <Pressable
-                key={t}
-                onPress={() => setTab(t)}
-                style={[styles.tabItem, active && styles.tabItemActive]}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={`${label} tab`}
-              >
-                {t === 'posts' ? (
-                  <GridGlyph size={24} color={color} />
-                ) : (
-                  <IgIcon name={t === 'reels' ? 'reels' : 'bookmark'} size={24} color={color} />
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Edit form */}
-        {tab === 'edit' ? (
-          <Card style={styles.editCard}>
-            <Field label="Full name" value={name} onChangeText={setName} />
-            <Field label="Bio" value={bio} onChangeText={setBio} multiline placeholder="Tell your friends what you like…" />
-            {savedMsg ? <Notice tone="ok" message={savedMsg} /> : null}
-            <Button
-              label={saving ? 'Saving…' : 'Save changes'}
-              disabled={saving}
-              onPress={() => {
-                if (!session) return;
-                setSaving(true);
-                setSaveError(null);
-                updateOwnProfile(session.token, { full_name: name, bio })
-                  .then((updated) => {
-                    queryClient.setQueryData([...kidsKeys.ownProfile, session.token], updated);
-                    setSavedMsg('Profile updated!');
-                    void invalidateSocialCaches();
-                  })
-                  .catch((reason: unknown) => setSaveError(reason))
-                  .finally(() => setSaving(false));
-              }}
-            />
-          </Card>
-        ) : null}
-
-        {/* Empty state */}
-        {tab !== 'edit' && !list.length ? (
-          <EmptyState
-            icon={emptyCopy[tab as Exclude<Tab, 'edit'>].icon}
-            title={emptyCopy[tab as Exclude<Tab, 'edit'>].title}
-            body={emptyCopy[tab as Exclude<Tab, 'edit'>].body}
-          />
-        ) : null}
-
-        {/* 3-column square media grid */}
-        {tab !== 'edit' && list.length > 0 ? (
-          <View style={styles.grid}>
-            {list.map((post) => {
-              const isVid = post.media_type?.toUpperCase() === 'VIDEO';
-              const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
-              return (
-                <Pressable
-                  key={post.post_id}
-                  style={styles.gridCell}
-                  accessibilityRole="button"
-                  accessibilityLabel={isVid ? `Open reel ${post.post_id}` : `Open post ${post.post_id}`}
-                  onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
-                >
-                  {imgUrl ? (
-                    <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.gridPlaceholder}>
-                      {isVid ? (
-                        <IgIcon name="reels" size={26} color={colors.muted} />
-                      ) : (
-                        <GridGlyph size={26} color={colors.muted} />
-                      )}
-                    </View>
-                  )}
+              {imgUrl ? (
+                <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
+              ) : (
+                <View style={styles.gridPlaceholder}>
                   {isVid ? (
-                    <View style={styles.videoMark}>
-                      <IgIcon name="reels" size={18} color="#FFFFFF" />
-                    </View>
-                  ) : null}
-                  {typeof post.likes === 'number' ? (
-                    <View style={styles.likeOverlay}>
-                      <IgIcon name="heart" size={15} color="#FFFFFF" />
-                      <Text style={styles.likeCount}>{post.likes}</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-      </ScrollView>
+                    <IgIcon name="reels" size={26} color={colors.muted} />
+                  ) : (
+                    <GridGlyph size={26} color={colors.muted} />
+                  )}
+                </View>
+              )}
+              {isVid ? (
+                <View style={styles.videoMark}>
+                  <IgIcon name="reels" size={18} color="#FFFFFF" />
+                </View>
+              ) : null}
+              {typeof post.likes === 'number' ? (
+                <View style={styles.likeOverlay}>
+                  <IgIcon name="heart" size={15} color="#FFFFFF" />
+                  <Text style={styles.likeCount}>{post.likes}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        }}
+      />
     </View>
   );
 }

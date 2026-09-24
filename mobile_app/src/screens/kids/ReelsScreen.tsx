@@ -803,10 +803,17 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             fullscreen
             completed={false}
             onCompleted={async () => {
-              setQuizLocked(false);
-              setPaused(false);
-              if (session?.token) {
-                await refreshMe();
+              if (!session?.token) return;
+              setPaused(true);
+              try {
+                const refreshed = await refreshMe();
+                const stillRequired = refreshed.user.quiz_required || refreshed.onboarding?.quiz_required;
+                setQuizLocked(Boolean(stillRequired));
+                if (!stillRequired) setPaused(false);
+              } catch {
+                // Keep the server latch closed until an authoritative refresh succeeds.
+                setQuizLocked(true);
+                setPaused(true);
               }
             }}
           />
