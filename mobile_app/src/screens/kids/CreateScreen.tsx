@@ -154,6 +154,14 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     () => musicTracks.find((track) => track.music_id === storyMusicId) ?? null,
     [musicTracks, storyMusicId],
   );
+  const musicQuery = useQuery({
+    queryKey: ['kids', 'curated-music', session?.token ?? 'signed-out'],
+    enabled: Boolean(session?.token && kind === 'story'),
+    queryFn: () => fetchCuratedMusic(session!.token),
+    staleTime: 10 * 60_000,
+  });
+  const musicTracks = musicQuery.data?.tracks ?? [];
+  const selectedMusic = musicTracks.find((track) => track.music_id === selectedMusicId) ?? null;
   const parentAllowsComments = homeQuery.data?.controls?.allow_comments !== false;
   const categoryPolicyReady = Boolean(homeQuery.data?.controls);
   const allowedCategories = useMemo(() => {
@@ -766,6 +774,66 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           placeholder="Home, School, Art Class"
         />
 
+        {kind === 'story' ? (
+          <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.line }}>
+            <Text style={{ color: colors.ink, fontWeight: '800' }}>Story music</Text>
+            <Text style={{ color: colors.muted, marginTop: 3, marginBottom: spacing.sm }}>
+              Choose only from LittleMuse's pre-approved royalty-free catalog.
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: selectedMusicId == null }}
+                onPress={() => { setSelectedMusicId(null); setMusicPreviewing(false); }}
+                style={[styles.tagChip, selectedMusicId == null && styles.categoryChipActive]}
+              >
+                <Text style={[styles.tagChipText, selectedMusicId == null && styles.categoryChipTextActive]}>No music</Text>
+              </Pressable>
+              {musicTracks.map((track: CuratedMusicTrack) => {
+                const active = selectedMusicId === track.music_id;
+                return (
+                  <Pressable
+                    key={track.music_id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`Select music ${track.title} by ${track.artist ?? 'LittleMuse'}`}
+                    onPress={() => { setSelectedMusicId(track.music_id); setMusicPreviewing(false); }}
+                    style={[styles.tagChip, active && styles.categoryChipActive]}
+                  >
+                    <Text style={[styles.tagChipText, active && styles.categoryChipTextActive]}>
+                      {track.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            {musicQuery.isLoading ? <Text style={styles.categoryHint}>Loading approved music…</Text> : null}
+            {musicQuery.isError ? <Text style={styles.categoryHint}>Music catalog is unavailable right now. You can still publish without music.</Text> : null}
+            {selectedMusic ? (
+              <View style={[styles.progressRow, { marginTop: spacing.sm }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.ink, fontWeight: '800' }}>{selectedMusic.title}</Text>
+                  <Text style={{ color: colors.muted }}>{selectedMusic.artist ?? 'LittleMuse'}</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={musicPreviewing ? 'Stop music preview' : 'Preview selected music'}
+                  onPress={() => setMusicPreviewing((value) => !value)}
+                  style={styles.cancelBtn}
+                >
+                  <Feather name={musicPreviewing ? 'pause' : 'play'} size={14} color={colors.ink} />
+                  <Text style={[styles.cancelText, { color: colors.ink }]}>{musicPreviewing ? 'Stop' : 'Preview'}</Text>
+                </Pressable>
+                <CuratedMusicPreview
+                  key={selectedMusic.music_id}
+                  track={selectedMusic}
+                  playing={musicPreviewing}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
         {kind !== 'story' ? (
           <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.line }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -817,6 +885,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
               accessibilityState={{ selected: active }}
               onPress={() => {
                 setKind(k);
+                setMusicPreviewing(false);
                 setMedia(null);
                 resetPipelineState();
                 setStatus('');
