@@ -148,6 +148,10 @@ export interface HeartbeatResult {
   ok: boolean;
   minutes_today: number;
   remaining_minutes: number | null;
+  daily_limit_minutes?: number;
+  strict_mode?: boolean;
+  quiet_hours?: { enabled: boolean; active: boolean; start: string; end: string };
+  server_time?: string;
   locked?: boolean;
   self_resets_used?: number;
   self_resets_remaining?: number;
