@@ -1806,6 +1806,31 @@ export function ParentControlsScreen({ route }: ParentScreenProps<'ParentControl
               value={draft.quiet_hours_enabled}
               onChange={(value) => set('quiet_hours_enabled', value)}
             />
+            <View style={styles.quietHoursInputSection}>
+              <Text style={styles.categoryExplainer}>Reel Brain Break pacing</Text>
+              <View style={styles.chipsWrap}>
+                {([
+                  ['FREQUENT', 'Frequent · 2–5 reels'],
+                  ['BALANCED', 'Balanced · 4–7 reels'],
+                  ['LIGHT', 'Light · 7–10 reels'],
+                ] as const).map(([policy, label]) => {
+                  const selected = draft.quiz_pacing_policy === policy;
+                  return (
+                    <Pressable
+                      key={policy}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      style={[styles.categoryPill, selected && styles.categoryPillSelected]}
+                      onPress={() => set('quiz_pacing_policy', policy)}
+                    >
+                      {selected ? <Feather name="check" size={13} color="#FFFFFF" /> : null}
+                      <Text style={[styles.categoryPillText, selected && styles.categoryPillTextSelected]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.controlRowSub}>The exact next break remains random and server-persisted. Changing this setting never clears a break that is already required.</Text>
+            </View>
             {draft.quiet_hours_enabled ? (
               <View style={styles.quietHoursInputSection}>
                 <View style={styles.timeInputsRow}>
