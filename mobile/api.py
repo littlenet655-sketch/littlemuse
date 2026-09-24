@@ -2579,7 +2579,7 @@ def register_mobile_api(bp):
         if request.method == "PUT":
             data = _json_dict()
             flags = {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
                 "quiet_hours_enabled", "educational_only_feed",
             }
             if any(key in data and not isinstance(data[key], bool) for key in flags):
@@ -2595,11 +2595,11 @@ def register_mobile_api(bp):
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
                 "quiet_hours_enabled", "quiet_start", "quiet_end", "educational_only_feed", "allowed_categories",
             }})
             form = MultiDict()
-            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "quiet_hours_enabled", "educational_only_feed"):
+            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "quiet_hours_enabled", "educational_only_feed"):
                 if bool(merged.get(flag)):
                     form.add(flag, "on")
             form.add("quiet_start", str(merged.get("quiet_start") or "21:00"))
