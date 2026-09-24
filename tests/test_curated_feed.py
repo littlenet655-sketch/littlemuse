@@ -35,6 +35,10 @@ def _dummy_curated_row(
 ):
     return {
         "content_id": content_id,
+        "creator_id": 7,
+        "creator_display_name": "AIT Star Student",
+        "creator_username": "ait_star_student",
+        "creator_avatar_reference": None,
         "title": title,
         "caption": f"Educational content {title}",
         "audience_age_group": audience,
@@ -139,6 +143,26 @@ def test_legacy_missing_media_is_not_rendered_as_a_broken_feed_tile(monkeypatch)
 
     text_post=normalize_social_item({**_dummy_social_row(4), "media_type": "TEXT", "media_path": None})
     assert cf._social_media_renderable(text_post) is True
+
+
+def test_curated_identity_is_hydrated_from_editorial_relation():
+    row = _dummy_curated_row(content_id=10)
+    item = normalize_curated_item(row)
+    assert item["source_type"] == "CURATED"
+    assert item["creator_id"] == 7
+    assert item["creator_username"] == "ait_star_student"
+    assert item["author_name"] == "AIT Star Student"
+    assert item.get("child_id") is None
+
+
+def test_curated_creator_migration_uses_relational_creator_id():
+    migration = (ROOT / "db/migrations/20260924000002_curated_creators_engagement.sql").read_text(encoding="utf-8")
+    service = (ROOT / "services/curated_feed.py").read_text(encoding="utf-8")
+    assert "creator_id BIGSERIAL PRIMARY KEY" in migration
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGINT REFERENCES curated_creators(creator_id)" in migration
+    assert "JOIN curated_creators cr ON cr.creator_id = cc.creator_id" in service
+    assert "creator_payload" not in service
+    assert '"creator_id": int(creator_id)' in service
 
 
 def test_social_and_curated_merge(monkeypatch):
