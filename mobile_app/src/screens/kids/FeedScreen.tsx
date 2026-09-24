@@ -249,6 +249,7 @@ const FeedRow = memo(function FeedRow({
       onOpen={post ? () => nav.navigate('PostDetail', post) : undefined}
       onProfile={profile ? () => nav.navigate('OtherProfile', profile) : undefined}
       onNotInterested={tab === 'Friends' ? undefined : () => onNotInterestedItem(item.source_type, item.source_id)}
+      onControlledShare={post ? () => nav.navigate('PostDetail', { ...post, openShare: true }) : undefined}
       onDeleted={() => onDeletedItem(item)}
       inlineVideoPlayback
       videoActive={videoActive}
