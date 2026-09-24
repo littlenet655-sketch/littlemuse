@@ -1037,7 +1037,6 @@ def register_mobile_api(bp):
         return jsonify(ok=True)
 
     @bp.route("/api/mobile/v1/music/curated", methods=["GET"])
-    @_require_mobile("CHILD")
     def mobile_curated_music():
         """Return pre-approved royalty-free curated tracks for story creation."""
         rows = fetch_all(
