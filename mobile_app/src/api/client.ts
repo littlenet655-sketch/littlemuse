@@ -80,6 +80,7 @@ export const routes = {
   impressions: '/api/mobile/v2/kids/impressions',
   impressionsBatch: '/api/mobile/v2/kids/impressions/batch',
   recommendationActions: '/api/mobile/v2/kids/recommendation-actions',
+  curatedEngagement: (sourceId: number, action: 'like' | 'save' | 'share') => `/api/mobile/v2/kids/content/CURATED/${sourceId}/${action}`,
   reelPlayback: (postId: number) => `/api/mobile/v2/kids/reels/${postId}/playback`,
   curatedReelPlayback: (contentId: number) => `/api/mobile/v2/kids/reels/curated/${contentId}/playback`,
   storyView: (storyId: number) => `/api/mobile/v2/kids/stories/${storyId}/view`,

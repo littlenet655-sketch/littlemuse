@@ -1,6 +1,6 @@
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -17,7 +17,7 @@ import { useIsForeground, useIsOnline } from '../../query/client';
 import type { FeedItem } from '../../api/kidsFeed';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
-import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
+import { DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
 
 /**
  * Server sends more than the base StoryItem declares: owner id and whether the
@@ -41,7 +41,7 @@ function StoriesTray({
   token?: string;
   myId?: number;
   myName?: string;
-  onOpen: () => void;
+  onOpen: (story?: TrayStory) => void;
 }) {
   // Read the shared home query instead of firing a duplicate raw fetch: the
   // hydration layer already warms [...kidsKeys.home, token], so this dedupes
@@ -77,7 +77,7 @@ function StoriesTray({
         contentContainerStyle={styles.trayContent}
       >
         <Pressable
-          onPress={onOpen}
+          onPress={() => onOpen(own)}
           style={styles.trayCell}
           accessibilityRole="button"
           accessibilityLabel="Your story"
@@ -97,7 +97,7 @@ function StoriesTray({
         {friends.map((story) => (
           <Pressable
             key={`tray-${story.post_id}`}
-            onPress={onOpen}
+            onPress={() => onOpen(story)}
             style={styles.trayCell}
             accessibilityRole="button"
             accessibilityLabel={`${story.full_name ?? 'Friend'}'s story`}
@@ -172,14 +172,13 @@ const FeedListHeader = memo(function FeedListHeader({
   myName?: string;
   tab: FeedTab;
   onTabChange: (tab: FeedTab) => void;
-  onOpenStories: () => void;
+  onOpenStories: (story?: TrayStory) => void;
   online: boolean;
   error: unknown;
   onStartQuizZone?: () => void;
 }) {
   return (
     <>
-      <BrandHeader title="LittleNet" subtitle="Kind posts from friends." />
       <StoriesTray token={token} myId={myId} myName={myName} onOpen={onOpenStories} />
       <View style={styles.tabs}>
         {(['For You', 'Friends', 'Learn'] as const).map((item) => (
@@ -276,6 +275,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
   const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
   const feed = useFeed('feed', 10, feedMode);
+  const loadMoreRef = useRef(feed.loadMore);
+  loadMoreRef.current = feed.loadMore;
 
   if (reportedSessionRef.current !== feed.sessionId) {
     reportedSessionRef.current = feed.sessionId;
@@ -290,18 +291,22 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     const videoItem = visibleVideo?.item as FeedItem | undefined;
     setActiveVideoKey(videoItem ? `${videoItem.source_type}:${videoItem.source_id}` : null);
 
+    const furthest = viewableItems.reduce((max, entry) => Math.max(max, entry.index ?? -1), -1);
+    if (furthest >= 0 && furthest >= feed.items.length - 2) loadMoreRef.current();
+
     for (const entry of viewableItems) {
       if (!entry.isViewable) continue;
       const item = entry.item as FeedItem | undefined;
       if (!item) continue;
-      if (!session?.token || !feed.sessionId) continue;
+      const itemSessionId = item.feed_session_id ?? feed.sessionId;
+      if (!session?.token || !itemSessionId) continue;
       const sourceId = Number(item.source_id ?? item.post_id ?? 0);
       if (!sourceId) continue;
       const key = feedKey(item);
       if (reportedViewsRef.current.has(key)) continue;
       reportedViewsRef.current.add(key);
       void recordFeedImpression(session.token, {
-        session_id: feed.sessionId,
+        session_id: itemSessionId,
         source_type: item.source_type ?? 'SOCIAL',
         source_id: sourceId,
         surface: 'FEED',
@@ -311,14 +316,14 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         reportedViewsRef.current.delete(key);
       });
     }
-  }, [feed.sessionId, session?.token]);
+  }, [feed.items.length, feed.sessionId, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {
     setActiveVideoKey(null);
     setTab(next);
   }, []);
-  const onOpenStories = useCallback(() => nav.navigate('Stories', {}), [nav]);
+  const onOpenStories = useCallback((story?: TrayStory) => nav.navigate('Stories', story ? { initialStoryId: story.post_id, initialChildId: story.child_id } : {}), [nav]);
   // A deleted post vanishes from the local list immediately (server already
   // confirmed the soft-delete; cache invalidation happens in the card).
   const deletedItem = useCallback((item: FeedItem) => {
@@ -398,7 +403,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return <CaughtUpCard />;
   }, [visibleItems.length, feed.hasMore, feed.refreshing]);
 
-  if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
+  if (feed.loading) return <Screen><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
   if (feed.error && feed.items.length === 0) return <Screen><OfflineBanner online={online} /><GateNotice error={feed.error} /><ErrorState message="Could not load your feed." onRetry={feed.retry} /></Screen>;
 

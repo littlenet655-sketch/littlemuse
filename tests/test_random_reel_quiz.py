@@ -11,35 +11,37 @@ def text(path):
 
 
 def test_random_threshold_bounds_and_distribution():
-    from quiz.service import roll_quiz_threshold, ALLOWED_QUIZ_THRESHOLDS
+    from quiz.service import roll_quiz_threshold, QUIZ_PACING_RANGES
 
-    assert ALLOWED_QUIZ_THRESHOLDS == (2, 3, 4, 5)
-    observed = set()
-    for _ in range(300):
-        val = roll_quiz_threshold()
-        assert val in {2, 3, 4, 5}
-        observed.add(val)
-    # Over 300 iterations, every option in {2, 3, 4, 5} should be chosen
-    assert observed == {2, 3, 4, 5}
+    expected = {
+        "FREQUENT": (2, 3, 4, 5),
+        "BALANCED": (4, 5, 6, 7),
+        "LIGHT": (7, 8, 9, 10),
+    }
+    assert QUIZ_PACING_RANGES == expected
+    for policy, allowed in expected.items():
+        observed = set()
+        for _ in range(300):
+            val = roll_quiz_threshold(policy=policy)
+            assert val in set(allowed)
+            observed.add(val)
+        # Each four-value policy should exercise its full range over 300 rolls.
+        assert observed == set(allowed)
 
 
 def test_feed_quiz_interval_reads_persisted_threshold():
     from quiz.service import feed_quiz_interval
 
-    # Simulated row with persisted threshold = 3
-    with patch("quiz.service.setting", return_value=None):
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 3}) == 3
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 2}) == 2
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 4}) == 4
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 5}) == 5
+    # The exact threshold is a server-persisted latch. Parent policy changes
+    # affect the NEXT roll only; they never rewrite the active threshold.
+    with patch("quiz.service.setting", return_value={"quiz_pacing_policy": "LIGHT"}):
+        for threshold in (2, 3, 4, 5, 6, 7, 8, 9, 10):
+            assert feed_quiz_interval(123, row={"next_quiz_threshold": threshold}) == threshold
 
-    # Parent setting can only lower threshold (e.g. 1), never raise above child threshold
-    with patch("quiz.service.setting", return_value={"quiz_frequency": 1}):
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 4}) == 1
-
-    with patch("quiz.service.setting", return_value={"quiz_frequency": 10}):
-        # Setting higher than child threshold is ignored
-        assert feed_quiz_interval(123, row={"next_quiz_threshold": 3}) == 3
+    # With no persisted threshold, roll from the active parent policy.
+    with patch("quiz.service.setting", return_value={"quiz_pacing_policy": "LIGHT"}), \
+         patch("secrets.choice", return_value=9):
+        assert feed_quiz_interval(123, row={}) == 9
 
 
 def test_threshold_persists_across_repeated_reads_no_reroll_on_refresh():

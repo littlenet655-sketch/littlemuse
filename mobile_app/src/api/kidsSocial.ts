@@ -61,6 +61,18 @@ export function toggleSave(token: string, postId: number): Promise<{ ok: boolean
   return postJson(routes.save(postId), {}, token);
 }
 
+export function toggleCuratedLike(token: string, sourceId: number): Promise<{ ok: boolean; liked: boolean; likes: number }> {
+  return postJson(routes.curatedEngagement(sourceId, 'like'), {}, token);
+}
+
+export function toggleCuratedSave(token: string, sourceId: number): Promise<{ ok: boolean; saved: boolean }> {
+  return postJson(routes.curatedEngagement(sourceId, 'save'), {}, token);
+}
+
+export function recordCuratedShare(token: string, sourceId: number): Promise<{ ok: boolean; shared: boolean }> {
+  return postJson(routes.curatedEngagement(sourceId, 'share'), {}, token);
+}
+
 export function fetchComments(token: string, postId: number): Promise<{ ok: boolean; comments: CommentItem[] }> {
   return get(routes.comments(postId), token);
 }

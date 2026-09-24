@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
 import { completeUpload, formatBytes, requestUploadSession, type UploadSession, type UploadStage } from '../../api/kidsUpload';
+import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
 import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
+import { kidsKeys } from '../../query/keys';
 import { IgIcon } from '../../components/IgIcon';
 import { Card, Field, GateNotice, Notice } from '../../ui/components';
 import { NativeVideoView } from '../../ui/nativeViews';
@@ -88,6 +91,23 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
   const [location, setLocation] = useState('');
+  const [contentCategory, setContentCategory] = useState('Other');
+  const homeQuery = useQuery({
+    queryKey: [...kidsKeys.home, session?.token ?? 'signed-out'],
+    enabled: Boolean(session?.token),
+    queryFn: () => fetchKidsHome(session!.token),
+    staleTime: 120_000,
+  });
+  const allowedCategories = useMemo(() => {
+    const source = homeQuery.data?.controls?.allowed_categories ?? ['Other'];
+    const clean = source.filter((value) => typeof value === 'string' && value.trim().length > 0);
+    return clean.length > 0 ? clean : ['Other'];
+  }, [homeQuery.data?.controls?.allowed_categories]);
+  useEffect(() => {
+    if (!allowedCategories.includes(contentCategory)) {
+      setContentCategory(allowedCategories[0] ?? 'Other');
+    }
+  }, [allowedCategories, contentCategory]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -113,6 +133,35 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   // lose it to an accidental back tap. Blocked only while composing —
   // never during/after a share.
   const hasDraft = Boolean(media || caption.trim() || tags.trim());
+
+  function closeComposer() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    const goHome = () => nav.navigate('KidsTabs', { tab: 'FeedTab' });
+    if (hasDraft && !busy) {
+      Alert.alert(
+        'Discard your post?',
+        'You have an unfinished post. Going back will discard it.',
+        [
+          { text: 'Keep editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: goHome },
+        ],
+      );
+      return;
+    }
+    goHome();
+  }
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeComposer();
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigation, hasDraft, busy]);
+
   useEffect(() => {
     if (!hasDraft || busy) return;
     const sub = navigation.addListener('beforeRemove', (e) => {
@@ -190,6 +239,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           mediaType,
           sizeBytes,
           mimeType: media.mimeType,
+          contentCategory,
         });
         sessionRef.current = sess;
       }
@@ -217,7 +267,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       setStatus('Finalizing your upload…');
       const done = await completeUpload(session.token, sess.upload_id, {
         caption: caption.trim(),
-        contentCategory: kind === 'reel' ? 'Fun' : 'Other',
+        contentCategory,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         locationName: location.trim(),
       });
@@ -266,7 +316,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       {/* Kit header: X | New post | Next */}
       <View style={styles.header}>
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={closeComposer}
           accessibilityRole="button"
           accessibilityLabel="Close"
           hitSlop={12}
@@ -454,6 +504,32 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
               </Pressable>
             ))}
           </View>
+        </View>
+
+        <View style={styles.tagSection}>
+          <Text style={styles.tagLabel}>CATEGORY</Text>
+          <View style={styles.tagRow}>
+            {allowedCategories.map((category) => {
+              const active = contentCategory === category;
+              return (
+                <Pressable
+                  key={category}
+                  disabled={busy}
+                  onPress={() => {
+                    setContentCategory(category);
+                    sessionRef.current = null;
+                  }}
+                  style={[styles.tagChip, active && styles.categoryChipActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`Category ${category}`}
+                >
+                  <Text style={[styles.tagChipText, active && styles.categoryChipTextActive]}>{category}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {homeQuery.isError ? <Text style={styles.categoryHint}>Using the safest available category until parent controls refresh.</Text> : null}
         </View>
 
         <Field
@@ -841,6 +917,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#F2F2F2',
   },
+  categoryChipActive: { backgroundColor: colors.brand },
+  categoryChipTextActive: { color: '#FFFFFF' },
+  categoryHint: { color: colors.muted, fontSize: 12, marginTop: 6 },
   tagChipText: {
     fontSize: 11,
     fontWeight: '700',

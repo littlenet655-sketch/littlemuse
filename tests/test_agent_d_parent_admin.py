@@ -82,7 +82,7 @@ def test_parent_control_update_is_validated_and_notifies_child(client):
         "educational_only_feed": True,
         "allowed_categories": ["Science"],
     }
-    with patch("mobile.api.fetch_one", side_effect=[active_user(), None]), \
+    with patch("mobile.api.fetch_one", side_effect=[active_user(), None, {"quiz_pacing_policy": "FREQUENT"}]), \
          patch("mobile.api.owns", return_value=True), \
          patch("mobile.api.controls_for_child", return_value=controls), \
          patch("mobile.api.save_controls", return_value=controls) as save, \

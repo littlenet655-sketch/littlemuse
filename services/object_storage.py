@@ -20,6 +20,11 @@ def _write_key(key: str) -> str:
     return f"{prefix}/{key.lstrip('/')}" if prefix else key.lstrip("/")
 
 
+def deployment_object_key(key: str) -> str:
+    """Return an object key inside the configured deployment write namespace."""
+    return _write_key(key)
+
+
 def new_reference(key: str) -> str:
     """Return a reference inside this deployment's R2 write namespace."""
     return R2_REFERENCE_PREFIX + _write_key(key)

@@ -7,6 +7,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -19,9 +20,9 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
 import { ApiError } from '../../api/client';
 import { submitRecommendationAction } from '../../api/recommendation';
-import { submitReport, toggleLike, toggleSave } from '../../api/kidsSocial';
+import { recordCuratedShare, submitReport, toggleCuratedLike, toggleCuratedSave, toggleLike, toggleSave } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
-import { feedKey, runSocialPostAction, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
+import { engagementTarget, feedKey, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
 import { useFeed } from '../../kids/useFeed';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, queryClient } from '../../query/client';
@@ -48,6 +49,7 @@ interface ReelCellProps {
   nav: { navigate: (r: string, p: object) => void };
   onLike: (item: FeedItem) => void;
   onSave: (item: FeedItem) => void;
+  onShare: (item: FeedItem) => void;
   onOpenSheet: (item: FeedItem) => void;
   onTogglePause: () => void;
   onMetricsFlush: (payload: ImpressionEventPayload) => void;
@@ -85,6 +87,7 @@ const ReelCell = memo(function ReelCell({
   nav,
   onLike,
   onSave,
+  onShare,
   onOpenSheet,
   onTogglePause,
   onMetricsFlush,
@@ -183,6 +186,17 @@ const ReelCell = memo(function ReelCell({
             <Text style={styles.actionLabel}>{formatCount(item.comments_count ?? 0)}</Text>
           </Pressable>
         ) : null}
+
+        <Pressable
+          style={styles.actionBtn}
+          onPress={() => onShare(item)}
+          accessibilityRole="button"
+          accessibilityLabel="Share"
+          hitSlop={8}
+        >
+          <IgIcon name="send" size={28} color="#FFFFFF" />
+          <Text style={styles.actionLabel}>Share</Text>
+        </Pressable>
 
         {/* Bookmark / Save Button — kept (existing feature); restyled to kit icons */}
         <Pressable
@@ -293,6 +307,8 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
   const displayItems = feed.items;
+  const loadMoreRef = useRef(feed.loadMore);
+  loadMoreRef.current = feed.loadMore;
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -335,8 +351,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     if (typeof first === 'number') {
       setActiveIndex((current) => current === first ? current : first);
       setPaused(false);
+      if (first >= displayItems.length - 2) loadMoreRef.current();
     }
-  }, []);
+  }, [displayItems.length]);
 
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
@@ -404,54 +421,33 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const handleLike = useCallback(async (item: FeedItem) => {
     if (!session) return;
-    const socialTarget = socialPostTarget(item);
-    if (!socialTarget) return;
-    const postId = socialTarget.postId;
-    const busyKey = `${postId}:like`;
+    const target = engagementTarget(item);
+    if (!target) return;
+    const { sourceType, sourceId } = target;
+    const busyKey = `${sourceType}:${sourceId}:like`;
     if (toggleBusyRef.current.has(busyKey)) return;
     toggleBusyRef.current.add(busyKey);
+    const matches = (post: FeedItem) =>
+      post.source_type === sourceType && Number(post.source_id ?? post.post_id) === sourceId;
+    const update = (old: InfiniteData<FeedPage> | undefined, liked: boolean, likes: number) =>
+      old ? {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          items: page.items.map((post) => matches(post) ? { ...post, viewer_liked: liked, likes } : post),
+        })),
+      } : old;
     try {
       const optimisticLiked = !item.viewer_liked;
-      const optimisticLikes = (item.likes ?? 0) + (item.viewer_liked ? -1 : 1);
-
-      const update = (old: InfiniteData<FeedPage> | undefined) =>
-        old
-          ? {
-              ...old,
-              pages: old.pages.map((page) => ({
-                ...page,
-                items: page.items.map((post) =>
-                  post.source_type === 'SOCIAL' && post.post_id === postId
-                    ? { ...post, viewer_liked: optimisticLiked, likes: optimisticLikes }
-                    : post,
-                ),
-              })),
-            }
-          : old;
-
-      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, update);
-      try {
-        const result = await runSocialPostAction(item, (id) => toggleLike(session.token, id));
-        if (!result) return;
-        queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) =>
-          old
-            ? {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  items: page.items.map((post) =>
-                    post.source_type === 'SOCIAL' && post.post_id === postId
-                      ? { ...post, viewer_liked: result.liked, likes: result.likes }
-                      : post,
-                  ),
-                })),
-              }
-            : old,
-        );
-        await invalidateSocialCaches([postId]);
-      } catch {
-        await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
-      }
+      const optimisticLikes = Math.max(0, (item.likes ?? 0) + (item.viewer_liked ? -1 : 1));
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, optimisticLiked, optimisticLikes));
+      const result = sourceType === 'CURATED'
+        ? await toggleCuratedLike(session.token, sourceId)
+        : await toggleLike(session.token, sourceId);
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.liked, result.likes));
+      if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
+    } catch {
+      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
@@ -459,41 +455,52 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const handleSave = useCallback(async (item: FeedItem) => {
     if (!session) return;
-    const socialTarget = socialPostTarget(item);
-    if (!socialTarget) return;
-    const postId = socialTarget.postId;
-    const busyKey = `${postId}:save`;
+    const target = engagementTarget(item);
+    if (!target) return;
+    const { sourceType, sourceId } = target;
+    const busyKey = `${sourceType}:${sourceId}:save`;
     if (toggleBusyRef.current.has(busyKey)) return;
     toggleBusyRef.current.add(busyKey);
+    const matches = (post: FeedItem) =>
+      post.source_type === sourceType && Number(post.source_id ?? post.post_id) === sourceId;
+    const update = (old: InfiniteData<FeedPage> | undefined, saved: boolean) =>
+      old ? {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          items: page.items.map((post) => matches(post) ? { ...post, viewer_saved: saved } : post),
+        })),
+      } : old;
     try {
       const optimisticSaved = !item.viewer_saved;
-
-      const update = (old: InfiniteData<FeedPage> | undefined) =>
-        old
-          ? {
-              ...old,
-              pages: old.pages.map((page) => ({
-                ...page,
-                items: page.items.map((post) =>
-                  post.source_type === 'SOCIAL' && post.post_id === postId
-                    ? { ...post, viewer_saved: optimisticSaved }
-                    : post,
-                ),
-              })),
-            }
-          : old;
-
-      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, update);
-      try {
-        const result = await runSocialPostAction(item, (id) => toggleSave(session.token, id));
-        if (!result) return;
-        await invalidateSocialCaches([postId]);
-      } catch {
-        await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
-      }
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, optimisticSaved));
+      const result = sourceType === 'CURATED'
+        ? await toggleCuratedSave(session.token, sourceId)
+        : await toggleSave(session.token, sourceId);
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.saved));
+      if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
+    } catch {
+      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
+  }, [session]);
+
+  const handleShare = useCallback(async (item: FeedItem) => {
+    if (!session) return;
+    const target = engagementTarget(item);
+    if (!target) return;
+    if (target.sourceType === 'CURATED') {
+      try {
+        await recordCuratedShare(session.token, target.sourceId);
+      } catch {
+        // Analytics must not block the OS share sheet.
+      }
+    }
+    const headline = item.title || item.caption || 'A safe LittleNet reel';
+    await Share.share({
+      message: `${headline} — ${item.full_name ?? 'LittleNet'}\nLittleNet content: ${target.sourceType}:${target.sourceId}`,
+    });
   }, [session]);
 
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
@@ -523,6 +530,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       nav={nav}
       onLike={(it) => void handleLike(it)}
       onSave={(it) => void handleSave(it)}
+      onShare={(it) => void handleShare(it)}
       onOpenSheet={setSheetItem}
       onTogglePause={togglePause}
       onMetricsFlush={handleMetricsFlush}
@@ -530,7 +538,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the

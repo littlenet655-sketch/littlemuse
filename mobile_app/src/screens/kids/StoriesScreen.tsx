@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, BackHandler, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
@@ -39,7 +39,7 @@ function expiresInLabel(createdAt?: string): string | null {
 }
 
 /** Full-screen story viewer. Stories are already filtered by the server's public-safety rules. */
-export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>) {
   // Loose navigate cast: CreateTab accepts an initialKind param at runtime
   // (see CreateScreen), which types.ts deliberately leaves as undefined.
   const nav = navigation as unknown as { navigate: (r: string, p?: object) => void };
@@ -49,6 +49,9 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const foreground = useIsForeground();
   const [stories, setStories] = useState<RichStory[]>([]);
   const [index, setIndex] = useState(0);
+  const initialStoryId = route.params?.initialStoryId;
+  const initialChildId = route.params?.initialChildId;
+  const initialSelectionApplied = useRef(false);
   const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -84,7 +87,14 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     try {
       const home = await fetchKidsHome(session.token);
       if (mounted.current) {
-        setStories((home.stories ?? []) as RichStory[]);
+        const loaded = (home.stories ?? []) as RichStory[];
+        setStories(loaded);
+        if (!initialSelectionApplied.current && loaded.length > 0) {
+          const exact = initialStoryId != null ? loaded.findIndex((story) => story.post_id === initialStoryId) : -1;
+          const byChild = exact < 0 && initialChildId != null ? loaded.findIndex((story) => story.child_id === initialChildId) : -1;
+          setIndex(exact >= 0 ? exact : byChild >= 0 ? byChild : 0);
+          initialSelectionApplied.current = true;
+        }
         lastLoadedAt.current = Date.now();
       }
     } catch (err) {
@@ -92,7 +102,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, [session?.token]);
+  }, [session?.token, initialStoryId, initialChildId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -116,6 +126,19 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const myId = session?.user.user_id;
   const isOwnStory = Boolean(current && myId && current.child_id === myId);
   const completedRef = useRef<Record<number, boolean>>({});
+
+  const closeStories = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else nav.navigate('KidsTabs', { tab: 'FeedTab' });
+  }, [navigation, nav]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeStories();
+      return true;
+    });
+    return () => sub.remove();
+  }, [closeStories]);
 
   // Keep the index valid when the list shrinks (e.g. stories expiring).
   useEffect(() => {
@@ -242,7 +265,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       onMoveShouldSetPanResponder: (_, gesture) =>
         gesture.dy > 24 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 90) navigation.goBack();
+        if (gesture.dy > 90) closeStories();
       },
     }),
   ).current;
@@ -314,7 +337,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => navigation.goBack()}
+              onPress={closeStories}
               style={styles.close}
               accessibilityRole="button"
               accessibilityLabel="Close stories"

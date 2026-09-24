@@ -18,6 +18,7 @@ from typing import Any
 
 from database.connection import execute, fetch_all, fetch_one, get_db_connection
 from services.controls import EDUCATIONAL_CATEGORIES, controls_for_child, effective_categories
+from services.curated_creators import creator_payload
 from services.request_cache import memo as _req_memo
 from services.social import _age_group, child_surface_open
 
@@ -62,12 +63,15 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize a curated_content row to the common LittleNet feed item format."""
     media_ref = row.get("delivery_object_key") or row.get("original_object_key") or ""
     poster_ref = row.get("poster_object_key") or row.get("thumbnail_object_key")
+    creator = creator_payload(row.get("creator_key"))
     return {
         "source_type": "CURATED",
         "source_id": int(row["content_id"]),
         "post_id": int(row["content_id"]),
-        "author_name": "LittleNet Learning",
-        "full_name": "LittleNet Learning",
+        "creator_key": creator["creator_key"],
+        "creator_username": creator["username"],
+        "author_name": creator["display_name"],
+        "full_name": creator["display_name"],
         "avatar_url": None,
         "media_type": str(row.get("media_type") or "IMAGE").upper(),
         "media_reference": media_ref,
@@ -84,15 +88,62 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
         "max_age": int(row.get("max_age") or 18),
         "is_safe": True,
         "moderation_status": "ALLOWED",
-        "likes": 0,
+        "likes": int(row.get("likes") or 0),
+        "viewer_liked": bool(row.get("viewer_liked", False)),
+        "viewer_saved": bool(row.get("viewer_saved", False)),
         "comments_count": 0,
+        "comments_enabled": False,
         "ranking_metadata": {
             "editorial_weight": float(row.get("editorial_weight") or 1.0),
             "published_at": str(row.get("published_at") or ""),
-            "author_name": "LittleNet Learning",
+            "author_name": creator["display_name"],
+            "creator_key": creator["creator_key"],
             "is_curated": True,
         },
     }
+
+
+def hydrate_curated_engagement(child_id: int, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach CURATED like/save state without ever touching social post tables."""
+    ids = sorted({int(item["source_id"]) for item in items if item.get("source_type") == "CURATED"})
+    if not ids:
+        return items
+    counts = fetch_all(
+        """SELECT source_id,COUNT(*) AS n FROM content_reactions
+           WHERE source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)
+           GROUP BY source_id""",
+        (ids,),
+    )
+    liked = fetch_all(
+        """SELECT source_id FROM content_reactions
+           WHERE child_id=%s AND source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)""",
+        (child_id, ids),
+    )
+    saved = fetch_all(
+        """SELECT source_id FROM content_saves
+           WHERE child_id=%s AND source_type='CURATED' AND source_id=ANY(%s)""",
+        (child_id, ids),
+    )
+    # Be defensive at this enrichment boundary: feed rendering must still
+    # succeed if an engagement query is unavailable/malformed in a partial
+    # migration or a test double. Missing engagement rows mean zero/false;
+    # publication, age, Parent Mode and safety eligibility are unchanged.
+    count_map = {
+        int(row["source_id"]): int(row.get("n") or 0)
+        for row in counts if row.get("source_id") is not None
+    }
+    liked_ids = {int(row["source_id"]) for row in liked if row.get("source_id") is not None}
+    saved_ids = {int(row["source_id"]) for row in saved if row.get("source_id") is not None}
+    for item in items:
+        if item.get("source_type") != "CURATED":
+            continue
+        sid = int(item["source_id"])
+        item["likes"] = count_map.get(sid, 0)
+        item["viewer_liked"] = sid in liked_ids
+        item["viewer_saved"] = sid in saved_ids
+        item["comments_count"] = 0
+        item["comments_enabled"] = False
+    return items
 
 
 def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -162,7 +213,7 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
     # Strictly fail-closed: must be PUBLISHED, asset must be ALLOWED & is_safe=TRUE, category must be active
     rows = fetch_all(
         """SELECT 
-             cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
@@ -183,7 +234,7 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
            LIMIT %s""",
         (cats, is_reel, child_age, child_age, age_grp, age_grp, limit),
     )
-    return [normalize_curated_item(r) for r in rows]
+    return hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in rows])
 
 
 def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 60) -> list[dict[str, Any]]:
@@ -316,8 +367,66 @@ def merge_candidates(social: list[dict[str, Any]], curated: list[dict[str, Any]]
     return merged
 
 
-def get_or_create_feed_session(child_id: int, surface: str = "FEED", session_id: str | None = None) -> tuple[str, list[dict[str, Any]]]:
-    """Get active session or generate a new balanced feed session populated into feed_sessions."""
+def _session_source_keys(child_id: int, surface: str, session_id: str | None) -> set[tuple[str, int]]:
+    """Return source identities from one child-owned feed session.
+
+    Session ids cross an HTTP trust boundary. Reject malformed UUIDs before
+    PostgreSQL sees them so a bad/stale client value cannot turn pagination
+    into a 500 response.
+    """
+    if not session_id:
+        return set()
+    try:
+        from uuid import UUID
+        UUID(str(session_id))
+    except (TypeError, ValueError, AttributeError):
+        return set()
+    rows = fetch_all(
+        """SELECT fsi.source_type, fsi.source_id
+           FROM feed_session_items fsi
+           JOIN feed_sessions fs ON fs.session_id = fsi.session_id
+           WHERE fs.session_id = %s AND fs.child_id = %s AND fs.surface = %s""",
+        (session_id, child_id, str(surface).upper()),
+    )
+    return {(str(r["source_type"]).upper(), int(r["source_id"])) for r in rows or []}
+
+
+def _filter_feed_mode(items: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    mode_clean = str(mode or "for_you").strip().lower()
+    if mode_clean == "friends":
+        return [it for it in items if it.get("source_type") == "SOCIAL"]
+    if mode_clean == "learn":
+        edu_cats = {"Science", "Math", "Technology", "Nature", "Books", "Coding", "General Knowledge", "Education", "Art"}
+        return [it for it in items if it.get("source_type") == "CURATED" or it.get("category") in edu_cats]
+    return list(items)
+
+
+def _has_refill_candidates(child_id: int, surface: str, session_id: str, mode: str) -> bool:
+    """Probe for eligible content outside the exhausted session."""
+    surface_clean = str(surface).upper()
+    excluded = _session_source_keys(child_id, surface_clean, session_id)
+    curated = [
+        item for item in fetch_curated_candidates(child_id, surface_clean, limit=180)
+        if (item["source_type"], int(item["source_id"])) not in excluded
+    ]
+    social = [
+        item for item in fetch_social_candidates(child_id, surface_clean, limit=180)
+        if (item["source_type"], int(item["source_id"])) not in excluded
+    ]
+    combined = merge_candidates(social, curated)
+    from services.recommendation import rank_candidates, apply_diversity_and_balance
+    ranked = rank_candidates(child_id, combined)
+    diversified = apply_diversity_and_balance(ranked, max_consecutive=2)
+    return bool(_filter_feed_mode(diversified, mode))
+
+
+def get_or_create_feed_session(
+    child_id: int,
+    surface: str = "FEED",
+    session_id: str | None = None,
+    exclude_session_id: str | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Get an active session or create a refill session excluding the prior session."""
     surface_clean = str(surface).upper()
     if session_id:
         existing = fetch_one(
@@ -336,9 +445,18 @@ def get_or_create_feed_session(child_id: int, surface: str = "FEED", session_id:
             items = _materialize_session_items(raw_items, child_id, surface_clean)
             return str(existing["session_id"]), items
 
-    # Create new session
-    curated = fetch_curated_candidates(child_id, surface_clean, limit=60)
-    social = fetch_social_candidates(child_id, surface_clean, limit=60)
+    # Create new session. Refill sessions probe a wider catalog so the first
+    # 60 candidates cannot hide additional eligible content.
+    excluded = _session_source_keys(child_id, surface_clean, exclude_session_id)
+    candidate_limit = 180 if excluded else 60
+    curated = [
+        item for item in fetch_curated_candidates(child_id, surface_clean, limit=candidate_limit)
+        if (item["source_type"], int(item["source_id"])) not in excluded
+    ]
+    social = [
+        item for item in fetch_social_candidates(child_id, surface_clean, limit=candidate_limit)
+        if (item["source_type"], int(item["source_id"])) not in excluded
+    ]
 
     # Filter recently shown impressions
     recent = get_recent_impression_keys(child_id, surface_clean, hours=2)
@@ -402,7 +520,7 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
     if curated_ids:
         c_rows = fetch_all(
             """SELECT 
-                 cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+                 cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
                  cc.is_reel, cc.editorial_weight, cc.published_at,
                  cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
                  cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
@@ -417,7 +535,8 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                  AND cma.is_safe = TRUE""",
             (curated_ids,),
         )
-        curated_map = {int(r["content_id"]): normalize_curated_item(r) for r in c_rows}
+        curated_items = hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in c_rows])
+        curated_map = {int(r["source_id"]): r for r in curated_items}
 
     social_map = {}
     if social_ids:
@@ -508,24 +627,35 @@ def get_feed_page(
     limit: int = 10,
     session_id: str | None = None,
     mode: str = "for_you",
+    refill_from_session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Paginate through stable feed session using position cursor, filtering by server-side feed mode."""
-    sess_id, items = get_or_create_feed_session(child_id, surface, session_id)
+    """Paginate stable sessions and expose an explicit safe refill boundary."""
+    if refill_from_session_id and not session_id:
+        sess_id, items = get_or_create_feed_session(
+            child_id,
+            surface,
+            None,
+            exclude_session_id=refill_from_session_id,
+        )
+    else:
+        sess_id, items = get_or_create_feed_session(child_id, surface, session_id)
 
     mode_clean = str(mode or "for_you").strip().lower()
-    if mode_clean == "friends":
-        # Approved relationship content (social only)
-        items = [it for it in items if it.get("source_type") == "SOCIAL"]
-    elif mode_clean == "learn":
-        # Safe educational / curated content
-        edu_cats = {"Science", "Math", "Technology", "Nature", "Books", "Coding", "General Knowledge", "Education", "Art"}
-        items = [it for it in items if it.get("source_type") == "CURATED" or it.get("category") in edu_cats]
+    items = _filter_feed_mode(items, mode_clean)
 
     total = len(items)
     start = max(0, cursor)
-    page_items = items[start : start + limit]
+    page_items = [dict(item, feed_session_id=sess_id) for item in items[start : start + limit]]
     next_cursor = start + len(page_items)
     has_more = next_cursor < total
+
+    can_refill = False
+    if not has_more and total > 0:
+        can_refill = _has_refill_candidates(child_id, surface, sess_id, mode_clean)
+
+    exhaustion_reason = None
+    if not has_more:
+        exhaustion_reason = "SESSION_END" if can_refill else "NO_ELIGIBLE_CONTENT"
 
     return {
         "session_id": sess_id,
@@ -534,6 +664,8 @@ def get_feed_page(
         "cursor": cursor,
         "next_cursor": next_cursor if has_more else None,
         "has_more": has_more,
+        "can_refill": can_refill,
+        "exhaustion_reason": exhaustion_reason,
         "total_in_session": total,
     }
 
@@ -679,7 +811,7 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
     pattern = f"%{cleaned}%"
     rows = fetch_all(
         """SELECT DISTINCT
-             cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
@@ -706,4 +838,4 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
            LIMIT %s""",
         (cats, child_age, child_age, pattern, pattern, pattern, pattern, limit),
     )
-    return [normalize_curated_item(r) for r in rows]
+    return hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in rows])

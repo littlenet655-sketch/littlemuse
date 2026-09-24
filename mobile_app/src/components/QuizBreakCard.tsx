@@ -74,8 +74,7 @@ export function QuizBreakCard({
       const next = await answerQuiz(token, quiz.quiz_id, option);
       if (!mounted.current) return;
       setResult(next);
-      if (!next.required) onCompleted?.();
-      else {
+      if (next.required) {
         // Fail closed: if the server still says a quiz is required, fetch the
         // authoritative latched question rather than unlocking scrolling.
         setResult(null);
@@ -132,8 +131,9 @@ export function QuizBreakCard({
       <View style={styles.options}>
         {options.map((option) => {
           const chosen = answer === option;
-          const correct = result?.correct && chosen;
-          const wrong = result && !result.correct && chosen;
+          const revealedCorrect = Boolean(result && !result.correct && option === result.correct_answer);
+          const correct = (result?.correct && chosen) || revealedCorrect;
+          const wrong = Boolean(result && !result.correct && chosen);
           return (
             <Pressable
               key={option}
@@ -153,6 +153,16 @@ export function QuizBreakCard({
           <Text style={styles.feedbackTitle}>{result.correct ? `Nice! +${result.xp} XP` : 'Good try'}</Text>
           {!result.correct ? <Text style={styles.feedbackText}>Correct answer: {result.correct_answer}</Text> : null}
           {result.explanation ? <Text style={styles.feedbackText}>{result.explanation}</Text> : null}
+          {!result.required ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Got it, continue"
+              onPress={() => onCompleted?.()}
+              style={styles.retry}
+            >
+              <Text style={styles.retryText}>Got it! Continue</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>

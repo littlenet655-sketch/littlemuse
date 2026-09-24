@@ -17,7 +17,7 @@ export type ChildStackParamList = {
   CreateTab: undefined;
   ReelsTab: undefined;
   ProfileTab: undefined;
-  Stories: undefined;
+  Stories: { initialStoryId?: number; initialChildId?: number } | undefined;
   NotificationsTab: undefined;
   Conversations: undefined;
   Chat: { peerId: number; postId?: number };

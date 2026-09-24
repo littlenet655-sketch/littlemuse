@@ -5,7 +5,11 @@ export interface FeedItem {
   source_type: 'SOCIAL' | 'CURATED';
   source_id: number;
   post_id: number;
+  /** Session that authorized this exact item; required across refill sessions. */
+  feed_session_id?: string;
   full_name?: string;
+  creator_key?: string;
+  creator_username?: string;
   avatar_url?: string | null;
   media_type?: string;
   media_url?: string | null;
@@ -20,6 +24,7 @@ export interface FeedItem {
   content_category?: string;
   likes?: number;
   comments_count?: number;
+  comments_enabled?: boolean;
   created_at?: string;
   child_id?: number;
   is_reel?: boolean;
@@ -42,8 +47,11 @@ export interface StoryItem {
 export interface FeedPage {
   ok: boolean;
   items: FeedItem[];
-  next_cursor: number;
+  next_cursor: number | null;
   has_more: boolean;
+  can_refill?: boolean;
+  exhaustion_reason?: 'SESSION_END' | 'NO_ELIGIBLE_CONTENT' | string | null;
+  total_in_session?: number;
   session_id: string;
 }
 
@@ -58,6 +66,7 @@ export function fetchFeedV2(
   sessionId?: string,
   modeOrSignal?: 'for_you' | 'friends' | 'learn' | AbortSignal,
   signal?: AbortSignal,
+  refillFrom?: string,
 ): Promise<FeedPage> {
   let mode: 'for_you' | 'friends' | 'learn' = 'for_you';
   let activeSignal = signal;
@@ -68,12 +77,21 @@ export function fetchFeedV2(
   }
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit), mode });
   if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
   return get<FeedPage>(`${routes.feedV2}?${p.toString()}`, token, activeSignal);
 }
 
-export function fetchReelsV2(token: string, cursor: number, limit = 10, sessionId?: string, signal?: AbortSignal): Promise<FeedPage> {
+export function fetchReelsV2(
+  token: string,
+  cursor: number,
+  limit = 10,
+  sessionId?: string,
+  signal?: AbortSignal,
+  refillFrom?: string,
+): Promise<FeedPage> {
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
   if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
   return apiRequest<FeedPage>(`${routes.reelsV2}?${p.toString()}`, {
     signal,
     timeoutMs: 30_000,
@@ -125,7 +143,7 @@ export function recordFeedImpression(
   }, token);
 }
 
-export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[] }> {
+export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean } }> {
   return get(routes.kidsHome, token);
 }
 
@@ -133,6 +151,10 @@ export interface HeartbeatResult {
   ok: boolean;
   minutes_today: number;
   remaining_minutes: number | null;
+  daily_limit_minutes?: number;
+  strict_mode?: boolean;
+  quiet_hours?: { enabled: boolean; active: boolean; start: string; end: string };
+  server_time?: string;
   locked?: boolean;
   self_resets_used?: number;
   self_resets_remaining?: number;

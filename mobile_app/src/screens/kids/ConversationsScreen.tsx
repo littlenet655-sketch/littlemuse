@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, BackHandler, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchConversations, type ConversationItem } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
@@ -40,6 +40,19 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const myId = session?.user.user_id;
   const q = query.trim().toLowerCase();
+
+  const closeConversations = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else nav.navigate('KidsTabs', { tab: 'FeedTab' });
+  }, [navigation, nav]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeConversations();
+      return true;
+    });
+    return () => sub.remove();
+  }, [closeConversations]);
 
   async function load(mode: 'first' | 'refresh') {
     if (!session || !foreground) return;
@@ -115,7 +128,7 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
         }}
         ListHeaderComponent={(
           <>
-            <BrandHeader title="Messages" onBack={() => navigation.goBack()} subtitle="Only approved friends can message." />
+            <BrandHeader title="Messages" onBack={closeConversations} subtitle="Only approved friends can message." />
             <View style={styles.searchWrap}>
               <TextInput
                 style={styles.search}
