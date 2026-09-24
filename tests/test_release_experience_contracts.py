@@ -56,3 +56,28 @@ def test_perf_hardening_has_no_cross_request_discovery_ttl():
     assert '("discoverable_child_ids", viewer_id)' in child
     assert "cache[key] = maker()" in cache
     assert "except Exception:\n        return maker()" in cache
+
+
+def test_direct_upload_session_uses_deployment_scoped_r2_key():
+    storage = text("services/object_storage.py")
+    api = text("mobile/api.py")
+    assert "def deployment_object_key(key: str)" in storage
+    assert "object_storage.deployment_object_key(" in api
+    assert 'f"uploads/r2/quarantine/{uid}/{upload_id}/source.{ext}"' in api
+
+
+def test_child_modal_close_paths_have_home_fallback_and_hardware_back():
+    create = text("mobile_app/src/screens/kids/CreateScreen.tsx")
+    stories = text("mobile_app/src/screens/kids/StoriesScreen.tsx")
+    conversations = text("mobile_app/src/screens/kids/ConversationsScreen.tsx")
+    for source in (create, stories, conversations):
+        assert "BackHandler.addEventListener('hardwareBackPress'" in source
+        assert "navigation.canGoBack()" in source
+        assert "FeedTab" in source
+
+
+def test_feed_has_only_shell_brand_header():
+    feed = text("mobile_app/src/screens/kids/FeedScreen.tsx")
+    tabs = text("mobile_app/src/screens/kids/KidsTabs.tsx")
+    assert '<BrandHeader title="LittleNet"' not in feed
+    assert "<LnWordmark width={128}" in tabs

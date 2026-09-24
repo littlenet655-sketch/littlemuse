@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useVideoPlayer } from 'expo-video';
 import { completeUpload, formatBytes, requestUploadSession, type UploadSession, type UploadStage } from '../../api/kidsUpload';
@@ -113,6 +113,35 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   // lose it to an accidental back tap. Blocked only while composing —
   // never during/after a share.
   const hasDraft = Boolean(media || caption.trim() || tags.trim());
+
+  function closeComposer() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    const goHome = () => nav.navigate('KidsTabs', { tab: 'FeedTab' });
+    if (hasDraft && !busy) {
+      Alert.alert(
+        'Discard your post?',
+        'You have an unfinished post. Going back will discard it.',
+        [
+          { text: 'Keep editing', style: 'cancel' },
+          { text: 'Discard', style: 'destructive', onPress: goHome },
+        ],
+      );
+      return;
+    }
+    goHome();
+  }
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeComposer();
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigation, hasDraft, busy]);
+
   useEffect(() => {
     if (!hasDraft || busy) return;
     const sub = navigation.addListener('beforeRemove', (e) => {
@@ -266,7 +295,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       {/* Kit header: X | New post | Next */}
       <View style={styles.header}>
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={closeComposer}
           accessibilityRole="button"
           accessibilityLabel="Close"
           hitSlop={12}

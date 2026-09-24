@@ -17,7 +17,7 @@ import { useIsForeground, useIsOnline } from '../../query/client';
 import type { FeedItem } from '../../api/kidsFeed';
 import { Avatar, StoryRing } from '../../ui/social';
 import { colors, spacing } from '../../ui/tokens';
-import { BrandHeader, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
+import { DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, OfflineBanner, Screen, Skeleton } from '../../ui/components';
 
 /**
  * Server sends more than the base StoryItem declares: owner id and whether the
@@ -179,7 +179,6 @@ const FeedListHeader = memo(function FeedListHeader({
 }) {
   return (
     <>
-      <BrandHeader title="LittleNet" subtitle="Kind posts from friends." />
       <StoriesTray token={token} myId={myId} myName={myName} onOpen={onOpenStories} />
       <View style={styles.tabs}>
         {(['For You', 'Friends', 'Learn'] as const).map((item) => (
@@ -398,7 +397,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     return <CaughtUpCard />;
   }, [visibleItems.length, feed.hasMore, feed.refreshing]);
 
-  if (feed.loading) return <Screen><BrandHeader title="LittleNet" /><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
+  if (feed.loading) return <Screen><Skeleton lines={5} /><LoadingState message="Loading your feed…" /></Screen>;
   if (feed.error instanceof ApiError && feed.error.code === 'disabled_by_parent') return <Screen><DisabledFeature feature="Feed" /></Screen>;
   if (feed.error && feed.items.length === 0) return <Screen><OfflineBanner online={online} /><GateNotice error={feed.error} /><ErrorState message="Could not load your feed." onRetry={feed.retry} /></Screen>;
 

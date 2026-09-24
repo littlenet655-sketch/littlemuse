@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, BackHandler, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
@@ -116,6 +116,19 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const myId = session?.user.user_id;
   const isOwnStory = Boolean(current && myId && current.child_id === myId);
   const completedRef = useRef<Record<number, boolean>>({});
+
+  const closeStories = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else nav.navigate('KidsTabs', { tab: 'FeedTab' });
+  }, [navigation, nav]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeStories();
+      return true;
+    });
+    return () => sub.remove();
+  }, [closeStories]);
 
   // Keep the index valid when the list shrinks (e.g. stories expiring).
   useEffect(() => {
@@ -242,7 +255,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       onMoveShouldSetPanResponder: (_, gesture) =>
         gesture.dy > 24 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 90) navigation.goBack();
+        if (gesture.dy > 90) closeStories();
       },
     }),
   ).current;
@@ -314,7 +327,7 @@ export function StoriesScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={() => navigation.goBack()}
+              onPress={closeStories}
               style={styles.close}
               accessibilityRole="button"
               accessibilityLabel="Close stories"
