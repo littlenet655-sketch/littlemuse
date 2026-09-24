@@ -332,15 +332,10 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
             text: 'Discard',
             style: 'destructive',
             onPress: () => {
-<<<<<<< HEAD
-              isDiscardingRef.current = true;
-              navigation.dispatch(e.data.action);
-=======
               void clearCreateDraft(draftUserId, kind).finally(() => {
                 isDiscardingRef.current = true;
                 navigation.dispatch(e.data.action);
               });
->>>>>>> 2a2b5cb1ab66931672ea87f5ba56b6e72e8b89e5
             },
           },
         ],
