@@ -730,12 +730,12 @@ def _process_media_job_impl(
             ext = "mp4" if media_type == "VIDEO" else "jpg"
             media_mime = "video/mp4" if ext == "mp4" else "image/jpeg"
             kind_l = kind.lower()
-        namespace = (
-            "stories" if kind_l == "story"
-            else "reels" if kind_l == "reel"
-            else "chat" if kind_l == "chat"
-            else "posts"
-        )
+            namespace = (
+                "stories" if kind_l == "story"
+                else "reels" if kind_l == "reel"
+                else "chat" if kind_l == "chat"
+                else "posts"
+            )
             published_poster_ref = None
 
             if object_storage.enabled():
