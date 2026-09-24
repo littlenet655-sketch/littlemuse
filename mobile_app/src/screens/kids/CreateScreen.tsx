@@ -64,6 +64,29 @@ function LocalVideoPreview({ uri, width, height }: { uri: string; width?: number
   );
 }
 
+function CuratedMusicPreview({ track, playing }: { track: CuratedMusicTrack; playing: boolean }) {
+  // expo-video already ships in the app and uses the platform media engine.
+  // No VideoView is mounted: this player is audio-only for the approved track.
+  const player = useVideoPlayer(track.audio_url, (instance) => {
+    instance.loop = true;
+    instance.muted = false;
+  });
+
+  useEffect(() => {
+    try {
+      if (playing) player.play();
+      else player.pause();
+    } catch {
+      // Preview failure must never block Story publishing.
+    }
+    return () => {
+      try { player.pause(); } catch { /* best-effort */ }
+    };
+  }, [player, playing]);
+
+  return null;
+}
+
 type CreateTabParams = { initialKind?: Kind } | undefined;
 
 function StoryMusicPreview({ track }: { track: CuratedMusicTrack }) {
