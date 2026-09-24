@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, BackHandler, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useVideoPlayer } from 'expo-video';
 import { useIsFocused } from '@react-navigation/native';
 import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
 import { deleteStory } from '../../api/kidsSocial';
@@ -25,6 +26,48 @@ interface RichStory extends StoryItem {
   child_id?: number;
   created_at?: string;
   viewed?: boolean;
+}
+
+function StoryMusicPlayback({
+  music,
+  active,
+}: {
+  music: NonNullable<StoryItem['story_music']>;
+  active: boolean;
+}) {
+  const source = music.audio_url ?? null;
+  const start = Math.max(0, Number(music.start_seconds ?? 0));
+  const duration = Math.max(1, Number(music.duration_seconds ?? 30));
+  const player = useVideoPlayer(source, (instance) => {
+    instance.loop = false;
+    instance.volume = 0.68;
+    instance.audioMixingMode = 'duckOthers';
+    instance.currentTime = start;
+  });
+
+  useEffect(() => {
+    player.currentTime = start;
+  }, [player, start]);
+
+  useEffect(() => {
+    if (active && source) player.play();
+    else player.pause();
+    return () => player.pause();
+  }, [active, source, player]);
+
+  useEffect(() => {
+    if (!active || !source) return;
+    const end = start + duration;
+    const timer = setInterval(() => {
+      if (player.currentTime >= end || player.currentTime < start) {
+        player.currentTime = start;
+        player.play();
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [active, source, start, duration, player]);
+
+  return null;
 }
 
 function expiresInLabel(createdAt?: string): string | null {
@@ -397,6 +440,7 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
               active={!paused && focused}
               height={height}
               refreshSource={refreshStoryMedia}
+              muted={Boolean(current.story_music?.audio_url)}
               onComplete={advance}
             />
           ) : null}
@@ -419,10 +463,25 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
             </View>
           ) : null}
           {!current.media_url ? <Text style={styles.missing}>This story has no media.</Text> : null}
+          {current.story_music?.audio_url ? (
+            <StoryMusicPlayback
+              key={`${current.post_id}:${current.story_music.music_id ?? current.story_music.audio_url}`}
+              music={current.story_music}
+              active={!paused && focused && foreground}
+            />
+          ) : null}
           <Pressable accessibilityLabel="Previous story" onPress={previous} style={styles.leftTap} />
           <Pressable accessibilityLabel={paused ? 'Resume story' : 'Pause story'} onPress={() => setPaused((value) => !value)} style={styles.centerTap} />
           <Pressable accessibilityLabel="Next story" onPress={next} style={styles.rightTap} />
           {paused ? <View pointerEvents="none" style={styles.pause}><Text style={styles.pauseText}>Ⅱ</Text><Text style={styles.pauseLabel}>Paused</Text></View> : null}
+          {current.story_music ? (
+            <View style={styles.musicOverlay} pointerEvents="none">
+              <Feather name="music" size={14} color="#FFFFFF" />
+              <Text style={styles.musicText} numberOfLines={1}>
+                {current.story_music.title} · {current.story_music.artist}
+              </Text>
+            </View>
+          ) : null}
           {current.caption ? (
             <View style={styles.captionOverlay} pointerEvents="none">
               <Text style={styles.caption}>{current.caption}</Text>
@@ -506,6 +565,21 @@ const styles = StyleSheet.create({
   pause: { position: 'absolute', alignItems: 'center' },
   pauseText: { color: colors.surface, fontSize: 42, fontWeight: '800' },
   pauseLabel: { color: colors.surface, fontWeight: '800' },
+  musicOverlay: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: 150,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  musicText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800', flexShrink: 1 },
   captionOverlay: {
     position: 'absolute',
     bottom: 96,
