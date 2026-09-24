@@ -2890,10 +2890,22 @@ def register_mobile_api(bp):
             return gate
         locked, remaining = lock_state(uid)
         used_resets = _kid_self_resets_today(uid)
+        limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
+        controls = controls_for_child(uid)
+        quiet = quiet_hours_state(uid)
         return jsonify(
             ok=True,
             minutes_today=minutes_today(uid),
             remaining_minutes=remaining,
+            daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
+            strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
+            quiet_hours={
+                "enabled": bool(controls.get("quiet_hours_enabled")),
+                "active": bool(quiet.get("active")),
+                "start": str(quiet.get("start") or controls.get("quiet_start") or "21:00"),
+                "end": str(quiet.get("end") or controls.get("quiet_end") or "07:00"),
+            },
+            server_time=datetime.now(timezone.utc).isoformat(),
             locked=locked,
             self_resets_used=used_resets,
             self_resets_remaining=max(0, 2 - used_resets),
