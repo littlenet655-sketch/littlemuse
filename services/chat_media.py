@@ -239,7 +239,11 @@ def complete_chat_image_upload(child_id: int, upload_id: str) -> tuple[dict[str,
         _materialize_source(session_row, source)
         _sanitize_image(source, clean)
         merged, decision = _moderate_image(child_id, clean, temp_dir)
-        event_id = record(child_id, "IMAGE", message_id, merged, decision)
+        # Parent review routing is keyed by moderation content_type. Chat media
+        # must remain a MESSAGE event (not a post IMAGE event), while preserving
+        # the underlying media category in signals for audit/analytics.
+        merged["message_media_type"] = "IMAGE"
+        event_id = record(child_id, "MESSAGE", message_id, merged, decision)
 
         if decision.action == "BLOCK":
             execute(
