@@ -1433,6 +1433,23 @@ def register_mobile_api(bp):
 
         data = _json_dict()
         text = str(data.get("message_text") or "").strip()
+        reply_to_message_id = data.get("reply_to_message_id")
+        if reply_to_message_id is not None:
+            try:
+                reply_to_message_id = int(reply_to_message_id)
+            except (TypeError, ValueError):
+                return jsonify(error="invalid_reply_target"), 400
+            reply_target = fetch_one(
+                """SELECT child_message_id
+                   FROM child_messages
+                   WHERE child_message_id=%s
+                     AND conversation_id=%s
+                     AND is_deleted=FALSE
+                     AND moderation_status='ALLOWED'""",
+                (reply_to_message_id, cid),
+            )
+            if not reply_target:
+                return jsonify(error="reply_target_unavailable"), 404
         if not text:
             return jsonify(error="empty_message"), 400
         if len(text) > Config.MAX_USER_TEXT_CHARS:
@@ -1469,8 +1486,19 @@ def register_mobile_api(bp):
             except Exception:
                 final_decision = Decision("REVIEW", max(float(local_decision.risk), 50.0), "contextual safety unavailable")
         row = execute(
-            "INSERT INTO child_messages(conversation_id,sender_child_id,receiver_child_id,message_type,message_text,moderation_status) VALUES(%s,%s,%s,'TEXT',%s,%s) RETURNING child_message_id",
-            (cid, uid, peer_id, text, "ALLOWED" if final_decision.action == "ALLOW" else "REVIEW"),
+            """INSERT INTO child_messages(
+                   conversation_id,sender_child_id,receiver_child_id,message_type,
+                   message_text,reply_to_message_id,moderation_status
+               ) VALUES(%s,%s,%s,'TEXT',%s,%s,%s)
+               RETURNING child_message_id""",
+            (
+                cid,
+                uid,
+                peer_id,
+                text,
+                reply_to_message_id,
+                "ALLOWED" if final_decision.action == "ALLOW" else "REVIEW",
+            ),
             returning=True,
         )
         record(uid, "MESSAGE", row["child_message_id"], signals, final_decision)
@@ -1489,7 +1517,63 @@ def register_mobile_api(bp):
                 notify_new_chat_message(peer_id, sender_name, cid)
             except Exception:
                 pass
-        return jsonify(ok=True, status=final_decision.action)
+        return jsonify(ok=True, status=final_decision.action, message_id=int(row["child_message_id"]))
+
+    @bp.route("/api/mobile/v1/kids/chat/<int:peer_id>/messages/<int:message_id>/reaction", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("30 per minute")
+    @_require_mobile("CHILD")
+    def mobile_kids_message_reaction(peer_id, message_id):
+        gate = _child_gate("messaging")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        cid = conversation(uid, peer_id)
+        if not cid:
+            return jsonify(error="approved_connection_required"), 403
+        target = fetch_one(
+            """SELECT child_message_id
+               FROM child_messages
+               WHERE child_message_id=%s AND conversation_id=%s
+                 AND is_deleted=FALSE AND moderation_status='ALLOWED'""",
+            (message_id, cid),
+        )
+        if not target:
+            return jsonify(error="message_not_found"), 404
+
+        emoji = str((_json_dict()).get("emoji") or "").strip()
+        allowed = {"❤️", "😂", "😮", "👏", "🔥", "⭐"}
+        if emoji and emoji not in allowed:
+            return jsonify(error="invalid_reaction"), 400
+
+        if not emoji:
+            execute(
+                "DELETE FROM message_reactions WHERE message_id=%s AND child_id=%s",
+                (message_id, uid),
+            )
+            viewer_reaction = None
+        else:
+            execute(
+                """INSERT INTO message_reactions(message_id,child_id,emoji,created_at,updated_at)
+                   VALUES(%s,%s,%s,NOW(),NOW())
+                   ON CONFLICT(message_id,child_id)
+                   DO UPDATE SET emoji=EXCLUDED.emoji,updated_at=NOW()""",
+                (message_id, uid, emoji),
+            )
+            viewer_reaction = emoji
+
+        rows = fetch_all(
+            """SELECT emoji,COUNT(*) AS n
+               FROM message_reactions
+               WHERE message_id=%s
+               GROUP BY emoji ORDER BY emoji""",
+            (message_id,),
+        ) or []
+        return jsonify(
+            ok=True,
+            viewer_reaction=viewer_reaction,
+            reactions={str(row["emoji"]): int(row["n"]) for row in rows},
+        )
 
     @bp.route("/api/mobile/v1/kids/chat/<int:peer_id>/typing", methods=["POST"])
     @csrf.exempt
