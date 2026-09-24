@@ -2588,6 +2588,9 @@ def register_mobile_api(bp):
                 or any(not isinstance(category, str) for category in data["allowed_categories"])
             ):
                 return jsonify(error="invalid_categories"), 400
+            pacing_policy = str(data.get("quiz_pacing_policy") or "").upper().strip()
+            if pacing_policy and pacing_policy not in {"FREQUENT", "BALANCED", "LIGHT"}:
+                return jsonify(error="invalid_quiz_pacing_policy"), 400
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
@@ -2606,12 +2609,25 @@ def register_mobile_api(bp):
                 updated = save_controls(pid, child_id, form)
             except ValueError:
                 return jsonify(error="invalid_quiet_hours"), 400
-            log(child_id, "PARENT_CONTROLS_UPDATED", {"parent_id": pid, "before": current, "after": updated})
+            if pacing_policy:
+                execute(
+                    """INSERT INTO parent_quiz_settings(parent_id,child_id,quiz_frequency,quiz_pacing_policy,mandatory_quiz)
+                       VALUES(%s,%s,5,%s,TRUE)
+                       ON CONFLICT(child_id) DO UPDATE SET
+                         parent_id=EXCLUDED.parent_id,
+                         quiz_pacing_policy=EXCLUDED.quiz_pacing_policy,
+                         mandatory_quiz=TRUE""",
+                    (pid, child_id, pacing_policy),
+                )
+            log(child_id, "PARENT_CONTROLS_UPDATED", {"parent_id": pid, "before": current, "after": updated, "quiz_pacing_policy": pacing_policy or None})
             notify(child_id, "PARENT_CONTROLS", "Parent Mode updated your LittleNet permissions", "/child/dashboard/", pid)
         limit_row = fetch_one("SELECT * FROM child_time_limits WHERE child_id=%s", (child_id,))
+        pacing_row = fetch_one("SELECT quiz_pacing_policy FROM parent_quiz_settings WHERE child_id=%s", (child_id,)) or {}
+        controls_payload = dict(controls_for_child(child_id))
+        controls_payload["quiz_pacing_policy"] = str(pacing_row.get("quiz_pacing_policy") or "FREQUENT").upper()
         return jsonify(
             ok=True,
-            controls=_clean(controls_for_child(child_id)),
+            controls=_clean(controls_payload),
             time_limit=_clean(limit_row) if limit_row else None,
             categories=SAFE_CATEGORIES,
         )
