@@ -42,6 +42,7 @@ const controls: ParentControls = {
   allow_messaging: false,
   allow_posting: true,
   allow_discover: true,
+  allow_comments: true,
   quiet_hours_enabled: true,
   quiet_start: '21:00',
   quiet_end: '07:00',
