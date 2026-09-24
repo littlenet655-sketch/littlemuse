@@ -1750,6 +1750,7 @@ export function ParentControlsScreen({ route }: ParentScreenProps<'ParentControl
     ['allow_posting', 'Media Creation', 'Capture and upload photos and videos', 'camera', '#D97706'],
     ['allow_discover', 'Discover & Explore', 'Content exploration and search', 'compass', '#DB2777'],
     ['allow_comments', 'Social Comments', 'Allow moderated comments on approved social posts', 'message-square', '#0F766E'],
+    ['allow_group_chats', 'Group Chats', 'Separate group permission; every membership still needs child consent and parent approval', 'users', '#9333EA'],
   ];
 
   return (
