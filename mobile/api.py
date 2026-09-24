@@ -1575,6 +1575,289 @@ def register_mobile_api(bp):
             reactions={str(row["emoji"]): int(row["n"]) for row in rows},
         )
 
+    @bp.route("/api/mobile/v2/kids/chat/<int:peer_id>/uploads/session", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("20 per hour")
+    @_require_mobile("CHILD")
+    def mobile_kids_chat_upload_session(peer_id):
+        gate = _child_gate("messaging")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        cid = conversation(uid, peer_id)
+        if not cid or not can_interact(uid, peer_id) or not feature_allowed(peer_id, "messaging"):
+            return jsonify(error="approved_connection_required"), 403
+
+        data = _json_dict()
+        media_type = str(data.get("media_type") or "").upper().strip()
+        if media_type not in {"IMAGE", "VIDEO"}:
+            return jsonify(error="invalid_media_type", allowed=["IMAGE", "VIDEO"]), 400
+
+        filename = str(data.get("filename") or "").strip()
+        try:
+            size_bytes = int(data.get("size_bytes") or 0)
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_file_size"), 400
+        if size_bytes <= 0:
+            return jsonify(error="file_size_required"), 400
+
+        max_bytes = 10 * 1024 * 1024 if media_type == "IMAGE" else 30 * 1024 * 1024
+        if size_bytes > max_bytes:
+            return jsonify(error="file_size_exceeded", max_bytes=max_bytes), 400
+
+        ext = str(data.get("extension") or "").lower().lstrip(".")
+        if not ext and "." in filename:
+            ext = filename.rsplit(".", 1)[-1].lower()
+        if not ext:
+            ext = "jpg" if media_type == "IMAGE" else "mp4"
+
+        mime_type = str(data.get("mime_type") or "").lower().strip()
+        if mime_type == "image/jpg":
+            mime_type = "image/jpeg"
+        if not mime_type:
+            mime_type = "image/jpeg" if media_type == "IMAGE" else "video/mp4"
+
+        if media_type == "IMAGE":
+            valid_exts = {"jpg", "jpeg", "png", "webp"}
+            valid_mimes = {"image/jpeg", "image/png", "image/webp"}
+        else:
+            valid_exts = {"mp4", "mov", "webm"}
+            valid_mimes = {"video/mp4", "video/quicktime", "video/webm"}
+
+        if ext not in valid_exts:
+            return jsonify(error="unsupported_extension", allowed=sorted(valid_exts)), 400
+        if mime_type not in valid_mimes:
+            return jsonify(error="unsupported_mime_type", allowed=sorted(valid_mimes)), 400
+
+        upload_id = str(uuid.uuid4())
+        from services import object_storage
+        object_key = object_storage.new_reference(
+            f"chat_quarantine/{uid}/{upload_id}/source.{ext}"
+        )
+        expires_seconds = 900
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_seconds)
+        execute(
+            """INSERT INTO chat_upload_sessions(
+                   upload_id,child_id,peer_id,object_key,media_type,
+                   expected_size_bytes,mime_type,extension,status,expires_at
+               ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,'PENDING',%s)""",
+            (
+                upload_id,uid,peer_id,object_key,media_type,
+                size_bytes,mime_type,ext,expires_at,
+            ),
+        )
+
+        if object_storage.enabled():
+            upload_url = object_storage.signed_upload_url(
+                object_key,
+                content_type=mime_type,
+                expires_seconds=expires_seconds,
+            )
+        elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
+            return jsonify(error="storage_configuration_error"), 500
+        else:
+            upload_url = f"{Config.BASE_URL}/api/mobile/v2/kids/chat/uploads/mock-put/{upload_id}"
+
+        return jsonify(
+            ok=True,
+            upload_id=upload_id,
+            upload_url=upload_url,
+            object_key=object_key,
+            expires_at=expires_at.isoformat(),
+            required_headers={"Content-Type": mime_type},
+            media_type=media_type,
+        )
+
+    @bp.route("/api/mobile/v2/kids/chat/uploads/mock-put/<upload_id>", methods=["PUT"])
+    @csrf.exempt
+    def mobile_kids_chat_mock_put(upload_id):
+        if Config._PRODUCTION or os.environ.get("ENABLE_MOCK_PUT", "0") != "1":
+            return jsonify(error="not_found"), 404
+        row = fetch_one("SELECT * FROM chat_upload_sessions WHERE upload_id=%s", (upload_id,))
+        if not row:
+            return jsonify(error="session_not_found"), 404
+        mock_dir = Path("uploads/mock_chat_quarantine") / str(row["child_id"]) / str(upload_id)
+        mock_dir.mkdir(parents=True, exist_ok=True)
+        dest = mock_dir / f"source.{row['extension']}"
+        with dest.open("wb") as out:
+            while True:
+                chunk = request.stream.read(64 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        return "", 200
+
+    @bp.route("/api/mobile/v2/kids/chat/<int:peer_id>/uploads/<upload_id>/complete", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("20 per hour")
+    @_require_mobile("CHILD")
+    def mobile_kids_chat_upload_complete(peer_id, upload_id):
+        gate = _child_gate("messaging")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        cid = conversation(uid, peer_id)
+        if not cid or not can_interact(uid, peer_id) or not feature_allowed(peer_id, "messaging"):
+            return jsonify(error="approved_connection_required"), 403
+
+        conn = get_db_connection()
+        message_id = None
+        session_row = None
+        local_mock_path = None
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM chat_upload_sessions WHERE upload_id=%s FOR UPDATE", (upload_id,))
+            session_row = cur.fetchone()
+            if not session_row:
+                conn.rollback()
+                return jsonify(error="upload_session_not_found"), 404
+            if int(session_row["child_id"]) != uid or int(session_row["peer_id"]) != peer_id:
+                conn.rollback()
+                return jsonify(error="forbidden_upload_owner_mismatch"), 403
+
+            if session_row["status"] in {"CONSUMED", "REVIEW"} and session_row.get("message_id"):
+                conn.rollback()
+                existing = fetch_one(
+                    "SELECT moderation_status FROM child_messages WHERE child_message_id=%s",
+                    (session_row["message_id"],),
+                ) or {}
+                return jsonify(
+                    ok=True,
+                    message_id=int(session_row["message_id"]),
+                    status=existing.get("moderation_status") or session_row["status"],
+                    idempotent=True,
+                )
+
+            exp = session_row.get("expires_at")
+            if exp:
+                now = datetime.now(timezone.utc)
+                if getattr(exp, "tzinfo", None) is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp < now:
+                    cur.execute("UPDATE chat_upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
+                    conn.commit()
+                    return jsonify(error="upload_session_expired"), 400
+
+            from services import object_storage
+            if object_storage.enabled():
+                meta = object_storage.head_object(session_row["object_key"])
+                if not meta or int(meta.get("content_length") or 0) <= 0:
+                    conn.rollback()
+                    return jsonify(error="media_object_missing_in_quarantine"), 400
+                if int(meta["content_length"]) != int(session_row["expected_size_bytes"]):
+                    conn.rollback()
+                    return jsonify(error="media_size_mismatch"), 400
+                actual_mime = str(meta.get("content_type") or "").lower().strip()
+                if actual_mime and actual_mime != str(session_row["mime_type"]).lower().strip():
+                    conn.rollback()
+                    return jsonify(error="media_mime_mismatch"), 400
+            else:
+                local_mock_path = str(
+                    Path("uploads/mock_chat_quarantine")
+                    / str(uid)
+                    / str(upload_id)
+                    / f"source.{session_row['extension']}"
+                )
+                mock_file = Path(local_mock_path)
+                if not mock_file.is_file() or mock_file.stat().st_size <= 0:
+                    conn.rollback()
+                    return jsonify(error="media_object_missing_in_quarantine"), 400
+                if mock_file.stat().st_size != int(session_row["expected_size_bytes"]):
+                    conn.rollback()
+                    return jsonify(error="media_size_mismatch"), 400
+
+            cur.execute(
+                """INSERT INTO child_messages(
+                       conversation_id,sender_child_id,receiver_child_id,message_type,
+                       media_path,moderation_status
+                   ) VALUES(%s,%s,%s,%s,%s,'REVIEW')
+                   RETURNING child_message_id""",
+                (
+                    cid,
+                    uid,
+                    peer_id,
+                    session_row["media_type"],
+                    session_row["object_key"],
+                ),
+            )
+            message_id = int(cur.fetchone()["child_message_id"])
+            cur.execute(
+                """UPDATE chat_upload_sessions
+                   SET message_id=%s,status='REVIEW'
+                   WHERE upload_id=%s""",
+                (message_id, upload_id),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        try:
+            from services.chat_media import moderate_chat_media
+            result = moderate_chat_media(
+                message_id=message_id,
+                child_id=uid,
+                media_type=session_row["media_type"],
+                quarantine_ref=session_row["object_key"],
+                local_source_path=local_mock_path,
+            )
+        except Exception as exc:
+            execute(
+                "UPDATE child_messages SET moderation_status='BLOCKED',media_path=NULL WHERE child_message_id=%s",
+                (message_id,),
+            )
+            execute(
+                "UPDATE chat_upload_sessions SET status='BLOCKED',consumed_at=NOW() WHERE upload_id=%s",
+                (upload_id,),
+            )
+            parent_notify(uid, "MESSAGE_BLOCKED", "Media safety checking failed closed.", "/parent/safety/")
+            return jsonify(error="media_moderation_unavailable", blocked=True), 503
+
+        action = str(result.get("action") or "BLOCK").upper()
+        if action == "ALLOW":
+            execute(
+                """UPDATE child_messages
+                   SET media_path=%s,moderation_status='ALLOWED'
+                   WHERE child_message_id=%s""",
+                (result.get("media_path"), message_id),
+            )
+            execute(
+                """UPDATE chat_upload_sessions
+                   SET status='CONSUMED',consumed_at=NOW()
+                   WHERE upload_id=%s""",
+                (upload_id,),
+            )
+            sender_name = g.mobile_user.get("full_name") or "A friend"
+            notify(peer_id, "MESSAGE", f"{sender_name} sent you media", f"/chat/{uid}/", uid)
+            try:
+                from services.push_notifications import notify_new_chat_message
+                notify_new_chat_message(peer_id, sender_name, cid)
+            except Exception:
+                pass
+            return jsonify(ok=True,message_id=message_id,status="ALLOWED")
+
+        if action == "REVIEW":
+            parent_notify(
+                uid,
+                "REVIEW_REQUIRED",
+                "A photo or video message needs your review",
+                f"/parent/safety/?event={result.get('event_id')}",
+            )
+            return jsonify(ok=True,message_id=message_id,status="REVIEW")
+
+        execute(
+            "UPDATE child_messages SET moderation_status='BLOCKED',media_path=NULL WHERE child_message_id=%s",
+            (message_id,),
+        )
+        execute(
+            "UPDATE chat_upload_sessions SET status='BLOCKED',consumed_at=NOW() WHERE upload_id=%s",
+            (upload_id,),
+        )
+        parent_notify(uid, "MESSAGE_BLOCKED", str(result.get("reason") or "Unsafe media blocked"), "/parent/safety/")
+        return jsonify(ok=False,error="message_media_blocked",blocked=True), 400
+
     @bp.route("/api/mobile/v1/kids/chat/<int:peer_id>/typing", methods=["POST"])
     @csrf.exempt
     @limiter.limit("20 per minute")
