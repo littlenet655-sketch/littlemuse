@@ -2926,6 +2926,12 @@ def register_mobile_api(bp):
             res["abandoned_uploads"] = reconcile_abandoned_upload_sessions()
         except Exception as exc:
             res["abandoned_uploads"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            from services.chat_media import reconcile_abandoned_chat_upload_sessions
+
+            res["abandoned_chat_uploads"] = reconcile_abandoned_chat_upload_sessions()
+        except Exception as exc:
+            res["abandoned_chat_uploads"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         return jsonify(res)
 
     @bp.route("/api/mobile/v1/kids/learning")
