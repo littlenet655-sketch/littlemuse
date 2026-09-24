@@ -19,7 +19,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
 import { ApiError } from '../../api/client';
 import { submitRecommendationAction } from '../../api/recommendation';
-import { submitReport, toggleLike, toggleSave } from '../../api/kidsSocial';
+import { submitReport, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { feedKey, runSocialPostAction, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
 import { useFeed } from '../../kids/useFeed';
@@ -33,6 +33,8 @@ import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
 import { QuizBreakCard } from '../../components/QuizBreakCard';
+
+type ReelFollowStatus = 'Follow' | 'Requested' | 'Following';
 
 interface ReelCellProps {
   item: FeedItem;
@@ -55,6 +57,10 @@ interface ReelCellProps {
   onDoubleTapLike: (item: FeedItem) => void;
   /** Pulse animation for the kit-style safety pill (stable ref from parent). */
   badgeAnim: Animated.Value;
+  myUserId?: number;
+  followStatus?: ReelFollowStatus;
+  isFollowBusy?: boolean;
+  onFollow?: (childId: number) => void;
 }
 
 /** Compact counts like Instagram: 1.2K, 3.4M. */
@@ -90,9 +96,19 @@ const ReelCell = memo(function ReelCell({
   onMetricsFlush,
   onDoubleTapLike,
   badgeAnim,
+  myUserId,
+  followStatus,
+  isFollowBusy,
+  onFollow,
 }: ReelCellProps) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
+  const toggleMuteRef = useRef<(() => void) | null>(null);
+  const [cellMuted, setCellMuted] = useState(false);
+
+  const handleToggleMute = useCallback(() => {
+    toggleMuteRef.current?.();
+  }, []);
   // Instagram parity: tap a truncated caption to expand it. Reset per reel.
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const itemKey = feedKey(item);
@@ -134,6 +150,8 @@ const ReelCell = memo(function ReelCell({
           onDoubleTap={() => onDoubleTapLike(item)}
           token={token}
           onMetricsFlush={onMetricsFlush}
+          onMuteStateChange={setCellMuted}
+          toggleMuteRef={toggleMuteRef}
         />
       </View>
 
@@ -211,14 +229,20 @@ const ReelCell = memo(function ReelCell({
           <IgIcon name="more-horizontal" size={28} color="#FFFFFF" />
         </Pressable>
 
-        {/* Spinning audio disc — visual only */}
-        <View style={styles.audioDiscWrap}>
+        {/* Spinning audio disc — tap toggles audio mute */}
+        <Pressable
+          style={styles.audioDiscWrap}
+          onPress={handleToggleMute}
+          accessibilityRole="button"
+          accessibilityLabel={cellMuted ? 'Audio muted, tap to unmute' : 'Audio on, tap to mute'}
+          hitSlop={8}
+        >
           <Animated.View style={[styles.audioDisc, { transform: [{ rotate: discRotate }] }]}>
             <View style={styles.audioDiscInner}>
-              <Feather name="music" size={11} color="#FFFFFF" />
+              <Feather name={cellMuted ? 'volume-x' : 'music'} size={11} color="#FFFFFF" />
             </View>
           </Animated.View>
-        </View>
+        </Pressable>
       </View>
 
       {/* Bottom metadata — kit layout: safety pill, creator row, caption, audio */}
@@ -241,18 +265,38 @@ const ReelCell = memo(function ReelCell({
               {item.full_name ?? 'Friend'}
             </Text>
           </Pressable>
-          {/* Follow pill — visual only; opens the creator profile, which owns
-              the real follow flow (no follow logic changed in this screen) */}
-          <Pressable
-            style={styles.followPill}
-            onPress={() => profile && nav.navigate('OtherProfile', profile)}
-            disabled={!profile}
-            accessibilityRole="button"
-            accessibilityLabel="Follow"
-            hitSlop={8}
-          >
-            <Text style={styles.followPillText}>Follow</Text>
-          </Pressable>
+          {/* Follow pill: authoritatively wired for SOCIAL creators; disabled/curated for CURATED */}
+          {item.source_type === 'SOCIAL' && profile && profile.targetId !== myUserId ? (
+            <Pressable
+              style={[
+                styles.followPill,
+                (followStatus === 'Following' || followStatus === 'Requested') && styles.followPillActive,
+              ]}
+              onPress={() => onFollow?.(profile.targetId)}
+              disabled={isFollowBusy}
+              accessibilityRole="button"
+              accessibilityLabel={`${followStatus ?? 'Follow'} ${item.full_name ?? 'friend'}`}
+              hitSlop={6}
+            >
+              <Text
+                style={[
+                  styles.followPillText,
+                  (followStatus === 'Following' || followStatus === 'Requested') && styles.followPillTextActive,
+                ]}
+              >
+                {isFollowBusy ? '…' : (followStatus ?? 'Follow')}
+              </Text>
+            </Pressable>
+          ) : item.source_type !== 'SOCIAL' ? (
+            <Pressable
+              style={[styles.followPill, styles.followPillDisabled]}
+              disabled={true}
+              accessibilityRole="button"
+              accessibilityLabel="Curated creator"
+            >
+              <Text style={styles.followPillText}>Curated</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {/* Caption — tap to expand like Instagram */}
@@ -264,11 +308,19 @@ const ReelCell = memo(function ReelCell({
           </Pressable>
         ) : null}
 
-        {/* Audio row — kit style: music note + track name (existing copy kept) */}
-        <View style={styles.audioTagRow}>
-          <Feather name="music" size={14} color="rgba(255,255,255,0.9)" />
-          <Text style={styles.audioTagText}>Safe Sound • Kid Approved</Text>
-        </View>
+        {/* Audio row — tap toggles authoritative mute */}
+        <Pressable
+          style={styles.audioTagRow}
+          onPress={handleToggleMute}
+          accessibilityRole="button"
+          accessibilityLabel={cellMuted ? 'Audio muted, tap to turn on' : 'Audio on, tap to mute'}
+          hitSlop={8}
+        >
+          <Feather name={cellMuted ? 'volume-x' : 'music'} size={14} color="rgba(255,255,255,0.9)" />
+          <Text style={styles.audioTagText}>
+            {cellMuted ? 'Audio off • Tap to turn on' : 'Safe Sound • Kid Approved'}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -279,10 +331,13 @@ const ReelCell = memo(function ReelCell({
   prev.nearby === next.nearby &&
   prev.paused === next.paused &&
   prev.token === next.token &&
-  prev.onDoubleTapLike === next.onDoubleTapLike,
+  prev.onDoubleTapLike === next.onDoubleTapLike &&
+  prev.followStatus === next.followStatus &&
+  prev.isFollowBusy === next.isFollowBusy,
 );
 
 export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
+  const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const insets = useSafeAreaInsets();
   const { session, refreshMe } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -298,6 +353,44 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [followStates, setFollowStates] = useState<Record<number, ReelFollowStatus>>({});
+  const [followBusyIds, setFollowBusyIds] = useState<Set<number>>(new Set());
+
+  // Task 4: Camera buttons navigation to CreateTab with initialKind: 'reel'
+  const openReelCamera = useCallback(() => {
+    nav.navigate('KidsTabs', { tab: 'CreateTab', initialKind: 'reel' });
+  }, [nav]);
+
+  // Task 8: SOCIAL Follow with optimistic UI and authoritative rollback
+  const onFollowChild = useCallback(async (childId: number) => {
+    if (!session || followBusyIds.has(childId)) return;
+    const currentStatus = followStates[childId] ?? 'Follow';
+    const nextStatus: ReelFollowStatus = currentStatus === 'Follow' ? 'Requested' : 'Follow';
+
+    setFollowBusyIds((prev) => new Set(prev).add(childId));
+    setFollowStates((prev) => ({ ...prev, [childId]: nextStatus }));
+
+    try {
+      const res = await toggleFollow(session.token, childId);
+      if (res?.ok && res.status) {
+        const s = res.status.toLowerCase();
+        const authoritative: ReelFollowStatus =
+          s === 'following' || s === 'connected' ? 'Following' :
+          s === 'requested' || s === 'pending' ? 'Requested' : 'Follow';
+        setFollowStates((prev) => ({ ...prev, [childId]: authoritative }));
+      }
+      await invalidateSocialCaches();
+    } catch {
+      // Roll back to prior state on failure
+      setFollowStates((prev) => ({ ...prev, [childId]: currentStatus }));
+    } finally {
+      setFollowBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(childId);
+        return next;
+      });
+    }
+  }, [session, followStates, followBusyIds]);
   const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
@@ -499,7 +592,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     }
   }, [session]);
 
-  const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
 
   // Instagram parity: double-tap always likes, never unlikes.
   const handleDoubleTapLike = useCallback((item: FeedItem) => {
@@ -577,12 +669,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             <Text style={styles.topTitle}>Reels</Text>
             <Feather name="chevron-down" size={20} color="#FFFFFF" />
           </View>
-          {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
           <Pressable
             style={styles.cameraBtn}
-            onPress={() => {}}
+            onPress={openReelCamera}
             accessibilityRole="button"
-            accessibilityLabel="Camera"
+            accessibilityLabel="Create reel"
             hitSlop={8}
           >
             <Feather name="camera" size={26} color="#FFFFFF" />
@@ -617,12 +708,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             <Text style={styles.topTitle}>Reels</Text>
             <Feather name="chevron-down" size={20} color="#FFFFFF" />
           </View>
-          {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
           <Pressable
             style={styles.cameraBtn}
-            onPress={() => {}}
+            onPress={openReelCamera}
             accessibilityRole="button"
-            accessibilityLabel="Camera"
+            accessibilityLabel="Create reel"
             hitSlop={8}
           >
             <Feather name="camera" size={26} color="#FFFFFF" />
@@ -658,12 +748,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <Text style={styles.topTitle}>Reels</Text>
           <Feather name="chevron-down" size={20} color="#FFFFFF" />
         </View>
-        {/* Camera is not in the IgIcon set — deliberate Feather keep; visual only (no-op) */}
         <Pressable
           style={styles.cameraBtn}
-          onPress={() => {}}
+          onPress={openReelCamera}
           accessibilityRole="button"
-          accessibilityLabel="Camera"
+          accessibilityLabel="Create reel"
           hitSlop={8}
         >
           <Feather name="camera" size={26} color="#FFFFFF" />
@@ -1091,5 +1180,16 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  followPillActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  followPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  followPillDisabled: {
+    opacity: 0.6,
   },
 });

@@ -29,6 +29,8 @@ interface ReelPlayerProps {
   token?: string;
   policy?: PlaybackPolicy;
   onMetricsFlush?: (payload: ImpressionEventPayload) => void;
+  onMuteStateChange?: (muted: boolean) => void;
+  toggleMuteRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export function ReelPlayer({
@@ -41,6 +43,8 @@ export function ReelPlayer({
   token,
   policy = 'NORMAL',
   onMetricsFlush,
+  onMuteStateChange,
+  toggleMuteRef,
 }: ReelPlayerProps) {
   const [showPlayStateFeedback, setShowPlayStateFeedback] = useState(false);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -74,6 +78,16 @@ export function ReelPlayer({
     policy,
     onMetricsFlush,
   });
+
+  useEffect(() => {
+    if (toggleMuteRef) {
+      toggleMuteRef.current = toggleMute;
+    }
+  }, [toggleMuteRef, toggleMute]);
+
+  useEffect(() => {
+    onMuteStateChange?.(muted);
+  }, [onMuteStateChange, muted]);
 
   const posterUri = item.poster_url ?? null;
   const showPoster = !firstFrameRendered && Boolean(posterUri);
