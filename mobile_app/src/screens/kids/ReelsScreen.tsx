@@ -7,7 +7,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -583,18 +582,21 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     if (!session) return;
     const target = engagementTarget(item);
     if (!target) return;
-    if (target.sourceType === 'CURATED') {
-      try {
-        await recordCuratedShare(session.token, target.sourceId);
-      } catch {
-        // Analytics must not block the OS share sheet.
-      }
+    if (target.sourceType === 'SOCIAL') {
+      const post = socialPostTarget(item);
+      if (post) nav.navigate('PostDetail', { ...post, openShare: true });
+      return;
     }
-    const headline = item.title || item.caption || 'A safe LittleNet reel';
-    await Share.share({
-      message: `${headline} — ${item.full_name ?? 'LittleNet'}\nLittleNet content: ${target.sourceType}:${target.sourceId}`,
-    });
-  }, [session]);
+    try {
+      await recordCuratedShare(session.token, target.sourceId);
+    } catch {
+      // Analytics failure does not relax the child sharing boundary.
+    }
+    Alert.alert(
+      'Sharing stays inside LittleMuse',
+      'Curated learning reels cannot be sent through unrestricted external apps from a child account. Save it to revisit it safely.',
+    );
+  }, [session, nav]);
 
 
   // Instagram parity: double-tap always likes, never unlikes.
