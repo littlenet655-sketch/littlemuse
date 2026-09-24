@@ -133,25 +133,30 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   // lose it to an accidental back tap. Blocked only while composing —
   // never during/after a share.
   const hasDraft = Boolean(media || caption.trim() || tags.trim());
+  const isDiscardingRef = useRef(false);
 
-  function closeComposer() {
+  function performClose() {
+    isDiscardingRef.current = true;
     if (navigation.canGoBack()) {
       navigation.goBack();
-      return;
+    } else {
+      nav.navigate('KidsTabs', { tab: 'FeedTab' });
     }
-    const goHome = () => nav.navigate('KidsTabs', { tab: 'FeedTab' });
+  }
+
+  function closeComposer() {
     if (hasDraft && !busy) {
       Alert.alert(
         'Discard your post?',
         'You have an unfinished post. Going back will discard it.',
         [
           { text: 'Keep editing', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: goHome },
+          { text: 'Discard', style: 'destructive', onPress: performClose },
         ],
       );
       return;
     }
-    goHome();
+    performClose();
   }
 
   useEffect(() => {
@@ -165,7 +170,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   useEffect(() => {
     if (!hasDraft || busy) return;
     const sub = navigation.addListener('beforeRemove', (e) => {
-      if (busy) return; // a share in flight must not be interrupted
+      if (busy || isDiscardingRef.current) return; // a share in flight or intentional discard must not be interrupted
       e.preventDefault();
       Alert.alert(
         'Discard your post?',
@@ -175,7 +180,10 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           {
             text: 'Discard',
             style: 'destructive',
-            onPress: () => navigation.dispatch(e.data.action),
+            onPress: () => {
+              isDiscardingRef.current = true;
+              navigation.dispatch(e.data.action);
+            },
           },
         ],
       );
