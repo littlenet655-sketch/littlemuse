@@ -26,6 +26,7 @@ export interface ChatMessage {
   sender_child_id: number;
   message_text?: string;
   message_type?: string;
+  media_url?: string | null;
   shared_post_id?: number | null;
   moderation_status?: string;
   sent_at?: string;
@@ -93,4 +94,37 @@ export function sendChatText(token: string, peerId: number, messageText: string)
 
 export function sharePostToChat(token: string, peerId: number, postId: number): Promise<{ ok: boolean; message_id: number }> {
   return postJson(routes.sharePost(peerId), { post_id: postId }, token);
+}
+
+
+export interface ChatImageUploadSession {
+  ok: boolean;
+  upload_id: string;
+  upload_url: string;
+  object_key: string;
+  expires_at: string;
+  required_headers: Record<string, string>;
+  target_id?: number;
+}
+
+export function requestChatImageUpload(
+  token: string,
+  peerId: number,
+  input: { filename: string; sizeBytes: number; mimeType: string },
+): Promise<ChatImageUploadSession> {
+  return postJson(routes.uploadSession, {
+    kind: 'message',
+    target_id: peerId,
+    filename: input.filename,
+    media_type: 'IMAGE',
+    size_bytes: input.sizeBytes,
+    mime_type: input.mimeType,
+  }, token);
+}
+
+export function completeChatImageUpload(
+  token: string,
+  uploadId: string,
+): Promise<{ ok?: boolean; status?: string; message_id?: number; blocked?: boolean; error?: string }> {
+  return postJson(routes.uploadComplete(uploadId), {}, token);
 }
