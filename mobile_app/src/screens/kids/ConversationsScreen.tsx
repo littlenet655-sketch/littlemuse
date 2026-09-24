@@ -110,9 +110,31 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
   // pauses while a query is active and resumes when it is cleared.
   const showMore = !q && hasMore;
 
-  if (loading) return <Screen hasNativeHeader={false}><LoadingState message="Loading messages…" /></Screen>;
-  if (error instanceof ApiError && error.code === 'disabled_by_parent') return <Screen hasNativeHeader={false}><DisabledFeature feature="Messages" /></Screen>;
-  if (error && !items.length) return <Screen hasNativeHeader={false}><GateNotice error={error} /><ErrorState message="Could not load messages." onRetry={() => void load('first')} /></Screen>;
+  if (loading) {
+    return (
+      <Screen hasNativeHeader={false}>
+        <BrandHeader title="Messages" onBack={closeConversations} />
+        <LoadingState message="Loading messages…" />
+      </Screen>
+    );
+  }
+  if (error instanceof ApiError && error.code === 'disabled_by_parent') {
+    return (
+      <Screen hasNativeHeader={false}>
+        <BrandHeader title="Messages" onBack={closeConversations} />
+        <DisabledFeature feature="Messages" />
+      </Screen>
+    );
+  }
+  if (error && !items.length) {
+    return (
+      <Screen hasNativeHeader={false}>
+        <BrandHeader title="Messages" onBack={closeConversations} />
+        <GateNotice error={error} />
+        <ErrorState message="Could not load messages." onRetry={() => void load('first')} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen hasNativeHeader={false}>
