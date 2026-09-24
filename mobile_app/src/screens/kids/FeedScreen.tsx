@@ -1,6 +1,6 @@
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewToken } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -275,6 +275,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
   const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
   const feed = useFeed('feed', 10, feedMode);
+  const loadMoreRef = useRef(feed.loadMore);
+  loadMoreRef.current = feed.loadMore;
 
   if (reportedSessionRef.current !== feed.sessionId) {
     reportedSessionRef.current = feed.sessionId;
@@ -288,6 +290,9 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     });
     const videoItem = visibleVideo?.item as FeedItem | undefined;
     setActiveVideoKey(videoItem ? `${videoItem.source_type}:${videoItem.source_id}` : null);
+
+    const furthest = viewableItems.reduce((max, entry) => Math.max(max, entry.index ?? -1), -1);
+    if (furthest >= 0 && furthest >= feed.items.length - 2) loadMoreRef.current();
 
     for (const entry of viewableItems) {
       if (!entry.isViewable) continue;
@@ -310,7 +315,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         reportedViewsRef.current.delete(key);
       });
     }
-  }, [feed.sessionId, session?.token]);
+  }, [feed.items.length, feed.sessionId, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {

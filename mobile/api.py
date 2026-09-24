@@ -1835,8 +1835,11 @@ def register_mobile_api(bp):
 
         upload_id = str(uuid.uuid4())
         from services import object_storage
-        object_key = object_storage.deployment_object_key(
-            f"uploads/r2/quarantine/{uid}/{upload_id}/source.{ext}"
+        # Store a real R2 reference (uploads/r2/<prefix>/quarantine/...).
+        # Presign, download, and delete all understand that form. A raw
+        # prefixed key passes the upload guard and then skips deletion.
+        object_key = object_storage.new_reference(
+            f"quarantine/{uid}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
         expires_at = datetime.utcnow() + timedelta(seconds=expires_seconds)

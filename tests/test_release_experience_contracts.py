@@ -61,9 +61,13 @@ def test_perf_hardening_has_no_cross_request_discovery_ttl():
 def test_direct_upload_session_uses_deployment_scoped_r2_key():
     storage = text("services/object_storage.py")
     api = text("mobile/api.py")
+    processor = text("services/media_processor.py")
     assert "def deployment_object_key(key: str)" in storage
-    assert "object_storage.deployment_object_key(" in api
-    assert 'f"uploads/r2/quarantine/{uid}/{upload_id}/source.{ext}"' in api
+    assert "def new_reference(key: str)" in storage
+    assert "object_storage.new_reference(" in api
+    assert 'f"quarantine/{uid}/{upload_id}/source.{ext}"' in api
+    assert "published_media_ref = object_storage.upload_file(" in processor
+    assert 'published_media_ref = f"uploads/r2/{namespace}/' not in processor
 
 
 def test_child_modal_close_paths_have_home_fallback_and_hardware_back():

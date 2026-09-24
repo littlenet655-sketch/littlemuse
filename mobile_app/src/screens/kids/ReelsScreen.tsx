@@ -293,6 +293,8 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const focused = useIsFocused();
   const feed = useFeed('reels', 8);
   const displayItems = feed.items;
+  const loadMoreRef = useRef(feed.loadMore);
+  loadMoreRef.current = feed.loadMore;
   const foreground = useIsForeground();
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -335,8 +337,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     if (typeof first === 'number') {
       setActiveIndex((current) => current === first ? current : first);
       setPaused(false);
+      if (first >= displayItems.length - 2) loadMoreRef.current();
     }
-  }, []);
+  }, [displayItems.length]);
 
   // Keep the active index inside the loaded window: feed refreshes must not
   // leave it pointing past the end (which would idle every player).
