@@ -79,6 +79,6 @@ export async function clearCreateDraft(userId: number, kind: CreateDraftKind): P
   await AsyncStorage.removeItem(keyFor(userId, kind));
 }
 
-export function draftHasContent(draft: Pick<CreateDraft, 'caption' | 'tags' | 'location' | 'musicId' | 'media'>): boolean {
-  return Boolean(draft.media || draft.caption.trim() || draft.tags.trim() || draft.location.trim() || draft.musicId);
+export function draftHasContent(draft: Pick<CreateDraft, 'caption' | 'tags' | 'location' | 'storyMusicId' | 'media'>): boolean {
+  return Boolean(draft.media || draft.caption.trim() || draft.tags.trim() || draft.location.trim() || draft.storyMusicId);
 }
