@@ -463,7 +463,7 @@ export function PostCard({
                 <IgIcon name="heart" size={26} color={colors.ink} />
               )}
             </Pressable>
-            {socialTarget ? (
+            {socialTarget && item.comments_enabled !== false ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Comments"
@@ -499,7 +499,7 @@ export function PostCard({
             </Pressable>
           </View>
           <Text style={styles.likeCount}>{item.likes ?? 0} likes</Text>
-          {socialTarget && typeof item.comments_count === 'number' && item.comments_count > 0 ? (
+          {socialTarget && item.comments_enabled !== false && typeof item.comments_count === 'number' && item.comments_count > 0 ? (
             <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`View ${item.comments_count} comments`}>
               <Text style={styles.commentCount}>View all {item.comments_count} comments</Text>
             </Pressable>
