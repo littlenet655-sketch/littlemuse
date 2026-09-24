@@ -1749,6 +1749,7 @@ export function ParentControlsScreen({ route }: ParentScreenProps<'ParentControl
     ['allow_messaging', 'Direct Messages', 'Private chat with two-parent approved friends', 'message-circle', '#059669'],
     ['allow_posting', 'Media Creation', 'Capture and upload photos and videos', 'camera', '#D97706'],
     ['allow_discover', 'Discover & Explore', 'Content exploration and search', 'compass', '#DB2777'],
+    ['allow_comments', 'Social Comments', 'Allow moderated comments on approved social posts', 'message-square', '#0F766E'],
   ];
 
   return (
