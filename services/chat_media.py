@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from config import Config
+from database.connection import execute, fetch_all
 from safety.moderation_service import evaluate, record
 from services import object_storage
 from services.media_processor import sanitize_and_promote_media
@@ -140,3 +141,48 @@ def promote_reviewed_chat_media(
 
 def block_reviewed_chat_media(*, message_id: int, quarantine_ref: str | None) -> None:
     _cleanup_quarantine(quarantine_ref, message_id=message_id)
+
+
+
+def reconcile_abandoned_chat_upload_sessions(limit: int = 50) -> dict:
+    """Delete expired chat quarantine uploads that never reached completion.
+
+    REVIEW sessions are intentionally excluded: their bytes are still needed
+    for guardian moderation. Only expired PENDING/EXPIRED sessions are swept.
+    """
+    try:
+        safe_limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        safe_limit = 50
+
+    rows = fetch_all(
+        """SELECT upload_id,child_id,object_key,status
+           FROM chat_upload_sessions
+           WHERE status IN ('PENDING','EXPIRED')
+             AND expires_at < NOW()
+           ORDER BY expires_at ASC
+           LIMIT %s""",
+        (safe_limit,),
+    ) or []
+
+    cleaned = 0
+    failed = 0
+    for row in rows:
+        upload_id = str(row["upload_id"])
+        ref = row.get("object_key")
+        local_dir = Path("uploads/mock_chat_quarantine") / str(row["child_id"]) / upload_id
+        try:
+            _cleanup_quarantine(ref, message_id=None)
+            shutil.rmtree(local_dir, ignore_errors=True)
+            execute(
+                """UPDATE chat_upload_sessions
+                   SET status='EXPIRED',consumed_at=COALESCE(consumed_at,NOW())
+                   WHERE upload_id=%s AND status IN ('PENDING','EXPIRED')""",
+                (upload_id,),
+            )
+            cleaned += 1
+        except Exception:
+            logger.exception("failed to reconcile abandoned chat upload=%s", upload_id)
+            failed += 1
+
+    return {"ok": failed == 0, "scanned": len(rows), "cleaned": cleaned, "failed": failed}
