@@ -314,48 +314,51 @@ def group_messages(group_id: int, viewer_id: int, limit: int = 40, before_id: in
     if not can_access_group(group_id, viewer_id):
         raise PermissionError("group_unavailable")
     safe_limit = max(1, min(int(limit or 40), 80))
-    params = [int(viewer_id), int(group_id), int(viewer_id)]
-    cursor_sql = ""
+
+    select_sql = """SELECT m.group_message_id,m.group_id,m.sender_child_id,m.message_text,
+                           m.reply_to_group_message_id,m.moderation_status,m.sent_at,
+                           u.full_name,u.username,cp.profile_picture,
+                           rm.message_text AS reply_message_text,
+                           rm.sender_child_id AS reply_sender_child_id,
+                           COALESCE(
+                             (SELECT jsonb_object_agg(x.emoji,x.n)
+                              FROM (
+                                SELECT r.emoji,COUNT(*)::int AS n
+                                FROM group_message_reactions r
+                                WHERE r.group_message_id=m.group_message_id
+                                GROUP BY r.emoji
+                              ) x),
+                             '{}'::jsonb
+                           ) AS reactions,
+                           (SELECT r2.emoji FROM group_message_reactions r2
+                            WHERE r2.group_message_id=m.group_message_id AND r2.child_id=%s
+                            LIMIT 1) AS viewer_reaction
+                    FROM child_group_messages m
+                    JOIN users u ON u.user_id=m.sender_child_id
+                    LEFT JOIN child_profiles cp ON cp.child_id=m.sender_child_id
+                    LEFT JOIN child_group_messages rm
+                      ON rm.group_message_id=m.reply_to_group_message_id
+                     AND rm.group_id=m.group_id AND rm.is_deleted=FALSE
+                     AND rm.moderation_status='ALLOWED'
+                    WHERE m.group_id=%s AND m.is_deleted=FALSE
+                      AND (
+                        m.moderation_status='ALLOWED'
+                        OR (m.sender_child_id=%s AND m.moderation_status='REVIEW')
+                      )"""
+
     if before_id:
-        cursor_sql = " AND m.group_message_id < %s"
-        params.append(int(before_id))
-    params.append(safe_limit)
-    # The cursor fragment is selected from a fixed boolean branch only; no user
-    # text is ever interpolated into SQL identifiers or values.
-    sql = """SELECT m.group_message_id,m.group_id,m.sender_child_id,m.message_text,
-                    m.reply_to_group_message_id,m.moderation_status,m.sent_at,
-                    u.full_name,u.username,cp.profile_picture,
-                    rm.message_text AS reply_message_text,
-                    rm.sender_child_id AS reply_sender_child_id,
-                    COALESCE(
-                      (SELECT jsonb_object_agg(x.emoji,x.n)
-                       FROM (
-                         SELECT r.emoji,COUNT(*)::int AS n
-                         FROM group_message_reactions r
-                         WHERE r.group_message_id=m.group_message_id
-                         GROUP BY r.emoji
-                       ) x),
-                      '{}'::jsonb
-                    ) AS reactions,
-                    (SELECT r2.emoji FROM group_message_reactions r2
-                     WHERE r2.group_message_id=m.group_message_id AND r2.child_id=%s
-                     LIMIT 1) AS viewer_reaction
-             FROM child_group_messages m
-             JOIN users u ON u.user_id=m.sender_child_id
-             LEFT JOIN child_profiles cp ON cp.child_id=m.sender_child_id
-             LEFT JOIN child_group_messages rm
-               ON rm.group_message_id=m.reply_to_group_message_id
-              AND rm.group_id=m.group_id AND rm.is_deleted=FALSE
-              AND rm.moderation_status='ALLOWED'
-             WHERE m.group_id=%s AND m.is_deleted=FALSE
-               AND (
-                 m.moderation_status='ALLOWED'
-                 OR (m.sender_child_id=%s AND m.moderation_status='REVIEW')
-               )"""
-    if before_id:
-        sql += " AND m.group_message_id < %s"
-    sql += " ORDER BY m.group_message_id DESC LIMIT %s"
-    rows = fetch_all(sql, tuple(params)) or []
+        rows = fetch_all(
+            select_sql + """ AND m.group_message_id < %s
+                             ORDER BY m.group_message_id DESC
+                             LIMIT %s""",
+            (int(viewer_id), int(group_id), int(viewer_id), int(before_id), safe_limit),
+        ) or []
+    else:
+        rows = fetch_all(
+            select_sql + """ ORDER BY m.group_message_id DESC
+                             LIMIT %s""",
+            (int(viewer_id), int(group_id), int(viewer_id), safe_limit),
+        ) or []
     return list(reversed([dict(row) for row in rows]))
 
 
