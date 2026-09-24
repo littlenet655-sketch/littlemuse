@@ -124,9 +124,16 @@ def hydrate_curated_engagement(child_id: int, items: list[dict[str, Any]]) -> li
            WHERE child_id=%s AND source_type='CURATED' AND source_id=ANY(%s)""",
         (child_id, ids),
     )
-    count_map = {int(row["source_id"]): int(row.get("n") or 0) for row in counts}
-    liked_ids = {int(row["source_id"]) for row in liked}
-    saved_ids = {int(row["source_id"]) for row in saved}
+    # Be defensive at this enrichment boundary: feed rendering must still
+    # succeed if an engagement query is unavailable/malformed in a partial
+    # migration or a test double. Missing engagement rows mean zero/false;
+    # publication, age, Parent Mode and safety eligibility are unchanged.
+    count_map = {
+        int(row["source_id"]): int(row.get("n") or 0)
+        for row in counts if row.get("source_id") is not None
+    }
+    liked_ids = {int(row["source_id"]) for row in liked if row.get("source_id") is not None}
+    saved_ids = {int(row["source_id"]) for row in saved if row.get("source_id") is not None}
     for item in items:
         if item.get("source_type") != "CURATED":
             continue
