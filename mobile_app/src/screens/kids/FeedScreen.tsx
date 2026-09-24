@@ -41,7 +41,7 @@ function StoriesTray({
   token?: string;
   myId?: number;
   myName?: string;
-  onOpen: () => void;
+  onOpen: (story?: TrayStory) => void;
 }) {
   // Read the shared home query instead of firing a duplicate raw fetch: the
   // hydration layer already warms [...kidsKeys.home, token], so this dedupes
@@ -77,7 +77,7 @@ function StoriesTray({
         contentContainerStyle={styles.trayContent}
       >
         <Pressable
-          onPress={onOpen}
+          onPress={() => onOpen(own)}
           style={styles.trayCell}
           accessibilityRole="button"
           accessibilityLabel="Your story"
@@ -97,7 +97,7 @@ function StoriesTray({
         {friends.map((story) => (
           <Pressable
             key={`tray-${story.post_id}`}
-            onPress={onOpen}
+            onPress={() => onOpen(story)}
             style={styles.trayCell}
             accessibilityRole="button"
             accessibilityLabel={`${story.full_name ?? 'Friend'}'s story`}
@@ -172,7 +172,7 @@ const FeedListHeader = memo(function FeedListHeader({
   myName?: string;
   tab: FeedTab;
   onTabChange: (tab: FeedTab) => void;
-  onOpenStories: () => void;
+  onOpenStories: (story?: TrayStory) => void;
   online: boolean;
   error: unknown;
   onStartQuizZone?: () => void;
@@ -323,7 +323,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     setActiveVideoKey(null);
     setTab(next);
   }, []);
-  const onOpenStories = useCallback(() => nav.navigate('Stories', {}), [nav]);
+  const onOpenStories = useCallback((story?: TrayStory) => nav.navigate('Stories', story ? { initialStoryId: story.post_id, initialChildId: story.child_id } : {}), [nav]);
   // A deleted post vanishes from the local list immediately (server already
   // confirmed the soft-delete; cache invalidation happens in the card).
   const deletedItem = useCallback((item: FeedItem) => {
