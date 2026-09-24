@@ -467,6 +467,34 @@ def web_preflight(deep_ai_probe: bool = False):
     return json.loads(json.dumps(report, default=str))
 
 
+@app.function(
+    image=web_image,
+    cpu=0.5,
+    memory=512,
+    secrets=[web_secret, r2_secret],
+    schedule=modal.Cron("*/15 * * * *"),
+    timeout=300,
+    min_containers=0,
+    max_containers=1,
+)
+def recovery_sweep():
+    """Every 15 minutes, reap stale media jobs and abandoned upload sessions.
+
+    Without a schedule, stuck PROCESSING media jobs and abandoned direct-to-R2
+    quarantine uploads accumulate until an admin remembers to POST
+    /api/mobile/v2/maintenance/reap-stale-jobs. The 15-minute cadence matches
+    the stale-job horizon (5 minutes): a job stuck in PROCESSING is picked up
+    at most ~15 minutes late, while abandoned-upload reconciliation is purely
+    best-effort cleanup. Delegates to services.recovery.run_recovery_sweep()
+    so the sweep logic is unit-testable without Modal; the manual endpoint is
+    unchanged.
+    """
+    os.chdir("/root/littlenet")
+    from services.recovery import run_recovery_sweep
+
+    return run_recovery_sweep()
+
+
 @app.local_entrypoint()
 def main(
     init_db: bool = False,
