@@ -27,7 +27,9 @@ function useRemoteAspect(uri: string | null | undefined, hint?: string | null): 
   const [measured, setMeasured] = useState<number | null>(null);
   useEffect(() => {
     setMeasured(null);
-    if (!uri) return;
+    // The server's aspect hint avoids a second image request just to measure
+    // a poster that the image/video component will load anyway.
+    if (!uri || hintRatio != null) return;
     let cancelled = false;
     RNImage.getSize(
       uri,
@@ -41,8 +43,8 @@ function useRemoteAspect(uri: string | null | undefined, hint?: string | null): 
     return () => {
       cancelled = true;
     };
-  }, [uri]);
-  return measured ?? hintRatio;
+  }, [hintRatio, uri]);
+  return hintRatio ?? measured;
 }
 
 /** Image with placeholder, measured aspect ratio, and a retryable error state. */
@@ -57,11 +59,6 @@ function FeedImage({ uri, aspectHint, label }: { uri: string; aspectHint?: strin
     setFailed(false);
     setReady(false);
     setMeasured(null);
-  }, [uri]);
-
-  // Warm the disk/memory cache so taps into detail views paint instantly.
-  useEffect(() => {
-    void Image.prefetch(uri).catch(() => {});
   }, [uri]);
 
   return (

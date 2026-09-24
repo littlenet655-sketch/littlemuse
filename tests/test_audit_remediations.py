@@ -209,6 +209,38 @@ def test_impression_batch_does_not_count_rejected_session_items(monkeypatch):
         assert resp.get_json()["recorded"] == 0
 
 
+def test_impression_batch_respects_existing_quiz_latch(monkeypatch):
+    app = _make_app()
+    user = {"user_id": 101, "role": "CHILD", "account_status": "ACTIVE", "full_name": "Child", "session_version": 1}
+    token = _issue_token(user)
+    recorded = []
+    monkeypatch.setattr("mobile.api.fetch_one", lambda query, params=(): user if "FROM users" in query else None)
+    monkeypatch.setattr("mobile.api._child_gate", lambda feature=None: None)
+    monkeypatch.setattr(
+        "mobile.api.feed_quiz_state",
+        lambda child_id: {
+            "required": True,
+            "posts_seen": 5,
+            "interval": 5,
+            "next_quiz_threshold": 10,
+        },
+    )
+    monkeypatch.setattr(
+        "services.curated_feed.record_feed_impression",
+        lambda *args, **kwargs: recorded.append((args, kwargs)) or True,
+    )
+
+    with app.test_client() as client:
+        resp = client.post(
+            "/api/mobile/v2/kids/impressions/batch",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"events": [{"session_id": "session", "source_type": "SOCIAL", "source_id": 55, "surface": "FEED"}]},
+        )
+        assert resp.status_code == 428
+        assert resp.get_json()["error"] == "quiz_required"
+        assert recorded == []
+
+
 def test_removed_face_login_endpoint_is_gone(monkeypatch):
     """Face login was removed 2026-09-22: the endpoint must not exist."""
     app = _make_app()

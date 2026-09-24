@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
-import { fetchKidsHome, recordFeedImpression, type StoryItem } from '../../api/kidsFeed';
+import { fetchKidsHome, recordImpressionBatch, type StoryItem } from '../../api/kidsFeed';
 import { submitRecommendationAction } from '../../api/recommendation';
 import { useAuth } from '../../auth/AuthProvider';
 import { PostCard } from '../../kids/PostCard';
@@ -27,6 +27,8 @@ interface TrayStory extends StoryItem {
   child_id?: number;
   viewed?: boolean;
 }
+
+type FeedImpressionEvent = Parameters<typeof recordImpressionBatch>[1][number];
 
 /**
  * Instagram-style horizontal stories tray for the feed header. Visual only —
@@ -266,23 +268,77 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const online = useIsOnline();
   const focused = useIsFocused();
   const foreground = useIsForeground();
-  const { session } = useAuth();
+  const { session, refreshMe } = useAuth();
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const [tab, setTab] = useState<FeedTab>('For You');
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
   const [activeVideoKey, setActiveVideoKey] = useState<string | null>(null);
   const reportedViewsRef = useRef<Set<string>>(new Set());
   const reportedSessionRef = useRef<string | undefined>(undefined);
+  const pendingImpressionsRef = useRef(new Map<string, FeedImpressionEvent>());
+  const impressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const impressionTokenRef = useRef(session?.token);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }).current;
   const feedMode = tab === 'Friends' ? 'friends' : tab === 'Learn' ? 'learn' : 'for_you';
   const feed = useFeed('feed', 10, feedMode);
-  const loadMoreRef = useRef(feed.loadMore);
-  loadMoreRef.current = feed.loadMore;
 
-  if (reportedSessionRef.current !== feed.sessionId) {
+  useEffect(() => {
+    if (impressionTokenRef.current !== session?.token) {
+      impressionTokenRef.current = session?.token;
+      reportedViewsRef.current.clear();
+      pendingImpressionsRef.current.clear();
+      if (impressionTimerRef.current) clearTimeout(impressionTimerRef.current);
+      impressionTimerRef.current = null;
+    }
+  }, [session?.token]);
+
+  useEffect(() => {
+    if (reportedSessionRef.current === feed.sessionId) return;
     reportedSessionRef.current = feed.sessionId;
     reportedViewsRef.current.clear();
-  }
+  }, [feed.sessionId]);
+
+  const flushImpressions = useCallback(async () => {
+    if (impressionTimerRef.current) {
+      clearTimeout(impressionTimerRef.current);
+      impressionTimerRef.current = null;
+    }
+    const token = session?.token;
+    if (!token || pendingImpressionsRef.current.size === 0) return;
+    const batch = [...pendingImpressionsRef.current.entries()];
+    pendingImpressionsRef.current.clear();
+    try {
+      await recordImpressionBatch(token, batch.map(([, event]) => event));
+    } catch (error) {
+      // Let a later viewability event retry after a transient failure.
+      for (const [key] of batch) reportedViewsRef.current.delete(key);
+      if (error instanceof ApiError && error.code === 'quiz_required') {
+        void refreshMe().catch(() => {});
+      }
+    }
+  }, [refreshMe, session?.token]);
+
+  const scheduleImpressionFlush = useCallback(() => {
+    if (pendingImpressionsRef.current.size >= 20) {
+      void flushImpressions();
+      return;
+    }
+    if (impressionTimerRef.current) clearTimeout(impressionTimerRef.current);
+    impressionTimerRef.current = setTimeout(() => {
+      impressionTimerRef.current = null;
+      void flushImpressions();
+    }, 250);
+  }, [flushImpressions]);
+
+  useEffect(() => {
+    if (!focused || !foreground) void flushImpressions();
+  }, [focused, foreground, flushImpressions]);
+
+  useEffect(() => () => {
+    if (impressionTimerRef.current) clearTimeout(impressionTimerRef.current);
+    impressionTimerRef.current = null;
+    void flushImpressions();
+  }, [flushImpressions]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visibleVideo = viewableItems.find((entry) => {
@@ -292,9 +348,6 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     const videoItem = visibleVideo?.item as FeedItem | undefined;
     setActiveVideoKey(videoItem ? `${videoItem.source_type}:${videoItem.source_id}` : null);
 
-    const furthest = viewableItems.reduce((max, entry) => Math.max(max, entry.index ?? -1), -1);
-    if (furthest >= 0 && furthest >= feed.items.length - 2) loadMoreRef.current();
-
     for (const entry of viewableItems) {
       if (!entry.isViewable) continue;
       const item = entry.item as FeedItem | undefined;
@@ -303,21 +356,19 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       if (!session?.token || !itemSessionId) continue;
       const sourceId = Number(item.source_id ?? item.post_id ?? 0);
       if (!sourceId) continue;
-      const key = feedKey(item);
+      const key = `${itemSessionId}:${feedKey(item)}`;
       if (reportedViewsRef.current.has(key)) continue;
       reportedViewsRef.current.add(key);
-      void recordFeedImpression(session.token, {
+      pendingImpressionsRef.current.set(key, {
         session_id: itemSessionId,
         source_type: item.source_type ?? 'SOCIAL',
         source_id: sourceId,
         surface: 'FEED',
         watched_ms: 250,
-      }).catch(() => {
-        // Allow a later visibility event to retry transient failures.
-        reportedViewsRef.current.delete(key);
       });
     }
-  }, [feed.items.length, feed.sessionId, session?.token]);
+    if (pendingImpressionsRef.current.size > 0) scheduleImpressionFlush();
+  }, [feed.sessionId, scheduleImpressionFlush, session?.token]);
 
   // Stable: the memoized header/rows must not see a new callback identity per render.
   const onTabChange = useCallback((next: FeedTab) => {
@@ -420,7 +471,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         renderItem={renderFeedItem}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        drawDistance={1200}
+        drawDistance={600}
         onEndReached={feed.loadMore}
         onEndReachedThreshold={0.5}
       />
