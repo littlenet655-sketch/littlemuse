@@ -899,7 +899,81 @@ def _resolve_parent_review(
         elif event["content_type"] == "COMMENT" and event.get("content_id"):
             cur.execute("UPDATE comments SET moderation_status=%s WHERE comment_id=%s", (status, event["content_id"]))
         elif event["content_type"] == "MESSAGE" and event.get("content_id"):
-            cur.execute("UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s", (status, event["content_id"]))
+            cur.execute(
+                """SELECT child_message_id,sender_child_id,receiver_child_id,message_type,media_path
+                   FROM child_messages
+                   WHERE child_message_id=%s
+                   FOR UPDATE""",
+                (event["content_id"],),
+            )
+            review_message = cur.fetchone()
+            if not review_message:
+                effective = "BLOCK"
+                status = "BLOCKED"
+            elif review_message.get("message_type") in {"IMAGE", "VIDEO"} and review_message.get("media_path"):
+                quarantine_ref = str(review_message["media_path"])
+                if effective == "APPROVE":
+                    from services.chat_media import promote_reviewed_chat_media
+                    try:
+                        published_ref, _ = promote_reviewed_chat_media(
+                            message_id=int(review_message["child_message_id"]),
+                            child_id=int(review_message["sender_child_id"]),
+                            media_type=str(review_message["message_type"]),
+                            quarantine_ref=quarantine_ref,
+                        )
+                        cur.execute(
+                            """UPDATE child_messages
+                               SET media_path=%s,moderation_status='ALLOWED'
+                               WHERE child_message_id=%s""",
+                            (published_ref, event["content_id"]),
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "review approval failed to sanitize chat media message=%s",
+                            event["content_id"],
+                        )
+                        effective = "BLOCK"
+                        status = "BLOCKED"
+                        try:
+                            from services.chat_media import block_reviewed_chat_media
+                            block_reviewed_chat_media(
+                                message_id=int(review_message["child_message_id"]),
+                                quarantine_ref=quarantine_ref,
+                            )
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "review failure cleanup failed for chat media message=%s",
+                                event["content_id"],
+                            )
+                        cur.execute(
+                            """UPDATE child_messages
+                               SET media_path=NULL,moderation_status='BLOCKED'
+                               WHERE child_message_id=%s""",
+                            (event["content_id"],),
+                        )
+                else:
+                    try:
+                        from services.chat_media import block_reviewed_chat_media
+                        block_reviewed_chat_media(
+                            message_id=int(review_message["child_message_id"]),
+                            quarantine_ref=quarantine_ref,
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "chat review block cleanup failed message=%s",
+                            event["content_id"],
+                        )
+                    cur.execute(
+                        """UPDATE child_messages
+                           SET media_path=NULL,moderation_status='BLOCKED'
+                           WHERE child_message_id=%s""",
+                        (event["content_id"],),
+                    )
+            else:
+                cur.execute(
+                    "UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s",
+                    (status, event["content_id"]),
+                )
         elif event["content_type"] == "USER" and event.get("content_id") and is_admin and requested == "BLOCK":
             cur.execute(
                 "UPDATE users SET account_status='SUSPENDED' WHERE user_id=%s AND role='CHILD'",
