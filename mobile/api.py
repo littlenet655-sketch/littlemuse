@@ -2953,7 +2953,16 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             limit = 10
         session_id = request.args.get("session_id")
-        page = get_feed_page(uid, surface="FEED", cursor=cursor, limit=limit, session_id=session_id, mode=mode)
+        refill_from = request.args.get("refill_from")
+        page = get_feed_page(
+            uid,
+            surface="FEED",
+            cursor=cursor,
+            limit=limit,
+            session_id=session_id,
+            mode=mode,
+            refill_from_session_id=refill_from,
+        )
         from services.media_delivery import resolve_media_delivery
         from services.object_storage import is_reference as _is_r2_reference
         # One batched authorization pass for the whole page instead of ~10
@@ -2994,7 +3003,15 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             limit = 10
         session_id = request.args.get("session_id")
-        page = get_feed_page(uid, surface="REELS", cursor=cursor, limit=limit, session_id=session_id)
+        refill_from = request.args.get("refill_from")
+        page = get_feed_page(
+            uid,
+            surface="REELS",
+            cursor=cursor,
+            limit=limit,
+            session_id=session_id,
+            refill_from_session_id=refill_from,
+        )
         from services.media_delivery import resolve_media_delivery
         from services.object_storage import is_reference as _is_r2_reference
         # Batch the poster authorization for the whole page (same N+1 fix as feed).
