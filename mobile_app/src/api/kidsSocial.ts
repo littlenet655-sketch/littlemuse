@@ -18,6 +18,7 @@ export interface PostDetail {
   is_reel?: boolean;
   viewer_liked?: boolean;
   viewer_saved?: boolean;
+  comments_enabled?: boolean;
 }
 
 export interface CommentItem {
@@ -29,6 +30,7 @@ export interface CommentItem {
   full_name?: string;
   username?: string;
   avatar_url?: string | null;
+  can_delete?: boolean;
 }
 
 export interface ReportItem {
@@ -73,12 +75,22 @@ export function recordCuratedShare(token: string, sourceId: number): Promise<{ o
   return postJson(routes.curatedEngagement(sourceId, 'share'), {}, token);
 }
 
-export function fetchComments(token: string, postId: number): Promise<{ ok: boolean; comments: CommentItem[] }> {
-  return get(routes.comments(postId), token);
+export function fetchComments(token: string, postId: number, beforeId?: number | null, limit = 20): Promise<{ ok: boolean; comments: CommentItem[]; has_more: boolean; next_cursor: number | null; comments_enabled?: boolean }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (beforeId) params.set('before_id', String(beforeId));
+  return get(`${routes.comments(postId)}?${params.toString()}`, token);
 }
 
 export function addComment(token: string, postId: number, text: string): Promise<{ ok: boolean; status: string; comment_id: number }> {
   return postJson(routes.addComment(postId), { text }, token);
+}
+
+export function deleteComment(token: string, postId: number, commentId: number): Promise<{ ok: boolean }> {
+  return del(routes.deleteComment(postId, commentId), token);
+}
+
+export function setPostCommentsEnabled(token: string, postId: number, enabled: boolean): Promise<{ ok: boolean; comments_enabled: boolean }> {
+  return apiRequest(routes.commentsSetting(postId), { method: 'PUT', body: JSON.stringify({ enabled }) }, token);
 }
 
 export function fetchSaved(token: string): Promise<{ ok: boolean; posts: PostDetail[]; reels: PostDetail[] }> {
