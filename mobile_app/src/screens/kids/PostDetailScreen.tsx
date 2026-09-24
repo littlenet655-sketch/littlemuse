@@ -158,9 +158,9 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     if (!session || commentActionBusy) return;
     setCommentActionBusy(commentId);
     try {
-      await deleteComment(session.token, postId, commentId);
+      const res = await deleteComment(session.token, postId, commentId);
       setComments((current) => current.filter((item) => item.comment_id !== commentId));
-      setPost((current) => current ? { ...current, comments_count: Math.max(0, Number(current.comments_count ?? 1) - 1) } : current);
+      setPost((current) => current ? { ...current, comments_count: res.comments_count } : current);
       await invalidateSocialCaches([postId]);
       setInfo('Comment removed.');
     } catch (err) {
@@ -170,17 +170,43 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
-  async function reportComment(commentId: number) {
-    if (!session || commentActionBusy) return;
-    setCommentActionBusy(commentId);
+  async function commentSafetyAction(comment: CommentItem, action: 'report' | 'mute' | 'block') {
+    if (!session || commentActionBusy || comment.child_id === session.user.user_id) return;
+    setCommentActionBusy(comment.comment_id);
     try {
-      await submitReport(session.token, 'COMMENT', commentId, 'Unsafe or unkind');
-      setInfo('Comment reported for safety review.');
+      if (action === 'report') {
+        await submitReport(session.token, 'COMMENT', comment.comment_id, 'Unsafe or unkind');
+        setInfo('Comment reported for safety review.');
+      } else if (action === 'mute') {
+        await muteUser(session.token, comment.child_id, 'MUTE');
+        setComments((current) => current.filter((item) => item.child_id !== comment.child_id));
+        setInfo('Commenter muted. Their content will be hidden from your surfaces.');
+      } else {
+        await blockUser(session.token, comment.child_id, 'BLOCK');
+        setComments((current) => current.filter((item) => item.child_id !== comment.child_id));
+        setInfo('Commenter blocked. Their profile, posts, messages, and comments are hidden.');
+      }
+      await invalidateSocialCaches([postId]);
+      setCommentError(null);
     } catch (err) {
       setCommentError(err);
     } finally {
       setCommentActionBusy(null);
     }
+  }
+
+  function openCommentSafety(comment: CommentItem) {
+    if (comment.child_id === session?.user.user_id) return;
+    Alert.alert(
+      comment.full_name ?? 'Comment safety',
+      'Choose a safety action for this commenter.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report comment', onPress: () => void commentSafetyAction(comment, 'report') },
+        { text: 'Mute account', onPress: () => void commentSafetyAction(comment, 'mute') },
+        { text: 'Block account', style: 'destructive', onPress: () => void commentSafetyAction(comment, 'block') },
+      ],
+    );
   }
 
   async function toggleCommentsSetting() {
@@ -358,14 +384,15 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
                     { text: 'Delete', style: 'destructive', onPress: () => void removeComment(comment.comment_id) },
                   ])}
                 />
-              ) : (
+              ) : null}
+              {comment.child_id !== session?.user.user_id ? (
                 <Button
-                  label={commentActionBusy === comment.comment_id ? 'Reporting…' : 'Report'}
+                  label={commentActionBusy === comment.comment_id ? 'Working…' : 'Safety'}
                   variant="secondary"
                   disabled={commentActionBusy !== null}
-                  onPress={() => void reportComment(comment.comment_id)}
+                  onPress={() => openCommentSafety(comment)}
                 />
-              )}
+              ) : null}
             </View>
           </Card>
         )) : null}
