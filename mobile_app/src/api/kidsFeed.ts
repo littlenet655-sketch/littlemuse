@@ -8,7 +8,7 @@ export interface FeedItem {
   /** Session that authorized this exact item; required across refill sessions. */
   feed_session_id?: string;
   full_name?: string;
-  creator_key?: string;
+  creator_id?: number;
   creator_username?: string;
   avatar_url?: string | null;
   media_type?: string;
