@@ -90,6 +90,7 @@ export const routes = {
   processingStatus: (postId: number) => `/api/mobile/v2/posts/${postId}/processing-status`,
   redrive: (postId: number) => `/api/mobile/v2/posts/${postId}/redrive`,
   kidsHome: '/api/mobile/v1/kids/home',
+  curatedMusic: '/api/mobile/v1/music/curated',
   ownProfile: '/api/mobile/v1/kids/profile',
   otherProfile: (targetId: number) => `/api/mobile/v1/kids/profiles/${targetId}`,
   profileActions: (targetId: number) => `/api/mobile/v1/kids/profiles/${targetId}/actions`,
