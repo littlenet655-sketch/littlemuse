@@ -1,20 +1,18 @@
 -- migrate:up
 -- Curated creators are editorial personas. They deliberately do not reference
--- users/child_profiles and therefore cannot participate in child follows or DMs.
+-- users/child_profiles and therefore cannot participate in follows or DMs.
 CREATE TABLE IF NOT EXISTS curated_creators (
-  creator_id BIGSERIAL PRIMARY KEY,
-  creator_key VARCHAR(64) NOT NULL UNIQUE,
+  creator_key VARCHAR(64) PRIMARY KEY,
   display_name VARCHAR(120) NOT NULL,
   username VARCHAR(64) NOT NULL UNIQUE,
   avatar_reference TEXT,
   bio TEXT,
-  interest_vertical VARCHAR(64),
+  vertical VARCHAR(64),
   active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO curated_creators(creator_key,display_name,username,interest_vertical) VALUES
+INSERT INTO curated_creators(creator_key,display_name,username,vertical) VALUES
  ('ananya_explores','Ananya Explorer','ananya_explores','Nature & Animals'),
  ('aarav_cooking','Chef Aarav','aarav_cooking','Culinary Arts & Food'),
  ('kabir_sports','Kabir Champion','kabir_sports','Sports'),
@@ -32,29 +30,27 @@ INSERT INTO curated_creators(creator_key,display_name,username,interest_vertical
 ON CONFLICT (creator_key) DO UPDATE SET
   display_name=EXCLUDED.display_name,
   username=EXCLUDED.username,
-  interest_vertical=EXCLUDED.interest_vertical,
-  updated_at=CURRENT_TIMESTAMP;
+  vertical=EXCLUDED.vertical;
 
 ALTER TABLE curated_content
-  ADD COLUMN IF NOT EXISTS creator_id BIGINT REFERENCES curated_creators(creator_id);
+  ADD COLUMN IF NOT EXISTS creator_key VARCHAR(64) REFERENCES curated_creators(creator_key);
 
 -- Conservative deterministic backfill. Generic/ambiguous content uses the
--- neutral editorial persona rather than pretending to be a child account.
+-- neutral editorial persona rather than pretending to be a child.
 UPDATE curated_content cc
-SET creator_id = cr.creator_id
-FROM curated_creators cr
-WHERE cc.creator_id IS NULL
-  AND cr.creator_key = CASE
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(recipe|cook|cooking|food|snack)' THEN 'aarav_cooking'
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(football|sport|sports|fitness)' THEN 'kabir_sports'
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(astronomy|space|planet|galaxy|telescope)' THEN 'maya_astronomy'
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(origami|paper craft|paper folding)' THEN 'sam_origami'
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(robot|robotics|coding|programming)' THEN 'leo_robotics'
-    WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(nature|animal|wildlife|forest|ocean)' THEN 'ananya_explores'
-    ELSE 'ait_star_student'
-  END;
+SET creator_key = CASE
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(recipe|cook|cooking|food|snack)' THEN 'aarav_cooking'
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(football|sport|sports|fitness)' THEN 'kabir_sports'
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(astronomy|space|planet|galaxy|telescope)' THEN 'maya_astronomy'
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(origami|paper craft|paper folding)' THEN 'sam_origami'
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(robot|robotics|coding|programming)' THEN 'leo_robotics'
+  WHEN LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~ '(nature|animal|wildlife|forest|ocean)' THEN 'ananya_explores'
+  ELSE 'ait_star_student'
+END
+WHERE creator_key IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_curated_content_creator_id ON curated_content(creator_id);
+ALTER TABLE curated_content ALTER COLUMN creator_key SET DEFAULT 'ait_star_student';
+ALTER TABLE curated_content ALTER COLUMN creator_key SET NOT NULL;
 
 -- Polymorphic engagement is intentionally separate from social likes/saves so
 -- curated content IDs can never collide with child post IDs.
@@ -91,6 +87,5 @@ CREATE INDEX IF NOT EXISTS idx_content_shares_source ON content_shares(source_ty
 DROP TABLE IF EXISTS content_shares;
 DROP TABLE IF EXISTS content_saves;
 DROP TABLE IF EXISTS content_reactions;
-DROP INDEX IF EXISTS idx_curated_content_creator_id;
-ALTER TABLE curated_content DROP COLUMN IF EXISTS creator_id;
+ALTER TABLE curated_content DROP COLUMN IF EXISTS creator_key;
 DROP TABLE IF EXISTS curated_creators;
