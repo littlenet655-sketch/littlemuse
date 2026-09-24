@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { fetchParentEmailStatus, registerParent, resendParentEmail, verifyParentEmail } from '../api/auth';
 import { useAuth } from '../auth/AuthProvider';
@@ -7,6 +7,312 @@ import type { AuthScreenProps } from '../navigation/types';
 import { Button, Card, Field, Notice, Screen, StepIndicator, errorText } from '../ui/components';
 import { colors, radius, spacing, type } from '../ui/tokens';
 import { OTP_LENGTH, applyOtpBackspace, applyOtpInput, cellsFromCode } from './otpCells';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function getDaysInMonth(year: number, month1Indexed: number): number {
+  return new Date(year, month1Indexed, 0).getDate();
+}
+
+/**
+ * Interactive Date of Birth Picker (Task 14).
+ * Enforces the visual 18+ requirement, disallows future dates,
+ * serializes canonical YYYY-MM-DD for the backend, handles cancellation gracefully,
+ * and maintains accessibility on Android and iOS.
+ */
+interface ParentDobPickerProps {
+  value: string; // canonical 'YYYY-MM-DD'
+  onChange: (canonical: string) => void;
+  error?: string;
+}
+
+function ParentDobPicker({ value, onChange, error }: ParentDobPickerProps) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const today = useMemo(() => new Date(), []);
+  const maxYear = today.getFullYear() - 18;
+  const minYear = today.getFullYear() - 100;
+  const maxMonth = today.getMonth() + 1; // 1-indexed
+  const maxDay = today.getDate();
+
+  // Parse existing canonical value or default to 25 years ago
+  const parsed = useMemo(() => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (match) {
+      const y = Number(match[1]);
+      const m = Number(match[2]);
+      const d = Number(match[3]);
+      return { year: y, month: m, day: d };
+    }
+    return { year: today.getFullYear() - 25, month: 1, day: 1 };
+  }, [value, today]);
+
+  const [tempYear, setTempYear] = useState(parsed.year);
+  const [tempMonth, setTempMonth] = useState(parsed.month);
+  const [tempDay, setTempDay] = useState(parsed.day);
+
+  // Sync temp state whenever modal opens or value changes
+  useEffect(() => {
+    setTempYear(parsed.year);
+    setTempMonth(parsed.month);
+    setTempDay(parsed.day);
+  }, [parsed, modalOpen]);
+
+  // Clamp month & day when year changes
+  const daysInCurrentMonth = useMemo(() => getDaysInMonth(tempYear, tempMonth), [tempYear, tempMonth]);
+
+  useEffect(() => {
+    if (tempYear === maxYear && tempMonth > maxMonth) {
+      setTempMonth(maxMonth);
+    }
+  }, [tempYear, tempMonth, maxYear, maxMonth]);
+
+  useEffect(() => {
+    let maxAllowedDay = daysInCurrentMonth;
+    if (tempYear === maxYear && tempMonth === maxMonth && maxDay < maxAllowedDay) {
+      maxAllowedDay = maxDay;
+    }
+    if (tempDay > maxAllowedDay) {
+      setTempDay(maxAllowedDay);
+    }
+  }, [tempYear, tempMonth, tempDay, daysInCurrentMonth, maxYear, maxMonth, maxDay]);
+
+  const formattedDisplay = useMemo(() => {
+    if (!value) return '';
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (match) {
+      const y = Number(match[1]);
+      const m = Number(match[2]) - 1;
+      const d = Number(match[3]);
+      return `${MONTH_NAMES[m]} ${d}, ${y}`;
+    }
+    return value;
+  }, [value]);
+
+  const handleConfirm = () => {
+    const mm = String(tempMonth).padStart(2, '0');
+    const dd = String(tempDay).padStart(2, '0');
+    const canonical = `${tempYear}-${mm}-${dd}`;
+    onChange(canonical);
+    setModalOpen(false);
+  };
+
+  const handleCancel = () => {
+    setModalOpen(false);
+  };
+
+  return (
+    <View style={styles.dobWrapper}>
+      <View style={styles.dobLabelRow}>
+        <Text style={styles.dobLabel}>Date of Birth</Text>
+        <View style={styles.dob18Badge}>
+          <Text style={styles.dob18BadgeText}>18+ Adult Required</Text>
+        </View>
+      </View>
+
+      <Pressable
+        style={[styles.dobTrigger, Boolean(error) && styles.dobTriggerError]}
+        onPress={() => setModalOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={value ? `Date of birth: ${formattedDisplay}. Tap to change.` : 'Select date of birth'}
+        hitSlop={8}
+      >
+        <View style={styles.dobTriggerLeft}>
+          <Feather name="calendar" size={18} color={value ? colors.brand : colors.muted} />
+          <Text style={[styles.dobTriggerValue, !value && styles.dobTriggerPlaceholder]}>
+            {formattedDisplay ? `${formattedDisplay} (${value})` : 'Select your date of birth'}
+          </Text>
+        </View>
+        <Feather name="chevron-down" size={18} color={colors.muted} />
+      </Pressable>
+
+      {error ? (
+        <Text style={styles.dobErrorText}>{error}</Text>
+      ) : (
+        <Text style={styles.dobHelperText}>
+          Must be at least 18 years old. Server validates age authoritatively.
+        </Text>
+      )}
+
+      {/* Interactive Date Picker Modal */}
+      <Modal
+        visible={modalOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={handleCancel}
+        accessibilityViewIsModal={true}
+      >
+        <View style={styles.dobModalBackdrop}>
+          <Pressable style={styles.dobModalDismissArea} onPress={handleCancel} accessibilityLabel="Cancel" />
+          <View style={styles.dobModalSheet} accessibilityRole="summary" accessibilityLabel="Date of Birth Picker">
+            {/* Modal Header */}
+            <View style={styles.dobModalHeader}>
+              <View>
+                <Text style={styles.dobModalTitle}>Select Date of Birth</Text>
+                <Text style={styles.dobModalSubtitle}>Parent or Legal Guardian Verification</Text>
+              </View>
+              <Pressable
+                onPress={handleCancel}
+                style={styles.dobModalCloseBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close picker"
+                hitSlop={8}
+              >
+                <Feather name="x" size={20} color={colors.ink} />
+              </Pressable>
+            </View>
+
+            {/* 18+ Constraint Banner */}
+            <View style={styles.dobConstraintBanner}>
+              <Feather name="shield" size={16} color="#0284C7" />
+              <Text style={styles.dobConstraintText}>
+                Adults only: You must be born on or before {MONTH_NAMES[today.getMonth()]} {today.getDate()}, {maxYear}.
+              </Text>
+            </View>
+
+            {/* Selected Date Preview */}
+            <View style={styles.dobPreviewBox}>
+              <Text style={styles.dobPreviewLabel}>SELECTED DATE</Text>
+              <Text style={styles.dobPreviewValue}>
+                {MONTH_NAMES[tempMonth - 1]} {tempDay}, {tempYear}
+              </Text>
+            </View>
+
+            {/* Year Stepper / Selector */}
+            <View style={styles.dobPickerSection}>
+              <Text style={styles.dobSectionTitle}>Year</Text>
+              <View style={styles.dobStepperRow}>
+                <Pressable
+                  style={[styles.dobStepperBtn, tempYear <= minYear && styles.dobStepperBtnDisabled]}
+                  onPress={() => setTempYear((y: number) => Math.max(minYear, y - 1))}
+                  disabled={tempYear <= minYear}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous year"
+                >
+                  <Feather name="minus" size={18} color={tempYear <= minYear ? colors.muted : colors.ink} />
+                </Pressable>
+                <View style={styles.dobStepperValueBox}>
+                  <Text style={styles.dobStepperValueText}>{tempYear}</Text>
+                </View>
+                <Pressable
+                  style={[styles.dobStepperBtn, tempYear >= maxYear && styles.dobStepperBtnDisabled]}
+                  onPress={() => setTempYear((y: number) => Math.min(maxYear, y + 1))}
+                  disabled={tempYear >= maxYear}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next year"
+                >
+                  <Feather name="plus" size={18} color={tempYear >= maxYear ? colors.muted : colors.ink} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Month Grid */}
+            <View style={styles.dobPickerSection}>
+              <Text style={styles.dobSectionTitle}>Month</Text>
+              <View style={styles.dobMonthGrid}>
+                {MONTH_SHORT.map((mShort, idx) => {
+                  const mNum = idx + 1;
+                  const isSelected = tempMonth === mNum;
+                  const isDisabled = tempYear === maxYear && mNum > maxMonth;
+                  return (
+                    <Pressable
+                      key={mShort}
+                      style={[
+                        styles.dobMonthCell,
+                        isSelected && styles.dobMonthCellSelected,
+                        isDisabled && styles.dobMonthCellDisabled,
+                      ]}
+                      onPress={() => !isDisabled && setTempMonth(mNum)}
+                      disabled={isDisabled}
+                      accessibilityRole="button"
+                      accessibilityLabel={MONTH_NAMES[idx]}
+                      accessibilityState={{ selected: isSelected, disabled: isDisabled }}
+                    >
+                      <Text
+                        style={[
+                          styles.dobMonthCellText,
+                          isSelected && styles.dobMonthCellTextSelected,
+                          isDisabled && styles.dobMonthCellTextDisabled,
+                        ]}
+                      >
+                        {mShort}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Day Selector */}
+            <View style={styles.dobPickerSection}>
+              <Text style={styles.dobSectionTitle}>Day</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.dobDayScrollContent}
+              >
+                {Array.from({ length: daysInCurrentMonth }, (_, i) => i + 1).map((dNum) => {
+                  const isSelected = tempDay === dNum;
+                  const isDisabled = tempYear === maxYear && tempMonth === maxMonth && dNum > maxDay;
+                  return (
+                    <Pressable
+                      key={dNum}
+                      style={[
+                        styles.dobDayCell,
+                        isSelected && styles.dobDayCellSelected,
+                        isDisabled && styles.dobDayCellDisabled,
+                      ]}
+                      onPress={() => !isDisabled && setTempDay(dNum)}
+                      disabled={isDisabled}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Day ${dNum}`}
+                      accessibilityState={{ selected: isSelected, disabled: isDisabled }}
+                    >
+                      <Text
+                        style={[
+                          styles.dobDayCellText,
+                          isSelected && styles.dobDayCellTextSelected,
+                          isDisabled && styles.dobDayCellTextDisabled,
+                        ]}
+                      >
+                        {dNum}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.dobModalActionRow}>
+              <Pressable
+                style={styles.dobCancelButton}
+                onPress={handleCancel}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel date selection"
+              >
+                <Text style={styles.dobCancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.dobConfirmButton}
+                onPress={handleConfirm}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm date of birth"
+              >
+                <Text style={styles.dobConfirmButtonText}>Set Date</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
 
 export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegister'>) {
   const [username, setUsername] = useState('');
@@ -213,14 +519,12 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
               onFocus={() => scrollToInput(135)}
               error={fieldErrors.email}
             />
-            <Field
-              label="Date of Birth (YYYY-MM-DD)"
-              placeholder="1990-05-14"
-              helper="You must be at least 18 years old. Server validates age."
-              keyboardType="numbers-and-punctuation"
+            <ParentDobPicker
               value={dob}
-              onChangeText={(text) => { setDob(text); clearFieldError('dob'); }}
-              onFocus={() => scrollToInput(195)}
+              onChange={(canonical) => {
+                setDob(canonical);
+                clearFieldError('dob');
+              }}
               error={fieldErrors.dob}
             />
             <Field
@@ -672,4 +976,289 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   otpHelperText: { fontSize: 11, color: colors.muted, textAlign: 'center', marginTop: 6 },
+  dobWrapper: {
+    marginBottom: spacing.md,
+  },
+  dobLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  dobLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  dob18Badge: {
+    backgroundColor: 'rgba(2, 132, 199, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  dob18BadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0284C7',
+  },
+  dobTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 48,
+  },
+  dobTriggerError: {
+    borderColor: '#DC2626',
+  },
+  dobTriggerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  dobTriggerValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  dobTriggerPlaceholder: {
+    color: colors.muted,
+    fontWeight: '400',
+  },
+  dobErrorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  dobHelperText: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 4,
+  },
+  dobModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  dobModalDismissArea: {
+    flex: 1,
+  },
+  dobModalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    maxHeight: '90%',
+  },
+  dobModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
+  },
+  dobModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  dobModalSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    marginTop: 2,
+  },
+  dobModalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dobConstraintBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 14,
+  },
+  dobConstraintText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0369A1',
+    lineHeight: 16,
+  },
+  dobPreviewBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  dobPreviewLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.muted,
+    letterSpacing: 0.8,
+  },
+  dobPreviewValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.brand,
+    marginTop: 2,
+  },
+  dobPickerSection: {
+    marginTop: 14,
+  },
+  dobSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: 8,
+  },
+  dobStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  dobStepperBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dobStepperBtnDisabled: {
+    opacity: 0.35,
+  },
+  dobStepperValueBox: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    minWidth: 110,
+    alignItems: 'center',
+  },
+  dobStepperValueText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  dobMonthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  dobMonthCell: {
+    width: '23%',
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dobMonthCellSelected: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  dobMonthCellDisabled: {
+    opacity: 0.3,
+  },
+  dobMonthCellText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  dobMonthCellTextSelected: {
+    color: '#FFFFFF',
+  },
+  dobMonthCellTextDisabled: {
+    color: colors.muted,
+  },
+  dobDayScrollContent: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  dobDayCell: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dobDayCellSelected: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  dobDayCellDisabled: {
+    opacity: 0.3,
+  },
+  dobDayCellText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  dobDayCellTextSelected: {
+    color: '#FFFFFF',
+  },
+  dobDayCellTextDisabled: {
+    color: colors.muted,
+  },
+  dobModalActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  dobCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dobCancelButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+  },
+  dobConfirmButton: {
+    flex: 1.5,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dobConfirmButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });
