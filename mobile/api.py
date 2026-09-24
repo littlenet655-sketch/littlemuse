@@ -2949,13 +2949,69 @@ def register_mobile_api(bp):
         pid = int(g.mobile_user["user_id"])
         if not owns(pid, child_id):
             return jsonify(error="child_not_found"), 404
+        try:
+            limit = min(50, max(1, int(request.args.get("limit", 30))))
+        except (TypeError, ValueError):
+            limit = 30
+        try:
+            before_id = int(request.args.get("before_id")) if request.args.get("before_id") else None
+        except (TypeError, ValueError):
+            before_id = None
+
+        params = [child_id]
+        cursor_clause = ""
+        if before_id:
+            cursor_clause = " AND log_id < %s"
+            params.append(before_id)
+        params.append(limit + 1)
         rows = fetch_all(
-            """SELECT log_id,activity_type,activity_data,created_at
-               FROM activity_logs WHERE child_id=%s
-               ORDER BY created_at DESC LIMIT 100""",
-            (child_id,),
+            f"""SELECT log_id,activity_type,activity_data,created_at
+                FROM activity_logs
+                WHERE child_id=%s {cursor_clause}
+                ORDER BY log_id DESC
+                LIMIT %s""",
+            tuple(params),
+        ) or []
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = int(page[-1]["log_id"]) if has_more and page else None
+
+        # Supervision metadata only: who the child recently chatted with and
+        # aggregate activity. Message text/media is intentionally not exposed.
+        recent_chat_partners = fetch_all(
+            """SELECT
+                   CASE WHEN cc.child1_id=%s THEN cc.child2_id ELSE cc.child1_id END AS child_id,
+                   u.full_name,u.username,cp.profile_picture,
+                   MAX(m.sent_at) AS last_interaction_at,
+                   COUNT(m.child_message_id) FILTER (
+                     WHERE m.sent_at >= NOW() - INTERVAL '30 days'
+                       AND m.is_deleted=FALSE
+                   ) AS messages_30d
+               FROM child_conversations cc
+               JOIN users u ON u.user_id=CASE WHEN cc.child1_id=%s THEN cc.child2_id ELSE cc.child1_id END
+               LEFT JOIN child_profiles cp ON cp.child_id=u.user_id
+               LEFT JOIN child_messages m ON m.conversation_id=cc.conversation_id
+                    AND m.is_deleted=FALSE
+               WHERE cc.child1_id=%s OR cc.child2_id=%s
+               GROUP BY cc.conversation_id,u.user_id,u.full_name,u.username,cp.profile_picture
+               HAVING MAX(m.sent_at) IS NOT NULL
+               ORDER BY MAX(m.sent_at) DESC
+               LIMIT 20""",
+            (child_id, child_id, child_id, child_id),
+        ) or []
+        partners = []
+        for row in recent_chat_partners:
+            item = dict(row)
+            item["avatar_url"] = _asset_url(item.pop("profile_picture", None))
+            partners.append(_clean(item))
+
+        return jsonify(
+            ok=True,
+            events=_clean(page),
+            has_more=has_more,
+            next_cursor=next_cursor,
+            recent_chat_partners=partners,
         )
-        return jsonify(ok=True, events=_clean(rows))
 
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")
