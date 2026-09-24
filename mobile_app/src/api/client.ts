@@ -119,6 +119,7 @@ export const routes = {
   notificationsRead: '/api/mobile/v1/kids/notifications/read',
   conversations: '/api/mobile/v1/kids/messages',
   chat: (peerId: number) => `/api/mobile/v1/kids/chat/${peerId}`,
+  messageReaction: (peerId: number, messageId: number) => `/api/mobile/v1/kids/chat/${peerId}/messages/${messageId}/reaction`,
   sharePost: (peerId: number) => `/api/mobile/v1/kids/chat/${peerId}/share`,
   deviceRegister: '/api/mobile/v2/device/register',
   deviceUnregister: '/api/mobile/v2/device/unregister',
