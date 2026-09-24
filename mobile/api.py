@@ -1974,21 +1974,38 @@ def register_mobile_api(bp):
         uid = int(g.mobile_user["user_id"])
         data = request.get_json(silent=True) or request.form or {}
         kind = str(data.get("kind") or "post").lower()
-        if kind not in {"post", "reel", "story"}:
+        if kind not in {"post", "reel", "story", "message"}:
             return jsonify(error="invalid_kind"), 400
 
-        feature = "reels" if kind == "reel" else "stories" if kind == "story" else "posting"
+        feature = (
+            "messaging" if kind == "message"
+            else "reels" if kind == "reel"
+            else "stories" if kind == "story"
+            else "posting"
+        )
         gate = _child_gate(feature)
         if gate:
             return gate
 
-        # Pre-upload category validation: reject parent-disabled/unknown
-        # categories before a presigned R2 URL is issued and before bytes move.
-        category = str(data.get("content_category") or "Other").strip()
-        if category not in SAFE_CATEGORIES:
-            return jsonify(error="invalid_content_category", allowed=SAFE_CATEGORIES), 400
-        if category not in effective_categories(uid):
-            return jsonify(error="category_disabled_by_parent"), 403
+        target_id = None
+        if kind == "message":
+            try:
+                target_id = int(data.get("target_id") or 0)
+            except (TypeError, ValueError):
+                target_id = 0
+            if not target_id or not can_interact(uid, target_id):
+                return jsonify(error="approved_connection_required"), 403
+            if not feature_allowed(target_id, "messaging"):
+                return jsonify(error="approved_connection_required"), 403
+            category = None
+        else:
+            # Pre-upload category validation: reject parent-disabled/unknown
+            # categories before a presigned R2 URL is issued and before bytes move.
+            category = str(data.get("content_category") or "Other").strip()
+            if category not in SAFE_CATEGORIES:
+                return jsonify(error="invalid_content_category", allowed=SAFE_CATEGORIES), 400
+            if category not in effective_categories(uid):
+                return jsonify(error="category_disabled_by_parent"), 403
 
         filename = str(data.get("filename") or "").strip()
         media_type = str(data.get("media_type") or "").upper()
@@ -2011,6 +2028,8 @@ def register_mobile_api(bp):
 
         if media_type not in {"IMAGE", "VIDEO"}:
             return jsonify(error="invalid_media_type"), 400
+        if kind == "message" and media_type != "IMAGE":
+            return jsonify(error="message_image_only"), 400
 
         try:
             size_bytes = int(data.get("size_bytes") or data.get("file_size") or 0)
@@ -2020,7 +2039,9 @@ def register_mobile_api(bp):
         if size_bytes <= 0:
             return jsonify(error="file_size_required"), 400
 
-        if media_type == "IMAGE":
+        if kind == "message":
+            max_bytes = 10 * 1024 * 1024
+        elif media_type == "IMAGE":
             max_bytes = 20 * 1024 * 1024
         elif kind == "story":
             max_bytes = 50 * 1024 * 1024
@@ -2059,25 +2080,26 @@ def register_mobile_api(bp):
 
         upload_id = str(uuid.uuid4())
         from services import object_storage
-        # Store a real R2 reference (uploads/r2/<prefix>/quarantine/...).
-        # Presign, download, and delete all understand that form. A raw
-        # prefixed key passes the upload guard and then skips deletion.
+
+        quarantine_scope = f"messages/{uid}" if kind == "message" else str(uid)
         object_key = object_storage.new_reference(
-            f"quarantine/{uid}/{upload_id}/source.{ext}"
+            f"quarantine/{quarantine_scope}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
         expires_at = datetime.utcnow() + timedelta(seconds=expires_seconds)
 
         execute(
-            """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
-                                          expected_size_bytes, mime_type, extension, status, expires_at)
-               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)""",
+            """INSERT INTO upload_sessions(
+                   upload_id,child_id,object_key,media_type,kind,target_id,
+                   expected_size_bytes,mime_type,extension,status,expires_at
+               ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,'PENDING',%s)""",
             (
                 upload_id,
                 uid,
                 object_key,
                 media_type,
                 kind.upper(),
+                target_id,
                 size_bytes,
                 mime_type,
                 ext,
@@ -2111,6 +2133,7 @@ def register_mobile_api(bp):
             expires_at=expires_at.isoformat() + "Z",
             required_headers={"Content-Type": mime_type},
             content_category=category,
+            target_id=target_id,
         )
 
     @bp.route("/api/mobile/v2/uploads/mock-put/<upload_id>", methods=["PUT"])
@@ -2158,6 +2181,12 @@ def register_mobile_api(bp):
                 return jsonify(error="forbidden_upload_owner_mismatch"), 403
 
             kind = str(session_row.get("kind") or "POST").upper()
+            if kind == "MESSAGE":
+                conn.rollback()
+                from services.chat_media import complete_chat_image_upload
+
+                payload, status_code = complete_chat_image_upload(uid, upload_id)
+                return jsonify(**payload), status_code
             feature = "reels" if kind == "REEL" else "stories" if kind == "STORY" else "posting"
             gate = _child_gate(feature)
             if gate:
