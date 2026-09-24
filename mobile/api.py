@@ -1766,6 +1766,15 @@ def register_mobile_api(bp):
         gate = _child_gate(feature)
         if gate:
             return gate
+
+        # Pre-upload category validation: reject parent-disabled/unknown
+        # categories before a presigned R2 URL is issued and before bytes move.
+        category = str(data.get("content_category") or "Other").strip()
+        if category not in SAFE_CATEGORIES:
+            return jsonify(error="invalid_content_category", allowed=SAFE_CATEGORIES), 400
+        if category not in effective_categories(uid):
+            return jsonify(error="category_disabled_by_parent"), 403
+
         filename = str(data.get("filename") or "").strip()
         media_type = str(data.get("media_type") or "").upper()
         if not media_type:
@@ -1886,6 +1895,7 @@ def register_mobile_api(bp):
             object_key=object_key,
             expires_at=expires_at.isoformat() + "Z",
             required_headers={"Content-Type": mime_type},
+            content_category=category,
         )
 
     @bp.route("/api/mobile/v2/uploads/mock-put/<upload_id>", methods=["PUT"])
