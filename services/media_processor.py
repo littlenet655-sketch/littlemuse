@@ -925,7 +925,13 @@ def sanitize_and_promote_media(
             except Exception as exc:
                 raise RuntimeError(f"image_sanitization_failed: {exc}") from exc
 
-        namespace = "stories" if kind.lower() == "story" else "reels" if kind.lower() == "reel" else "posts"
+        kind_l = kind.lower()
+        namespace = (
+            "stories" if kind_l == "story"
+            else "reels" if kind_l == "reel"
+            else "chat" if kind_l == "chat"
+            else "posts"
+        )
 
         if object_storage.enabled():
             published_poster_ref = None
