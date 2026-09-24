@@ -179,11 +179,24 @@ CREATE TABLE IF NOT EXISTS child_messages (
  sender_child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, receiver_child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  message_type VARCHAR(20) NOT NULL DEFAULT 'TEXT' CHECK(message_type IN ('TEXT','IMAGE','VIDEO','VOICE','FILE','SHARED_POST')),
  message_text TEXT, media_path VARCHAR(500), shared_post_id BIGINT REFERENCES posts(post_id) ON DELETE SET NULL,
+ reply_to_message_id BIGINT REFERENCES child_messages(child_message_id) ON DELETE SET NULL,
  moderation_status VARCHAR(20) NOT NULL DEFAULT 'ALLOWED' CHECK(moderation_status IN ('PENDING','ALLOWED','REVIEW','BLOCKED')),
  is_deleted BOOLEAN NOT NULL DEFAULT FALSE, is_seen BOOLEAN NOT NULL DEFAULT FALSE, delivered_at TIMESTAMP, seen_at TIMESTAMP,
  sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(sender_child_id<>receiver_child_id)
 );
 CREATE INDEX IF NOT EXISTS idx_child_messages_conversation_recent ON child_messages(conversation_id, sent_at DESC) WHERE is_deleted=FALSE;
+CREATE INDEX IF NOT EXISTS idx_child_messages_reply_to ON child_messages(reply_to_message_id) WHERE reply_to_message_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS message_reactions (
+ reaction_id BIGSERIAL PRIMARY KEY,
+ message_id BIGINT NOT NULL REFERENCES child_messages(child_message_id) ON DELETE CASCADE,
+ child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+ emoji VARCHAR(8) NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE(message_id,child_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions(message_id,updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS blocked_users (
  block_id BIGSERIAL PRIMARY KEY, blocker_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
