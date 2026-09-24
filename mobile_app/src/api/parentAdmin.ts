@@ -12,6 +12,7 @@ export interface ParentControls {
   quiet_end: string;
   educational_only_feed: boolean;
   allowed_categories: string[];
+  quiz_pacing_policy: 'FREQUENT' | 'BALANCED' | 'LIGHT';
 }
 
 export interface TimeLimit {
