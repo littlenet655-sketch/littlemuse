@@ -1726,8 +1726,12 @@ def register_mobile_api(bp):
         if uid not in {int(row["child_id"]), int(row["post_owner"])}:
             return jsonify(error="forbidden"), 403
         execute("DELETE FROM comments WHERE comment_id=%s AND post_id=%s", (comment_id, post_id))
+        count_row = fetch_one(
+            "SELECT COUNT(*) AS n FROM comments WHERE post_id=%s AND moderation_status='ALLOWED'",
+            (post_id,),
+        ) or {"n": 0}
         log(uid, "COMMENT_DELETED", {"post_id": post_id, "comment_id": comment_id})
-        return jsonify(ok=True)
+        return jsonify(ok=True, comments_count=int(count_row["n"]))
 
     @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comments-setting", methods=["PUT"])
     @csrf.exempt
