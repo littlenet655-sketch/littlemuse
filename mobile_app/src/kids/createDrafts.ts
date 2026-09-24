@@ -12,6 +12,9 @@ export interface CreateDraft {
   location: string;
   contentCategory: string;
   commentsEnabled: boolean;
+  storyMusicId: number | null;
+  musicStart: number;
+  musicDuration: number;
   media: PickedMedia | null;
   updatedAt: number;
 }
@@ -36,6 +39,9 @@ export function normalizeCreateDraft(value: unknown, kind: CreateDraftKind): Cre
     location: typeof raw.location === 'string' ? raw.location : '',
     contentCategory: typeof raw.contentCategory === 'string' ? raw.contentCategory : '',
     commentsEnabled: raw.commentsEnabled !== false,
+    storyMusicId: Number.isInteger(Number(raw.storyMusicId)) && Number(raw.storyMusicId) > 0 ? Number(raw.storyMusicId) : null,
+    musicStart: Math.max(0, Number(raw.musicStart) || 0),
+    musicDuration: Math.max(1, Math.min(60, Number(raw.musicDuration) || 30)),
     media,
     updatedAt: Number.isFinite(Number(raw.updatedAt)) ? Number(raw.updatedAt) : 0,
   };
