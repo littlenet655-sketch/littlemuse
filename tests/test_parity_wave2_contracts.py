@@ -16,6 +16,9 @@ def test_story_reactions_are_allowlisted_parent_gated_and_durable():
     assert 'feature_allowed(uid, "messaging")' in api
     assert 'feature_allowed(owner_id, "messaging")' in api
     assert 'ON CONFLICT(story_id,child_id)' in api
+    assert '"LIKE",' in api
+    assert '"interaction": "story_reaction"' in api
+    assert 'record_signal(uid, "SOCIAL", story_id, "STORY_REACTION")' not in api
     assert 'CREATE TABLE IF NOT EXISTS story_reactions' in migration
     assert 'UNIQUE(story_id, child_id)' in migration
 
