@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
  child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  object_key VARCHAR(500) NOT NULL UNIQUE,
  media_type VARCHAR(20) NOT NULL CHECK (media_type IN ('IMAGE','VIDEO','AUDIO')),
- kind VARCHAR(20) NOT NULL CHECK (kind IN ('POST','REEL','STORY')),
+ kind VARCHAR(20) NOT NULL CHECK (kind IN ('POST','REEL','STORY','MESSAGE')),
+ target_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
  expected_size_bytes BIGINT NOT NULL,
  mime_type VARCHAR(100) NOT NULL,
  extension VARCHAR(20) NOT NULL,
@@ -179,11 +180,13 @@ CREATE TABLE IF NOT EXISTS child_messages (
  sender_child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, receiver_child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  message_type VARCHAR(20) NOT NULL DEFAULT 'TEXT' CHECK(message_type IN ('TEXT','IMAGE','VIDEO','VOICE','FILE','SHARED_POST')),
  message_text TEXT, media_path VARCHAR(500), shared_post_id BIGINT REFERENCES posts(post_id) ON DELETE SET NULL,
+ upload_id UUID REFERENCES upload_sessions(upload_id) ON DELETE SET NULL,
  moderation_status VARCHAR(20) NOT NULL DEFAULT 'ALLOWED' CHECK(moderation_status IN ('PENDING','ALLOWED','REVIEW','BLOCKED')),
  is_deleted BOOLEAN NOT NULL DEFAULT FALSE, is_seen BOOLEAN NOT NULL DEFAULT FALSE, delivered_at TIMESTAMP, seen_at TIMESTAMP,
  sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(sender_child_id<>receiver_child_id)
 );
 CREATE INDEX IF NOT EXISTS idx_child_messages_conversation_recent ON child_messages(conversation_id, sent_at DESC) WHERE is_deleted=FALSE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_child_messages_upload_id_uniq ON child_messages(upload_id) WHERE upload_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS blocked_users (
  block_id BIGSERIAL PRIMARY KEY, blocker_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
