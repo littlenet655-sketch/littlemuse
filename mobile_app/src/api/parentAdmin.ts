@@ -8,6 +8,7 @@ export interface ParentControls {
   allow_posting: boolean;
   allow_discover: boolean;
   allow_comments: boolean;
+  allow_group_chats: boolean;
   quiet_hours_enabled: boolean;
   quiet_start: string;
   quiet_end: string;
