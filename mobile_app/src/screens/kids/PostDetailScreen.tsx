@@ -58,6 +58,9 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
           setComments(page.comments ?? []);
           setCommentsCursor(page.next_cursor ?? null);
           setCommentsHasMore(Boolean(page.has_more));
+          if (page.comments_enabled === false) {
+            setPost((current) => current ? { ...current, comments_enabled: false } : current);
+          }
           setCommentError(null);
         } catch (commentErr) {
           setComments([]);
