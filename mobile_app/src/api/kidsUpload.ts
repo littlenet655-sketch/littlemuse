@@ -22,14 +22,14 @@ export interface UploadSession {
   required_headers: Record<string, string>;
 }
 
-export function requestUploadSession(token: string, input: { kind: string; filename: string; mediaType: string; sizeBytes: number; mimeType: string; contentCategory: string }): Promise<UploadSession> {
+export function requestUploadSession(token: string, input: { kind: string; filename: string; mediaType: string; sizeBytes: number; mimeType: string; contentCategory?: string }): Promise<UploadSession> {
   return postJson<UploadSession>(routes.uploadSession, {
     kind: input.kind,
     filename: input.filename,
     media_type: input.mediaType,
     size_bytes: input.sizeBytes,
     mime_type: input.mimeType,
-    content_category: input.contentCategory,
+    content_category: input.contentCategory ?? 'Other',
   }, token);
 }
 
