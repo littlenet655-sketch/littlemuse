@@ -76,9 +76,11 @@ export function recordCuratedShare(token: string, sourceId: number): Promise<{ o
 }
 
 export function fetchComments(token: string, postId: number, beforeId?: number | null, limit = 20): Promise<{ ok: boolean; comments: CommentItem[]; has_more: boolean; next_cursor: number | null; comments_enabled?: boolean }> {
-  const params = new URLSearchParams({ limit: String(limit) });
+  const params = new URLSearchParams();
   if (beforeId) params.set('before_id', String(beforeId));
-  return get(`${routes.comments(postId)}?${params.toString()}`, token);
+  if (limit !== 20) params.set('limit', String(limit));
+  const query = params.toString();
+  return get(`${routes.comments(postId)}${query ? `?${query}` : ''}`, token);
 }
 
 export function addComment(token: string, postId: number, text: string): Promise<{ ok: boolean; status: string; comment_id: number }> {
