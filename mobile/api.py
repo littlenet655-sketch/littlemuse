@@ -1610,30 +1610,49 @@ def register_mobile_api(bp):
             except (TypeError, ValueError):
                 before_id = None
 
-            base_sql = """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
-                                  u.full_name, u.username, cp.profile_picture
-                           FROM comments c
-                           JOIN users u ON u.user_id = c.child_id
-                           LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
-                           WHERE c.post_id = %s
-                             AND c.moderation_status = 'ALLOWED'
-                             AND NOT EXISTS (
-                               SELECT 1 FROM blocked_users b
-                               WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
-                                  OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
-                             )
-                             AND NOT EXISTS (
-                               SELECT 1 FROM muted_users m
-                               WHERE m.muter_id=%s AND m.muted_id=c.child_id
-                             )"""
             if before_id:
                 rows = fetch_all(
-                    base_sql + " AND c.comment_id < %s ORDER BY c.comment_id DESC LIMIT %s",
+                    """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
+                              u.full_name, u.username, cp.profile_picture
+                       FROM comments c
+                       JOIN users u ON u.user_id = c.child_id
+                       LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
+                       WHERE c.post_id = %s
+                         AND c.moderation_status = 'ALLOWED'
+                         AND NOT EXISTS (
+                           SELECT 1 FROM blocked_users b
+                           WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
+                              OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
+                         )
+                         AND NOT EXISTS (
+                           SELECT 1 FROM muted_users m
+                           WHERE m.muter_id=%s AND m.muted_id=c.child_id
+                         )
+                         AND c.comment_id < %s
+                       ORDER BY c.comment_id DESC
+                       LIMIT %s""",
                     (post_id, uid, uid, uid, before_id, limit + 1),
                 ) or []
             else:
                 rows = fetch_all(
-                    base_sql + " ORDER BY c.comment_id DESC LIMIT %s",
+                    """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
+                              u.full_name, u.username, cp.profile_picture
+                       FROM comments c
+                       JOIN users u ON u.user_id = c.child_id
+                       LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
+                       WHERE c.post_id = %s
+                         AND c.moderation_status = 'ALLOWED'
+                         AND NOT EXISTS (
+                           SELECT 1 FROM blocked_users b
+                           WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
+                              OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
+                         )
+                         AND NOT EXISTS (
+                           SELECT 1 FROM muted_users m
+                           WHERE m.muter_id=%s AND m.muted_id=c.child_id
+                         )
+                       ORDER BY c.comment_id DESC
+                       LIMIT %s""",
                     (post_id, uid, uid, uid, limit + 1),
                 ) or []
             has_more = len(rows) > limit
