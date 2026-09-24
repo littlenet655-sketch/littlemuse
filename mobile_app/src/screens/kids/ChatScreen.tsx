@@ -594,7 +594,7 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
                         onPress={() => void toggleMessageReaction(m, emoji)}
                         style={[styles.reactionChip, m.viewer_reaction === emoji && styles.reactionChipActive]}
                       >
-                        <Text style={styles.reactionChipText}>{emoji} {count}</Text>
+                        <Text style={styles.reactionChipText}>{emoji} {Number(count)}</Text>
                       </Pressable>
                     ))}
                   </View>
