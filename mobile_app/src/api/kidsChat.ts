@@ -18,7 +18,7 @@ export interface ConversationItem {
   peer_id: number;
   peer_name?: string;
   peer_avatar_url?: string | null;
-  last_message?: { message_text?: string; sent_at?: string; sender_child_id?: number; is_seen?: boolean } | null;
+  last_message?: { message_text?: string; message_type?: string; sent_at?: string; sender_child_id?: number; is_seen?: boolean } | null;
 }
 
 export interface ChatMessage {
