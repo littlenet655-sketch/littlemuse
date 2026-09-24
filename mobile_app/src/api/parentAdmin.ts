@@ -186,9 +186,11 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
 }
 
 export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[] }> {
-  const params = new URLSearchParams({ limit: String(limit) });
+  const params = new URLSearchParams();
   if (beforeId) params.set('before_id', String(beforeId));
-  return apiRequest(`${routes.parentActivity(childId)}?${params.toString()}`, {}, token);
+  if (limit !== 30) params.set('limit', String(limit));
+  const query = params.toString();
+  return apiRequest(`${routes.parentActivity(childId)}${query ? `?${query}` : ''}`, {}, token);
 }
 
 /** Read-only per-child viewing insights: watch totals (7d/30d), per-category
