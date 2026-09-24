@@ -27,6 +27,13 @@ export interface ChatMessage {
   message_text?: string;
   message_type?: string;
   shared_post_id?: number | null;
+  reply_to_message_id?: number | null;
+  reply_message_text?: string | null;
+  reply_message_type?: string | null;
+  reply_sender_child_id?: number | null;
+  reactions?: Record<string, number>;
+  viewer_reaction?: string | null;
+  media_url?: string | null;
   moderation_status?: string;
   sent_at?: string;
   /** Read receipt: the server returns this per message (m.*) and marks peer
@@ -87,8 +94,17 @@ export function sendTyping(token: string, peerId: number): Promise<{ ok: boolean
   return postJson(`${routes.chat(peerId)}/typing`, {}, token);
 }
 
-export function sendChatText(token: string, peerId: number, messageText: string): Promise<{ ok: boolean; status: string }> {
-  return postJson(routes.chat(peerId), { message_text: messageText }, token);
+export function sendChatText(token: string, peerId: number, messageText: string, replyToMessageId?: number | null): Promise<{ ok: boolean; status: string; message_id?: number }> {
+  return postJson(routes.chat(peerId), {
+    message_text: messageText,
+    reply_to_message_id: replyToMessageId ?? null,
+  }, token);
+}
+
+export const MESSAGE_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
+
+export function reactToMessage(token: string, peerId: number, messageId: number, emoji: string): Promise<{ ok: boolean; viewer_reaction: string | null; reactions: Record<string, number> }> {
+  return postJson(routes.messageReaction(peerId, messageId), { emoji }, token);
 }
 
 export function sharePostToChat(token: string, peerId: number, postId: number): Promise<{ ok: boolean; message_id: number }> {
