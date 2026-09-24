@@ -822,6 +822,7 @@ def _resolve_parent_review(
         kind = "post"
         pub_media = None
         pub_poster = None
+        message_block_media_ref = None
         if event["content_type"] in {"IMAGE", "VIDEO", "AUDIO", "TEXT"} and event.get("content_id"):
             post_id = int(event["content_id"])
             cur.execute("SELECT * FROM posts WHERE post_id=%s FOR UPDATE", (post_id,))
@@ -899,7 +900,27 @@ def _resolve_parent_review(
         elif event["content_type"] == "COMMENT" and event.get("content_id"):
             cur.execute("UPDATE comments SET moderation_status=%s WHERE comment_id=%s", (status, event["content_id"]))
         elif event["content_type"] == "MESSAGE" and event.get("content_id"):
-            cur.execute("UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s", (status, event["content_id"]))
+            cur.execute(
+                """SELECT message_type,media_path
+                   FROM child_messages
+                   WHERE child_message_id=%s
+                   FOR UPDATE""",
+                (event["content_id"],),
+            )
+            review_message = cur.fetchone()
+            if review_message and effective == "BLOCK" and review_message.get("media_path"):
+                message_block_media_ref = review_message["media_path"]
+                cur.execute(
+                    """UPDATE child_messages
+                       SET moderation_status='BLOCKED',media_path=NULL
+                       WHERE child_message_id=%s""",
+                    (event["content_id"],),
+                )
+            else:
+                cur.execute(
+                    "UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s",
+                    (status, event["content_id"]),
+                )
         elif event["content_type"] == "USER" and event.get("content_id") and is_admin and requested == "BLOCK":
             cur.execute(
                 "UPDATE users SET account_status='SUSPENDED' WHERE user_id=%s AND role='CHILD'",
@@ -924,6 +945,28 @@ def _resolve_parent_review(
             )
         # Commit DB state FIRST before external notifications and storage mutations
         conn.commit()
+
+        if message_block_media_ref:
+            try:
+                from services import object_storage as _message_storage
+
+                if _message_storage.is_reference(message_block_media_ref):
+                    _message_storage.delete_reference(message_block_media_ref)
+                else:
+                    Path(str(message_block_media_ref)).unlink(missing_ok=True)
+            except Exception:
+                try:
+                    from services.media_outbox import enqueue_delete
+
+                    enqueue_delete(
+                        str(message_block_media_ref),
+                        source_table="child_messages",
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Could not delete blocked message media: %s",
+                        str(message_block_media_ref)[:64],
+                    )
 
         # A message that survived REVIEW and was approved must now be delivered like a
         # normal send: the receiver gets a notification so it shows as new/unread.
