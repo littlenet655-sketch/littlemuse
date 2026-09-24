@@ -317,8 +317,18 @@ def merge_candidates(social: list[dict[str, Any]], curated: list[dict[str, Any]]
 
 
 def _session_source_keys(child_id: int, surface: str, session_id: str | None) -> set[tuple[str, int]]:
-    """Return source identities from one child-owned feed session."""
+    """Return source identities from one child-owned feed session.
+
+    Session ids cross an HTTP trust boundary. Reject malformed UUIDs before
+    PostgreSQL sees them so a bad/stale client value cannot turn pagination
+    into a 500 response.
+    """
     if not session_id:
+        return set()
+    try:
+        from uuid import UUID
+        UUID(str(session_id))
+    except (TypeError, ValueError, AttributeError):
         return set()
     rows = fetch_all(
         """SELECT fsi.source_type, fsi.source_id
