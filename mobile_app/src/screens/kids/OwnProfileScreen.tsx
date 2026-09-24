@@ -163,7 +163,6 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         data={tab === 'edit' ? [] : list}
         keyExtractor={(post) => String(post.post_id)}
         numColumns={GRID_COLS}
-        columnWrapperStyle={{ gap: GAP }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         drawDistance={600}
@@ -358,12 +357,12 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             <EmptyState icon={currentEmpty.icon} title={currentEmpty.title} body={currentEmpty.body} />
           ) : null
         }
-        renderItem={({ item: post }) => {
+        renderItem={({ item: post, index }) => {
           const isVid = post.media_type?.toUpperCase() === 'VIDEO';
           const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
           return (
             <Pressable
-              style={styles.gridCell}
+              style={[styles.gridCell, index % GRID_COLS < GRID_COLS - 1 ? { marginRight: GAP } : null]}
               accessibilityRole="button"
               accessibilityLabel={isVid ? `Open reel ${post.post_id}` : `Open post ${post.post_id}`}
               onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}

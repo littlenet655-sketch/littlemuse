@@ -237,7 +237,6 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
       data={posts}
       keyExtractor={(post) => String(post.post_id)}
       numColumns={GRID_COLS}
-      columnWrapperStyle={{ gap: GAP }}
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       drawDistance={600}
@@ -374,12 +373,12 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           <Text style={styles.rel}>No posts yet</Text>
         </View>
       }
-      renderItem={({ item: post }) => {
+      renderItem={({ item: post, index }) => {
         const isVid = String(post.media_type ?? '').toUpperCase() === 'VIDEO';
         const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
         return (
           <Pressable
-            style={styles.gridCell}
+            style={[styles.gridCell, index % GRID_COLS < GRID_COLS - 1 ? { marginRight: GAP } : null]}
             onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
           >
             {imgUrl ? (
