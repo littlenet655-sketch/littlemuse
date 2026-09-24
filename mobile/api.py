@@ -2197,17 +2197,24 @@ def register_mobile_api(bp):
             s_music_url = music_row["audio_url"] if music_row else None
             s_music_start = int(data.get("music_start") or 0)
             s_music_dur = int(data.get("music_duration") or (music_row["duration_seconds"] if music_row else 30))
+            # Parent comments permission is authoritative. Stories do not expose
+            # the post-comment surface; posts/reels may opt out per item.
+            comments_enabled = (
+                kind != "STORY"
+                and feature_allowed(uid, "comments")
+                and bool(data.get("comments_enabled", True))
+            )
 
             if existing:
                 post_id = existing["post_id"]
             else:
                 cur.execute(
                     """INSERT INTO posts(child_id, media_type, source_media_path, caption, content_category,
-                                       audience_age_group, is_story, is_reel, is_safe, moderation_status,
+                                       audience_age_group, is_story, is_reel, comments_enabled, is_safe, moderation_status,
                                        processing_status, processing_started_at, location_name,
                                        story_music_id, story_music_title, story_music_artist, story_music_url,
                                        story_music_start, story_music_duration, upload_id, processing_attempts, last_attempt_at)
-                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
                        RETURNING post_id""",
                     (
                         uid,
@@ -2218,6 +2225,7 @@ def register_mobile_api(bp):
                         audience,
                         kind == "STORY",
                         kind == "REEL",
+                        comments_enabled,
                         location_name,
                         s_music_id,
                         s_music_title,
