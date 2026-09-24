@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, BackHandler, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, BackHandler, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useVideoPlayer } from 'expo-video';
 import { useIsFocused } from '@react-navigation/native';
-import { fetchKidsHome, recordStoryView, type StoryItem } from '../../api/kidsFeed';
+import { fetchKidsHome, reactToStory, recordStoryView, replyToStory, STORY_REACTION_EMOJIS, type StoryItem } from '../../api/kidsFeed';
 import { deleteStory } from '../../api/kidsSocial';
 import { fetchStoryViewers, type StoryViewer } from '../../api/kidsUpload';
 import { useAuth } from '../../auth/AuthProvider';
@@ -25,6 +26,48 @@ interface RichStory extends StoryItem {
   child_id?: number;
   created_at?: string;
   viewed?: boolean;
+}
+
+function StoryMusicPlayback({
+  music,
+  active,
+}: {
+  music: NonNullable<StoryItem['story_music']>;
+  active: boolean;
+}) {
+  const source = music.audio_url ?? null;
+  const start = Math.max(0, Number(music.start_seconds ?? 0));
+  const duration = Math.max(1, Number(music.duration_seconds ?? 30));
+  const player = useVideoPlayer(source, (instance) => {
+    instance.loop = false;
+    instance.volume = 0.68;
+    instance.audioMixingMode = 'duckOthers';
+    instance.currentTime = start;
+  });
+
+  useEffect(() => {
+    player.currentTime = start;
+  }, [player, start]);
+
+  useEffect(() => {
+    if (active && source) player.play();
+    else player.pause();
+    return () => player.pause();
+  }, [active, source, player]);
+
+  useEffect(() => {
+    if (!active || !source) return;
+    const end = start + duration;
+    const timer = setInterval(() => {
+      if (player.currentTime >= end || player.currentTime < start) {
+        player.currentTime = start;
+        player.play();
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [active, source, start, duration, player]);
+
+  return null;
 }
 
 function expiresInLabel(createdAt?: string): string | null {
@@ -53,6 +96,11 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
   const initialChildId = route.params?.initialChildId;
   const initialSelectionApplied = useRef(false);
   const [paused, setPaused] = useState(false);
+  const [storyReaction, setStoryReaction] = useState<string | null>(null);
+  const [reactionBusy, setReactionBusy] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [replyStatus, setReplyStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [imgError, setImgError] = useState(false);
@@ -147,6 +195,11 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
 
   useEffect(() => {
     setPaused(false);
+    setStoryReaction(null);
+    setReactionBusy(false);
+    setReplyText('');
+    setReplyBusy(false);
+    setReplyStatus('');
     setImgError(false);
     if (session?.token && current?.post_id) {
       // Record initial story view at start of playback (0.1 completion ratio)
@@ -174,6 +227,38 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
     if (session?.token && postId && !completedRef.current[postId]) {
       completedRef.current[postId] = true;
       void recordStoryView(session.token, postId, 1.0).catch(() => {});
+    }
+  }
+
+  async function sendStoryReaction(emoji: string) {
+    if (!session?.token || !current || isOwnStory || reactionBusy) return;
+    setReactionBusy(true);
+    setReplyStatus('');
+    try {
+      const next = storyReaction === emoji ? '' : emoji;
+      const result = await reactToStory(session.token, current.post_id, next);
+      setStoryReaction(result.viewer_reaction ?? null);
+    } catch (err) {
+      setReplyStatus(err instanceof Error ? err.message : 'Could not send reaction.');
+    } finally {
+      setReactionBusy(false);
+    }
+  }
+
+  async function sendStoryReply() {
+    const text = replyText.trim();
+    if (!session?.token || !current || isOwnStory || replyBusy || !text) return;
+    setReplyBusy(true);
+    setReplyStatus('');
+    try {
+      const result = await replyToStory(session.token, current.post_id, text);
+      setReplyText('');
+      setReplyStatus(result.status === 'REVIEW' ? 'Reply sent for safety review.' : 'Reply sent.');
+      setPaused(false);
+    } catch (err) {
+      setReplyStatus(err instanceof Error ? err.message : 'Could not send reply.');
+    } finally {
+      setReplyBusy(false);
     }
   }
 
@@ -397,6 +482,7 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
               active={!paused && focused}
               height={height}
               refreshSource={refreshStoryMedia}
+              muted={Boolean(current.story_music?.audio_url)}
               onComplete={advance}
             />
           ) : null}
@@ -419,10 +505,25 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
             </View>
           ) : null}
           {!current.media_url ? <Text style={styles.missing}>This story has no media.</Text> : null}
+          {current.story_music?.audio_url ? (
+            <StoryMusicPlayback
+              key={`${current.post_id}:${current.story_music.music_id ?? current.story_music.audio_url}`}
+              music={current.story_music}
+              active={!paused && focused && foreground}
+            />
+          ) : null}
           <Pressable accessibilityLabel="Previous story" onPress={previous} style={styles.leftTap} />
           <Pressable accessibilityLabel={paused ? 'Resume story' : 'Pause story'} onPress={() => setPaused((value) => !value)} style={styles.centerTap} />
           <Pressable accessibilityLabel="Next story" onPress={next} style={styles.rightTap} />
           {paused ? <View pointerEvents="none" style={styles.pause}><Text style={styles.pauseText}>Ⅱ</Text><Text style={styles.pauseLabel}>Paused</Text></View> : null}
+          {current.story_music ? (
+            <View style={styles.musicOverlay} pointerEvents="none">
+              <Feather name="music" size={14} color="#FFFFFF" />
+              <Text style={styles.musicText} numberOfLines={1}>
+                {current.story_music.title} · {current.story_music.artist}
+              </Text>
+            </View>
+          ) : null}
           {current.caption ? (
             <View style={styles.captionOverlay} pointerEvents="none">
               <Text style={styles.caption}>{current.caption}</Text>
@@ -459,6 +560,54 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
                 ))
               )}
             </ScrollView>
+          </View>
+        ) : null}
+
+        {!isOwnStory ? (
+          <View style={styles.interactionPanel}>
+            <View style={styles.reactionRow}>
+              {STORY_REACTION_EMOJIS.map((emoji) => {
+                const active = storyReaction === emoji;
+                return (
+                  <Pressable
+                    key={emoji}
+                    accessibilityRole="button"
+                    accessibilityLabel={active ? `Remove ${emoji} reaction` : `React ${emoji}`}
+                    accessibilityState={{ selected: active, disabled: reactionBusy }}
+                    disabled={reactionBusy}
+                    onPress={() => void sendStoryReaction(emoji)}
+                    style={[styles.reactionButton, active && styles.reactionButtonActive]}
+                  >
+                    <Text style={styles.reactionEmoji}>{emoji}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.replyRow}>
+              <TextInput
+                value={replyText}
+                onChangeText={setReplyText}
+                onFocus={() => setPaused(true)}
+                placeholder="Reply safely…"
+                placeholderTextColor="rgba(255,255,255,0.55)"
+                maxLength={500}
+                style={styles.replyInput}
+                accessibilityLabel="Reply to this story"
+                returnKeyType="send"
+                onSubmitEditing={() => void sendStoryReply()}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send story reply"
+                accessibilityState={{ disabled: replyBusy || !replyText.trim() }}
+                disabled={replyBusy || !replyText.trim()}
+                onPress={() => void sendStoryReply()}
+                style={[styles.replySend, (replyBusy || !replyText.trim()) && styles.replySendDisabled]}
+              >
+                <Feather name="send" size={17} color="#FFFFFF" />
+              </Pressable>
+            </View>
+            {replyStatus ? <Text style={styles.replyStatus}>{replyStatus}</Text> : null}
           </View>
         ) : null}
 
@@ -506,6 +655,21 @@ const styles = StyleSheet.create({
   pause: { position: 'absolute', alignItems: 'center' },
   pauseText: { color: colors.surface, fontSize: 42, fontWeight: '800' },
   pauseLabel: { color: colors.surface, fontWeight: '800' },
+  musicOverlay: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: 150,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  musicText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800', flexShrink: 1 },
   captionOverlay: {
     position: 'absolute',
     bottom: 96,
@@ -537,6 +701,49 @@ const styles = StyleSheet.create({
   viewerEmpty: { color: 'rgba(255,255,255,0.65)', textAlign: 'center', paddingVertical: 16, fontWeight: '600' },
   viewerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
   viewerName: { color: '#FFFFFF', fontWeight: '700', flex: 1 },
+  interactionPanel: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    gap: 10,
+    backgroundColor: '#0F172A',
+  },
+  reactionRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
+  reactionButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  reactionButtonActive: {
+    backgroundColor: 'rgba(255,255,255,0.24)',
+    borderColor: 'rgba(255,255,255,0.65)',
+  },
+  reactionEmoji: { fontSize: 20 },
+  replyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  replyInput: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  replySend: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brand,
+  },
+  replySendDisabled: { opacity: 0.45 },
+  replyStatus: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '700' },
   controls: { flexDirection: 'row', gap: 8, padding: spacing.md },
   emptyHeader: {
     paddingHorizontal: 16,

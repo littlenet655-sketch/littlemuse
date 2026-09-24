@@ -8,7 +8,7 @@ export interface FeedItem {
   /** Session that authorized this exact item; required across refill sessions. */
   feed_session_id?: string;
   full_name?: string;
-  creator_key?: string;
+  creator_id?: number;
   creator_username?: string;
   avatar_url?: string | null;
   media_type?: string;
@@ -34,14 +34,25 @@ export interface FeedItem {
   viewer_saved?: boolean;
 }
 
+export interface StoryMusic {
+  music_id?: number | null;
+  title: string;
+  artist: string;
+  audio_url?: string | null;
+  start_seconds?: number;
+  duration_seconds?: number;
+}
+
 export interface StoryItem {
   post_id: number;
+  child_id?: number;
   full_name?: string;
   avatar_url?: string | null;
   media_type?: string;
   media_url?: string | null;
   poster_url?: string | null;
   caption?: string;
+  story_music?: StoryMusic | null;
 }
 
 export interface FeedPage {
@@ -123,6 +134,30 @@ export function recordStoryView(
   }, token);
 }
 
+export const STORY_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
+
+export function reactToStory(
+  token: string,
+  storyId: number,
+  emoji: string,
+): Promise<{ ok: boolean; viewer_reaction: string | null; counts: Record<string, number> }> {
+  return apiRequest(routes.storyReaction(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ emoji }),
+  }, token);
+}
+
+export function replyToStory(
+  token: string,
+  storyId: number,
+  text: string,
+): Promise<{ ok: boolean; status: 'ALLOW' | 'REVIEW' | string; message_id: number }> {
+  return apiRequest(routes.storyReply(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  }, token);
+}
+
 export function recordFeedImpression(
   token: string,
   params: {
@@ -143,7 +178,7 @@ export function recordFeedImpression(
   }, token);
 }
 
-export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean } }> {
+export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean; allow_comments?: boolean } }> {
   return get(routes.kidsHome, token);
 }
 

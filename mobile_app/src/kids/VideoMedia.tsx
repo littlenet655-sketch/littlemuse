@@ -16,6 +16,7 @@ export function VideoMedia({
   onComplete,
   nativeControls = true,
   loop = false,
+  muted = false,
   /**
    * Optional one-shot credential refresh. When playback fails (e.g. an expired
    * signed URL), the component asks for a fresh source once before showing the
@@ -31,6 +32,7 @@ export function VideoMedia({
   onComplete?: () => void;
   nativeControls?: boolean;
   loop?: boolean;
+  muted?: boolean;
   refreshSource?: () => Promise<string | null>;
 }) {
   const foreground = useIsForeground();
@@ -81,7 +83,8 @@ export function VideoMedia({
 
   useEffect(() => {
     player.loop = loop;
-  }, [loop, player]);
+    player.muted = muted;
+  }, [loop, muted, player]);
 
   useEffect(() => {
     const subscription = player.addListener('statusChange', ({ status, error: playbackError }) => {

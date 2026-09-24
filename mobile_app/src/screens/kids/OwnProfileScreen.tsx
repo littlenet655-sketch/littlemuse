@@ -97,6 +97,14 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const stories = readStories(profile);
   const hasUnviewedStories = stories.some((s) => !(s.viewed === true || s.seen === true));
+  const openStory = (story?: Record<string, unknown>) => {
+    const initialStoryId = Number(story?.post_id ?? story?.id ?? stories[0]?.post_id ?? stories[0]?.id ?? 0);
+    const initialChildId = Number(story?.child_id ?? session?.user?.user_id ?? 0);
+    nav.navigate('Stories', {
+      ...(initialStoryId > 0 ? { initialStoryId } : {}),
+      ...(initialChildId > 0 ? { initialChildId } : {}),
+    });
+  };
 
   const handle =
     typeof profile?.username === 'string' && profile.username
@@ -184,8 +192,15 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         {/* Instagram-style profile header */}
         <View style={styles.header}>
           <View style={styles.headRow}>
-            {hasUnviewedStories ? (
-              <StoryRing size={STORY_RING}>{avatar}</StoryRing>
+            {stories.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open your stories"
+                onPress={() => openStory(stories.find((s) => !(s.viewed === true || s.seen === true)) ?? stories[0])}
+                hitSlop={8}
+              >
+                {hasUnviewedStories ? <StoryRing size={STORY_RING}>{avatar}</StoryRing> : avatar}
+              </Pressable>
             ) : (
               avatar
             )}
@@ -230,7 +245,14 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                       ? s.caption
                       : 'Story';
                 return (
-                  <View key={String(s.post_id ?? s.id ?? i)} style={styles.highlight}>
+                  <Pressable
+                    key={String(s.post_id ?? s.id ?? i)}
+                    style={styles.highlight}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open story: ${label}`}
+                    onPress={() => openStory(s)}
+                    hitSlop={6}
+                  >
                     <StoryRing size={64} seen={s.viewed === true || s.seen === true}>
                       <Avatar
                         uri={typeof s.poster_url === 'string' ? s.poster_url : (typeof s.media_url === 'string' ? s.media_url : null)}
@@ -241,7 +263,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                     <Text style={styles.highlightLabel} numberOfLines={1}>
                       {label}
                     </Text>
-                  </View>
+                  </Pressable>
                 );
               })}
             </ScrollView>

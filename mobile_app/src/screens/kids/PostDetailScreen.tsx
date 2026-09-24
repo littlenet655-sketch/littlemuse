@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addComment, blockUser, deletePost, fetchConnections, fetchPostDetail, muteUser, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
+import { addComment, blockUser, deleteComment, deletePost, fetchComments, fetchConnections, fetchPostDetail, muteUser, setPostCommentsEnabled, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
@@ -15,6 +15,12 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const postId = Number((route.params as { postId?: number } | undefined)?.postId ?? 0);
   const [post, setPost] = useState<PostDetail | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
+  const [commentsCursor, setCommentsCursor] = useState<number | null>(null);
+  const [commentsHasMore, setCommentsHasMore] = useState(false);
+  const [commentsLoadingMore, setCommentsLoadingMore] = useState(false);
+  const [commentActionBusy, setCommentActionBusy] = useState<number | null>(null);
+  const [commentError, setCommentError] = useState<unknown>(null);
+  const [commentsSettingBusy, setCommentsSettingBusy] = useState(false);
   const [text, setText] = useState('');
   const [info, setInfo] = useState('');
   const [error, setError] = useState<unknown>(null);
@@ -31,6 +37,7 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const [shareError, setShareError] = useState('');
   const [recipients, setRecipients] = useState<Array<{ user_id?: number; child_id?: number; full_name?: string; username?: string; avatar_url?: string | null }>>([]);
   const [sharing, setSharing] = useState<number | null>(null);
+  const requestedShareRef = useRef(false);
   const nav = navigation as unknown as { goBack: () => void };
   const reasons = ['Unsafe or unkind', 'Personal information', 'Something else'];
 
@@ -39,14 +46,43 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     try {
       const res = await fetchPostDetail(session.token, postId);
       setPost(res.post);
-      setComments(res.comments ?? []);
       setError(null);
+      if (res.post.comments_enabled === false) {
+        setComments([]);
+        setCommentsCursor(null);
+        setCommentsHasMore(false);
+        setCommentError(null);
+      } else {
+        try {
+          const page = await fetchComments(session.token, postId, null, 20);
+          setComments(page.comments ?? []);
+          setCommentsCursor(page.next_cursor ?? null);
+          setCommentsHasMore(Boolean(page.has_more));
+          if (page.comments_enabled === false) {
+            setPost((current) => current ? { ...current, comments_enabled: false } : current);
+          }
+          setCommentError(null);
+        } catch (commentErr) {
+          setComments([]);
+          setCommentsCursor(null);
+          setCommentsHasMore(false);
+          setCommentError(commentErr);
+        }
+      }
     } catch (err) {
       setError(err);
     }
   }
 
   useEffect(() => { void load(); }, [session?.token, postId]);
+
+  useEffect(() => {
+    const shouldOpenShare = Boolean((route.params as { openShare?: boolean } | undefined)?.openShare);
+    if (!shouldOpenShare || !post || requestedShareRef.current) return;
+    requestedShareRef.current = true;
+    void openShare();
+  }, [post, route.params, session?.token]);
+
   // Missing/invalid param (e.g. deep-link tampering): never hang on the
   // loading spinner — show a recoverable state with a way back.
   if (!postId) {
@@ -84,6 +120,26 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
+  async function loadMoreComments() {
+    if (!session || !commentsHasMore || !commentsCursor || commentsLoadingMore) return;
+    setCommentsLoadingMore(true);
+    try {
+      const page = await fetchComments(session.token, postId, commentsCursor, 20);
+      setComments((current) => {
+        const byId = new Map(current.map((item) => [item.comment_id, item]));
+        for (const item of page.comments ?? []) byId.set(item.comment_id, item);
+        return [...byId.values()];
+      });
+      setCommentsCursor(page.next_cursor ?? null);
+      setCommentsHasMore(Boolean(page.has_more));
+      setCommentError(null);
+    } catch (err) {
+      setCommentError(err);
+    } finally {
+      setCommentsLoadingMore(false);
+    }
+  }
+
   async function onComment() {
     if (!session || !text.trim()) return;
     setBusy(true);
@@ -98,6 +154,77 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
       setError(err);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function removeComment(commentId: number) {
+    if (!session || commentActionBusy) return;
+    setCommentActionBusy(commentId);
+    try {
+      const res = await deleteComment(session.token, postId, commentId);
+      setComments((current) => current.filter((item) => item.comment_id !== commentId));
+      setPost((current) => current ? { ...current, comments_count: res.comments_count } : current);
+      await invalidateSocialCaches([postId]);
+      setInfo('Comment removed.');
+    } catch (err) {
+      setCommentError(err);
+    } finally {
+      setCommentActionBusy(null);
+    }
+  }
+
+  async function commentSafetyAction(comment: CommentItem, action: 'report' | 'mute' | 'block') {
+    if (!session || commentActionBusy || comment.child_id === session.user.user_id) return;
+    setCommentActionBusy(comment.comment_id);
+    try {
+      if (action === 'report') {
+        await submitReport(session.token, 'COMMENT', comment.comment_id, 'Unsafe or unkind');
+        setInfo('Comment reported for safety review.');
+      } else if (action === 'mute') {
+        await muteUser(session.token, comment.child_id, 'MUTE');
+        setComments((current) => current.filter((item) => item.child_id !== comment.child_id));
+        setInfo('Commenter muted. Their content will be hidden from your surfaces.');
+      } else {
+        await blockUser(session.token, comment.child_id, 'BLOCK');
+        setComments((current) => current.filter((item) => item.child_id !== comment.child_id));
+        setInfo('Commenter blocked. Their profile, posts, messages, and comments are hidden.');
+      }
+      await invalidateSocialCaches([postId]);
+      setCommentError(null);
+    } catch (err) {
+      setCommentError(err);
+    } finally {
+      setCommentActionBusy(null);
+    }
+  }
+
+  function openCommentSafety(comment: CommentItem) {
+    if (comment.child_id === session?.user.user_id) return;
+    Alert.alert(
+      comment.full_name ?? 'Comment safety',
+      'Choose a safety action for this commenter.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report comment', onPress: () => void commentSafetyAction(comment, 'report') },
+        { text: 'Mute account', onPress: () => void commentSafetyAction(comment, 'mute') },
+        { text: 'Block account', style: 'destructive', onPress: () => void commentSafetyAction(comment, 'block') },
+      ],
+    );
+  }
+
+  async function toggleCommentsSetting() {
+    if (!session || !post || commentsSettingBusy) return;
+    setCommentsSettingBusy(true);
+    try {
+      const res = await setPostCommentsEnabled(session.token, postId, post.comments_enabled === false);
+      setPost((current) => current ? { ...current, comments_enabled: res.comments_enabled } : current);
+      setInfo(res.comments_enabled ? 'Comments are on for this post.' : 'Comments are off for this post.');
+      setCommentError(null);
+      if (res.comments_enabled) await load();
+    } catch (err) {
+      setCommentError(err);
+    } finally {
+      setCommentsSettingBusy(false);
     }
   }
 
@@ -131,6 +258,8 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   }
 
   const isOwnPost = session?.user?.user_id != null && post?.child_id === session.user.user_id;
+  const commentsBlockedByParent = (commentError as { code?: string } | null)?.code === 'disabled_by_parent';
+  const commentsOpen = post?.comments_enabled !== false && !commentsBlockedByParent;
 
   function confirmDeletePost() {
     Alert.alert(
@@ -194,12 +323,20 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
           </View>
           <Button label="Safety actions" variant="secondary" onPress={() => { setSafetyOpen((value) => !value); setSafetyError(''); }} />
           {isOwnPost ? (
-            <Button
-              label={deleteBusy ? 'Deleting…' : 'Delete this post'}
-              variant="secondary"
-              disabled={deleteBusy}
-              onPress={confirmDeletePost}
-            />
+            <>
+              <Button
+                label={commentsSettingBusy ? 'Updating comments…' : post.comments_enabled === false ? 'Turn comments on' : 'Turn comments off'}
+                variant="secondary"
+                disabled={commentsSettingBusy}
+                onPress={() => void toggleCommentsSetting()}
+              />
+              <Button
+                label={deleteBusy ? 'Deleting…' : 'Delete this post'}
+                variant="secondary"
+                disabled={deleteBusy}
+                onPress={confirmDeletePost}
+              />
+            </>
           ) : null}
           {deleteError ? <Notice message={deleteError} /> : null}
         </Card>
@@ -215,19 +352,61 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
         </Card> : null}
         {error ? <GateNotice error={error} /> : null}
         {info ? <Notice tone="info" message={info} /> : null}
-        <Card>
-          <Field label="Add a kind comment" value={text} onChangeText={setText} multiline placeholder="Say something kind…" />
-          <Button label={busy ? 'Sending…' : 'Comment'} disabled={busy || !text.trim()} onPress={() => void onComment()} />
-        </Card>
-        {comments.map((c) => (
-          <Card key={c.comment_id}>
-            <View style={styles.row}>
-              <Avatar uri={c.avatar_url} name={c.full_name} size={28} />
-              <Text style={styles.name}>{c.full_name ?? 'Friend'}</Text>
-            </View>
-            <Text style={styles.caption}>{c.comment_text}</Text>
+        {commentError && !commentsBlockedByParent ? <GateNotice error={commentError} /> : null}
+        {commentsBlockedByParent ? (
+          <Card>
+            <Text style={styles.safetyTitle}>Comments are turned off by your parent</Text>
+            <Text style={styles.sheetHint}>This setting is enforced by LittleMuse and cannot be changed from Kids Mode.</Text>
           </Card>
-        ))}
+        ) : post.comments_enabled === false ? (
+          <Card>
+            <Text style={styles.safetyTitle}>Comments are off for this post</Text>
+            <Text style={styles.sheetHint}>{isOwnPost ? 'You can turn them back on above if your parent allows comments.' : 'The post owner chose not to receive comments.'}</Text>
+          </Card>
+        ) : (
+          <Card>
+            <Field label="Add a kind comment" value={text} onChangeText={setText} multiline placeholder="Say something kind…" />
+            <Button label={busy ? 'Sending…' : 'Comment'} disabled={busy || !text.trim() || !commentsOpen} onPress={() => void onComment()} />
+          </Card>
+        )}
+        {commentsOpen ? comments.map((comment) => (
+          <Card key={comment.comment_id}>
+            <View style={styles.row}>
+              <Avatar uri={comment.avatar_url} name={comment.full_name} size={28} />
+              <Text style={styles.name}>{comment.full_name ?? 'Friend'}</Text>
+            </View>
+            <Text style={styles.caption}>{comment.comment_text}</Text>
+            <View style={styles.row}>
+              {comment.can_delete ? (
+                <Button
+                  label={commentActionBusy === comment.comment_id ? 'Removing…' : 'Delete'}
+                  variant="secondary"
+                  disabled={commentActionBusy !== null}
+                  onPress={() => Alert.alert('Delete comment?', 'This comment will be removed.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => void removeComment(comment.comment_id) },
+                  ])}
+                />
+              ) : null}
+              {comment.child_id !== session?.user.user_id ? (
+                <Button
+                  label={commentActionBusy === comment.comment_id ? 'Working…' : 'Safety'}
+                  variant="secondary"
+                  disabled={commentActionBusy !== null}
+                  onPress={() => openCommentSafety(comment)}
+                />
+              ) : null}
+            </View>
+          </Card>
+        )) : null}
+        {commentsOpen && commentsHasMore ? (
+          <Button
+            label={commentsLoadingMore ? 'Loading comments…' : 'Load more comments'}
+            variant="secondary"
+            disabled={commentsLoadingMore}
+            onPress={() => void loadMoreComments()}
+          />
+        ) : null}
       </ScrollView>
       <Modal visible={shareOpen} transparent animationType="slide" onRequestClose={() => setShareOpen(false)}>
         <View style={styles.sheet}><Text style={styles.safetyTitle}>Send to a friend</Text><Text style={styles.sheetHint}>Only approved friends can receive posts.</Text>

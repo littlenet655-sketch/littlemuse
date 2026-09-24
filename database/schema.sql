@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS posts (
  post_id BIGSERIAL PRIMARY KEY, child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  media_type VARCHAR(20) NOT NULL CHECK (media_type IN ('IMAGE','VIDEO','AUDIO','TEXT')),
  media_path VARCHAR(500), story_music_path VARCHAR(500), caption TEXT, content_category VARCHAR(100) DEFAULT 'Other', audience_age_group VARCHAR(10) NOT NULL DEFAULT 'ALL' CHECK(audience_age_group IN ('ALL','6-8','9-11','12-13','14-18')), is_story BOOLEAN NOT NULL DEFAULT FALSE,
- is_reel BOOLEAN NOT NULL DEFAULT FALSE, safety_score NUMERIC(6,2) DEFAULT 0, adult_score NUMERIC(6,2) DEFAULT 0,
+ is_reel BOOLEAN NOT NULL DEFAULT FALSE, comments_enabled BOOLEAN NOT NULL DEFAULT TRUE, safety_score NUMERIC(6,2) DEFAULT 0, adult_score NUMERIC(6,2) DEFAULT 0,
   violence_score NUMERIC(6,2) DEFAULT 0, weapon_score NUMERIC(6,2) DEFAULT 0, toxicity_score NUMERIC(6,2) DEFAULT 0,
   is_safe BOOLEAN NOT NULL DEFAULT FALSE, moderation_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (moderation_status IN ('PENDING','ALLOWED','REVIEW','BLOCKED')),
   moderation_reason TEXT,
@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS comments (
  moderation_status VARCHAR(20) NOT NULL DEFAULT 'ALLOWED' CHECK (moderation_status IN ('PENDING','ALLOWED','REVIEW','BLOCKED')),
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_comments_post_cursor ON comments(post_id, comment_id DESC) WHERE moderation_status='ALLOWED';
+
 CREATE TABLE IF NOT EXISTS followers (
  follower_id BIGSERIAL PRIMARY KEY, child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  following_child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, approved BOOLEAN NOT NULL DEFAULT FALSE,
@@ -154,6 +156,19 @@ CREATE TABLE IF NOT EXISTS story_views (
  child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(post_id,child_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_activity_logs_child_cursor ON activity_logs(child_id, log_id DESC);
+
+CREATE TABLE IF NOT EXISTS story_reactions (
+ reaction_id BIGSERIAL PRIMARY KEY,
+ story_id BIGINT NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
+ child_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+ emoji VARCHAR(8) NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE(story_id,child_id)
+);
+CREATE INDEX IF NOT EXISTS idx_story_reactions_story ON story_reactions(story_id,updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS child_conversations (
  conversation_id BIGSERIAL PRIMARY KEY, child1_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  child2_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -168,6 +183,8 @@ CREATE TABLE IF NOT EXISTS child_messages (
  is_deleted BOOLEAN NOT NULL DEFAULT FALSE, is_seen BOOLEAN NOT NULL DEFAULT FALSE, delivered_at TIMESTAMP, seen_at TIMESTAMP,
  sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(sender_child_id<>receiver_child_id)
 );
+CREATE INDEX IF NOT EXISTS idx_child_messages_conversation_recent ON child_messages(conversation_id, sent_at DESC) WHERE is_deleted=FALSE;
+
 CREATE TABLE IF NOT EXISTS blocked_users (
  block_id BIGSERIAL PRIMARY KEY, blocker_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
  blocked_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -224,6 +241,7 @@ CREATE TABLE IF NOT EXISTS parent_control_settings (
  allow_messaging BOOLEAN NOT NULL DEFAULT TRUE,
  allow_posting BOOLEAN NOT NULL DEFAULT TRUE,
  allow_discover BOOLEAN NOT NULL DEFAULT TRUE,
+ allow_comments BOOLEAN NOT NULL DEFAULT TRUE,
  quiet_hours_enabled BOOLEAN NOT NULL DEFAULT FALSE,
  quiet_start TIME NOT NULL DEFAULT '21:00',
  quiet_end TIME NOT NULL DEFAULT '07:00',

@@ -90,8 +90,11 @@ def visible_posts(viewer_id, reels=False, limit=20, offset=0):
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
     return fetch_all('''SELECT p.*,u.full_name,cp.profile_picture,
       (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.post_id) likes,
-      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.post_id AND c.moderation_status='ALLOWED') comments_count
-      FROM posts p JOIN users u ON u.user_id=p.child_id LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
+      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.post_id AND c.moderation_status='ALLOWED') comments_count,
+      (p.comments_enabled AND COALESCE(pcs.allow_comments,TRUE)) comments_enabled_effective
+      FROM posts p JOIN users u ON u.user_id=p.child_id
+      LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
+      LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
       WHERE ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE) OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_story=FALSE AND p.is_reel=%s
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
@@ -121,8 +124,11 @@ def discoverable_posts(viewer_id, reels=False, limit=30, offset=0):
     age_group = _age_group(viewer_id)
     return fetch_all('''SELECT p.*, u.full_name, u.username, cp.profile_picture,
       (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.post_id) likes,
-      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.post_id AND c.moderation_status='ALLOWED') comments_count
-      FROM posts p JOIN users u ON u.user_id=p.child_id LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
+      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.post_id AND c.moderation_status='ALLOWED') comments_count,
+      (p.comments_enabled AND COALESCE(pcs.allow_comments,TRUE)) comments_enabled_effective
+      FROM posts p JOIN users u ON u.user_id=p.child_id
+      LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
+      LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
       WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=%s
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)

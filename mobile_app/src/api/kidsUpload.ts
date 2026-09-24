@@ -47,12 +47,29 @@ export interface CompleteUploadResult {
   publication_state?: 'PRIVATE_PROCESSING' | 'PUBLISHED' | string;
 }
 
-export function completeUpload(token: string, uploadId: string, input: { caption: string; contentCategory: string; tags: string[]; locationName?: string }): Promise<CompleteUploadResult> {
+export interface CuratedMusicTrack {
+  music_id: number;
+  title: string;
+  artist: string;
+  category?: string | null;
+  audio_url: string;
+  duration_seconds: number;
+}
+
+export function fetchCuratedMusic(token: string): Promise<{ ok: boolean; tracks: CuratedMusicTrack[] }> {
+  return apiRequest<{ ok: boolean; tracks: CuratedMusicTrack[] }>(routes.curatedMusic, {}, token);
+}
+
+export function completeUpload(token: string, uploadId: string, input: { caption: string; contentCategory: string; tags: string[]; locationName?: string; commentsEnabled?: boolean; musicId?: number | null; musicStart?: number; musicDuration?: number }): Promise<CompleteUploadResult> {
   return postJson<CompleteUploadResult>(routes.uploadComplete(uploadId), {
     caption: input.caption,
     content_category: input.contentCategory,
     tags: input.tags,
     location_name: input.locationName ?? '',
+    comments_enabled: input.commentsEnabled ?? true,
+    music_id: input.musicId ?? null,
+    music_start: input.musicStart ?? 0,
+    music_duration: input.musicDuration ?? 30,
   }, token);
 }
 

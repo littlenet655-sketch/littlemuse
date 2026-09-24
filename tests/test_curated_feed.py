@@ -1,7 +1,11 @@
 """Comprehensive tests for the curated content and merged feed recommendation architecture."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
 
 from services.curated_feed import (
     apply_category_diversity,
@@ -35,6 +39,10 @@ def _dummy_curated_row(
 ):
     return {
         "content_id": content_id,
+        "creator_id": 7,
+        "creator_display_name": "AIT Star Student",
+        "creator_username": "ait_star_student",
+        "creator_avatar_reference": None,
         "title": title,
         "caption": f"Educational content {title}",
         "audience_age_group": audience,
@@ -139,6 +147,28 @@ def test_legacy_missing_media_is_not_rendered_as_a_broken_feed_tile(monkeypatch)
 
     text_post=normalize_social_item({**_dummy_social_row(4), "media_type": "TEXT", "media_path": None})
     assert cf._social_media_renderable(text_post) is True
+
+
+def test_curated_identity_is_hydrated_from_editorial_relation():
+    row = _dummy_curated_row(content_id=10)
+    item = normalize_curated_item(row)
+    assert item["source_type"] == "CURATED"
+    assert item["creator_id"] == 7
+    assert item["creator_username"] == "ait_star_student"
+    assert item["author_name"] == "AIT Star Student"
+    assert item.get("child_id") is None
+
+
+def test_curated_creator_migration_uses_relational_creator_id():
+    migration = (ROOT / "db/migrations/20260924000003_curated_creator_relational_alignment.sql").read_text(encoding="utf-8")
+    service = (ROOT / "services/curated_feed.py").read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGSERIAL" in migration
+    assert "PRIMARY KEY (creator_id)" in migration
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGINT" in migration
+    assert "REFERENCES curated_creators(creator_id)" in migration
+    assert "JOIN curated_creators cr ON cr.creator_id = cc.creator_id" in service
+    assert "creator_payload" not in service
+    assert '"creator_id": int(creator_id)' in service
 
 
 def test_social_and_curated_merge(monkeypatch):
@@ -349,3 +379,90 @@ def test_refill_session_excludes_immediately_previous_session(monkeypatch):
     assert ("SOCIAL", 2) not in keys
     assert ("CURATED", 3) in keys
     assert ("SOCIAL", 4) in keys
+
+
+def test_continuous_feed_refill_traverses_over_100_unique_items_and_terminates(monkeypatch):
+    """A tiny materialized session must not look like global catalog exhaustion.
+
+    Simulate fourteen 9-item sessions (126 eligible items). The client/server
+    contract walks ordinary cursors inside a session, then refills into the
+    next session. The final session must terminate with NO_ELIGIBLE_CONTENT
+    instead of spinning forever or repeating the previous session.
+    """
+    import services.curated_feed as cf
+
+    sessions = {}
+    source_id = 1
+    for session_index in range(14):
+        session_id = f"sess-{session_index}"
+        items = []
+        for _ in range(9):
+            items.append({
+                "source_type": "CURATED",
+                "source_id": source_id,
+                "post_id": source_id,
+                "category": "Science",
+            })
+            source_id += 1
+        sessions[session_id] = items
+
+    def fake_get_or_create(child_id, surface="FEED", session_id=None, exclude_session_id=None):
+        if session_id:
+            return session_id, sessions[session_id]
+        if exclude_session_id:
+            current = int(exclude_session_id.split("-")[1])
+            next_index = current + 1
+            if next_index >= len(sessions):
+                return exclude_session_id, sessions[exclude_session_id]
+            next_id = f"sess-{next_index}"
+            return next_id, sessions[next_id]
+        return "sess-0", sessions["sess-0"]
+
+    def fake_has_refill(child_id, surface, session_id, mode):
+        return int(session_id.split("-")[1]) < len(sessions) - 1
+
+    monkeypatch.setattr(cf, "get_or_create_feed_session", fake_get_or_create)
+    monkeypatch.setattr(cf, "_has_refill_candidates", fake_has_refill)
+
+    page = get_feed_page(child_id=77, surface="FEED", cursor=0, limit=5)
+    seen = []
+    session_transitions = 0
+    safety = 0
+
+    while True:
+        safety += 1
+        assert safety < 100, "pagination/refill entered an infinite loop"
+        seen.extend((item["source_type"], item["source_id"]) for item in page["items"])
+        assert all(item["feed_session_id"] == page["session_id"] for item in page["items"])
+
+        if page["has_more"]:
+            page = get_feed_page(
+                child_id=77,
+                surface="FEED",
+                cursor=page["next_cursor"],
+                limit=5,
+                session_id=page["session_id"],
+            )
+            continue
+
+        if page["can_refill"]:
+            previous = page["session_id"]
+            page = get_feed_page(
+                child_id=77,
+                surface="FEED",
+                cursor=0,
+                limit=5,
+                refill_from_session_id=previous,
+            )
+            assert page["session_id"] != previous
+            session_transitions += 1
+            continue
+
+        break
+
+    assert len(seen) == 126
+    assert len(set(seen)) == 126
+    assert session_transitions == 13
+    assert page["has_more"] is False
+    assert page["can_refill"] is False
+    assert page["exhaustion_reason"] == "NO_ELIGIBLE_CONTENT"

@@ -18,7 +18,6 @@ from typing import Any
 
 from database.connection import execute, fetch_all, fetch_one, get_db_connection
 from services.controls import EDUCATIONAL_CATEGORIES, controls_for_child, effective_categories
-from services.curated_creators import creator_payload
 from services.request_cache import memo as _req_memo
 from services.social import _age_group, child_surface_open
 
@@ -63,15 +62,19 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize a curated_content row to the common LittleNet feed item format."""
     media_ref = row.get("delivery_object_key") or row.get("original_object_key") or ""
     poster_ref = row.get("poster_object_key") or row.get("thumbnail_object_key")
-    creator = creator_payload(row.get("creator_key"))
+    creator_id = row.get("creator_id")
+    creator_name = str(row.get("creator_display_name") or "Editorial Creator")
+    creator_username = str(row.get("creator_username") or "littlenet_editorial")
+    creator_avatar = row.get("creator_avatar_reference")
     return {
         "source_type": "CURATED",
         "source_id": int(row["content_id"]),
         "post_id": int(row["content_id"]),
-        "creator_key": creator["creator_key"],
-        "creator_username": creator["username"],
-        "author_name": creator["display_name"],
-        "full_name": creator["display_name"],
+        "creator_id": int(creator_id) if creator_id is not None else None,
+        "creator_username": creator_username,
+        "author_name": creator_name,
+        "full_name": creator_name,
+        "avatar_reference": creator_avatar,
         "avatar_url": None,
         "media_type": str(row.get("media_type") or "IMAGE").upper(),
         "media_reference": media_ref,
@@ -96,8 +99,8 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
         "ranking_metadata": {
             "editorial_weight": float(row.get("editorial_weight") or 1.0),
             "published_at": str(row.get("published_at") or ""),
-            "author_name": creator["display_name"],
-            "creator_key": creator["creator_key"],
+            "author_name": creator_name,
+            "creator_id": int(creator_id) if creator_id is not None else None,
             "is_curated": True,
         },
     }
@@ -173,6 +176,7 @@ def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
         "moderation_status": str(row.get("moderation_status") or "ALLOWED"),
         "likes": int(row.get("likes") or 0),
         "comments_count": int(row.get("comments_count") or 0),
+        "comments_enabled": bool(row.get("comments_enabled", True)) and bool(row.get("owner_allows_comments", True)),
         "ranking_metadata": {
             "likes": int(row.get("likes") or 0),
             "comments_count": int(row.get("comments_count") or 0),
@@ -213,13 +217,17 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
     # Strictly fail-closed: must be PUBLISHED, asset must be ALLOWED & is_safe=TRUE, category must be active
     rows = fetch_all(
         """SELECT 
-             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_id,
+             cr.display_name AS creator_display_name, cr.username AS creator_username,
+             cr.avatar_reference AS creator_avatar_reference,
+             cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
              cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
              cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
            FROM curated_content cc
+           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            WHERE cc.publish_status = 'PUBLISHED'
@@ -252,11 +260,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
             """SELECT p.*, u.full_name, cp.profile_picture,
                  (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
                  (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+                 COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments,
                  EXISTS(SELECT 1 FROM followers f WHERE f.approved = TRUE AND f.approval_stage = 'ACTIVE'
                    AND ((f.child_id = %s AND f.following_child_id = p.child_id) OR (f.child_id = p.child_id AND f.following_child_id = %s))) AS is_following
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+               LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
                  AND p.is_reel = TRUE
                   AND p.child_id = ANY(%s::int[])
@@ -277,11 +287,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
         """SELECT p.*, u.full_name, cp.profile_picture,
              (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
              (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+             COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments,
              EXISTS(SELECT 1 FROM followers f WHERE f.approved = TRUE AND f.approval_stage = 'ACTIVE'
                AND ((f.child_id = %s AND f.following_child_id = p.child_id) OR (f.child_id = p.child_id AND f.following_child_id = %s))) AS is_following
            FROM posts p
            JOIN users u ON u.user_id = p.child_id
            LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+           LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
            WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
              AND p.is_reel = FALSE
              AND (%s::int[] IS NULL OR p.child_id = ANY(%s::int[]))
@@ -520,13 +532,17 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
     if curated_ids:
         c_rows = fetch_all(
             """SELECT 
-                 cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+                 cc.content_id, cc.creator_id,
+             cr.display_name AS creator_display_name, cr.username AS creator_username,
+             cr.avatar_reference AS creator_avatar_reference,
+             cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
                  cc.is_reel, cc.editorial_weight, cc.published_at,
                  cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
                  cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
                  cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
                  cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
                FROM curated_content cc
+               JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
                JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
                JOIN content_categories cat ON cat.category_id = cc.category_id
                WHERE cc.content_id = ANY(%s)
@@ -547,6 +563,7 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+               LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.post_id = ANY(%s) AND p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE""",
             (social_ids,),
         )
@@ -683,6 +700,7 @@ def curated_item_visible_to(child_id: int, content_id: int) -> bool:
     row = fetch_one(
         """SELECT 1
              FROM curated_content cc
+             JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
              JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
              JOIN content_categories cat ON cat.category_id = cc.category_id
             WHERE cc.content_id = %s
@@ -713,6 +731,7 @@ def authorize_curated_media(child_id: int, content_id: int) -> dict[str, Any]:
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.moderation_status, cma.is_safe
            FROM curated_content cc
+           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            WHERE cc.content_id = %s""",
@@ -811,13 +830,17 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
     pattern = f"%{cleaned}%"
     rows = fetch_all(
         """SELECT DISTINCT
-             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_id,
+             cr.display_name AS creator_display_name, cr.username AS creator_username,
+             cr.avatar_reference AS creator_avatar_reference,
+             cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
              cma.duration_seconds, cma.file_size_bytes, cma.moderation_status, cma.is_safe,
              cat.category_id, cat.slug AS category_slug, cat.display_name AS category, cat.is_educational
            FROM curated_content cc
+           JOIN curated_creators cr ON cr.creator_id = cc.creator_id AND cr.active = TRUE
            JOIN curated_media_assets cma ON cma.asset_id = cc.asset_id
            JOIN content_categories cat ON cat.category_id = cc.category_id
            LEFT JOIN curated_content_hashtags cch ON cch.content_id = cc.content_id
