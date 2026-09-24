@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { kidsKeys } from '../query/keys';
 import { mergeFeedPages } from './social';
 
-type PageParam = { cursor: number; sessionId?: string };
+type PageParam = { cursor: number; sessionId?: string; refillFrom?: string };
 
 /** One authoritative TanStack Query cache for cursor-paginated feed and reels. */
 export function useFeed(kind: 'feed' | 'reels', limit = 10, mode: 'for_you' | 'friends' | 'learn' = 'for_you') {
@@ -18,8 +18,8 @@ export function useFeed(kind: 'feed' | 'reels', limit = 10, mode: 'for_you' | 'f
       // The fetch helpers are typed FeedPage, but the runtime payload is
       // server JSON: treat it as unknown and coerce before caching.
       const raw: unknown = kind === 'feed'
-        ? await fetchFeedV2(session.token, pageParam.cursor, limit, pageParam.sessionId, mode, signal)
-        : await fetchReelsV2(session.token, pageParam.cursor, limit, pageParam.sessionId, signal);
+        ? await fetchFeedV2(session.token, pageParam.cursor, limit, pageParam.sessionId, mode, signal, pageParam.refillFrom)
+        : await fetchReelsV2(session.token, pageParam.cursor, limit, pageParam.sessionId, signal, pageParam.refillFrom);
       // Coerce a malformed payload (null, non-object, or non-array `items`)
       // to an empty page HERE in queryFn: getNextPageParam reads
       // `last.has_more`, so a malformed page cached raw would crash
@@ -29,9 +29,15 @@ export function useFeed(kind: 'feed' | 'reels', limit = 10, mode: 'for_you' | 'f
       }
       return raw as FeedPage;
     },
-    getNextPageParam: (last) => last.has_more
-      ? { cursor: last.next_cursor, sessionId: last.session_id || undefined }
-      : undefined,
+    getNextPageParam: (last) => {
+      if (last.has_more && last.next_cursor != null) {
+        return { cursor: last.next_cursor, sessionId: last.session_id || undefined };
+      }
+      if (last.can_refill && last.session_id) {
+        return { cursor: 0, refillFrom: last.session_id };
+      }
+      return undefined;
+    },
   });
 
   return {

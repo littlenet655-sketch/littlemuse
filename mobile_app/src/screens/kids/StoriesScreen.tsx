@@ -49,8 +49,9 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
   const foreground = useIsForeground();
   const [stories, setStories] = useState<RichStory[]>([]);
   const [index, setIndex] = useState(0);
-  const initialStoryId = (route?.params as { initialStoryId?: number; initialChildId?: number } | undefined)?.initialStoryId;
-  const initialStoryHandledRef = useRef(false);
+  const initialStoryId = route.params?.initialStoryId;
+  const initialChildId = route.params?.initialChildId;
+  const initialSelectionApplied = useRef(false);
   const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -86,23 +87,22 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
     try {
       const home = await fetchKidsHome(session.token);
       if (mounted.current) {
-        const loadedStories = (home.stories ?? []) as RichStory[];
-        setStories(loadedStories);
-        lastLoadedAt.current = Date.now();
-        if (!initialStoryHandledRef.current && loadedStories.length > 0 && initialStoryId != null) {
-          initialStoryHandledRef.current = true;
-          const targetIdx = loadedStories.findIndex((s) => s.post_id === initialStoryId);
-          if (targetIdx >= 0) {
-            setIndex(targetIdx);
-          }
+        const loaded = (home.stories ?? []) as RichStory[];
+        setStories(loaded);
+        if (!initialSelectionApplied.current && loaded.length > 0) {
+          const exact = initialStoryId != null ? loaded.findIndex((story) => story.post_id === initialStoryId) : -1;
+          const byChild = exact < 0 && initialChildId != null ? loaded.findIndex((story) => story.child_id === initialChildId) : -1;
+          setIndex(exact >= 0 ? exact : byChild >= 0 ? byChild : 0);
+          initialSelectionApplied.current = true;
         }
+        lastLoadedAt.current = Date.now();
       }
     } catch (err) {
       if (mounted.current) setError(err);
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, [session?.token]);
+  }, [session?.token, initialStoryId, initialChildId]);
 
   useEffect(() => {
     mounted.current = true;

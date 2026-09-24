@@ -2,14 +2,26 @@ import secrets
 from datetime import date
 from database.connection import fetch_one, fetch_all, execute, get_db_connection
 
-# Product-locked doom-scroll intervention. The server randomly selects a threshold
-# in {2, 3, 4, 5} after every completed compulsory break and persists it.
+# Server-authoritative, parent-selected pacing profiles. The exact threshold is
+# still randomized and persisted so a child cannot predict or bypass the latch.
 FEED_QUIZ_INTERVAL = 5
-ALLOWED_QUIZ_THRESHOLDS = (2, 3, 4, 5)
+QUIZ_PACING_RANGES = {
+    'FREQUENT': (2, 3, 4, 5),
+    'BALANCED': (4, 5, 6, 7),
+    'LIGHT': (7, 8, 9, 10),
+}
+ALLOWED_QUIZ_THRESHOLDS = tuple(range(2, 11))
 
-def roll_quiz_threshold() -> int:
-    """Return an unpredictable server-authoritative quiz threshold from {2, 3, 4, 5}."""
-    return secrets.choice(ALLOWED_QUIZ_THRESHOLDS)
+def quiz_pacing_policy(cid) -> str:
+    row = setting(cid)
+    policy = str((row or {}).get('quiz_pacing_policy') or 'FREQUENT').upper()
+    return policy if policy in QUIZ_PACING_RANGES else 'FREQUENT'
+
+def roll_quiz_threshold(cid=None, policy=None) -> int:
+    """Roll the next persisted threshold from the active parent pacing profile."""
+    chosen = str(policy or (quiz_pacing_policy(cid) if cid is not None else 'FREQUENT')).upper()
+    values = QUIZ_PACING_RANGES.get(chosen, QUIZ_PACING_RANGES['FREQUENT'])
+    return secrets.choice(values)
 
 # ─── Age helpers ──────────────────────────────────────────────────────────────
 
@@ -198,15 +210,15 @@ def setting(cid):
 def feed_quiz_interval(cid, row=None):
     """Return the server-authoritative view threshold for the next brain break.
 
-    LittleNet chooses an unpredictable random threshold in {2, 3, 4, 5} persisted in PostgreSQL.
-    Parent may configure a MORE frequent intervention: 1, 2, 3, 4, or 5.
-    Never allow > 5 for a child. Child cannot disable it.
+    LittleNet persists one unpredictable threshold from the parent's active
+    FREQUENT (2-5), BALANCED (4-7), or LIGHT (7-10) policy. A policy change
+    never rewrites an already-persisted threshold or clears a quiz_required latch.
     """
     threshold = None
     if row and row.get('next_quiz_threshold') is not None:
         try:
             val = int(row['next_quiz_threshold'])
-            if 2 <= val <= 5:
+            if 2 <= val <= 10:
                 threshold = val
         except (TypeError, ValueError):
             pass
@@ -216,23 +228,13 @@ def feed_quiz_interval(cid, row=None):
             r = fetch_one('SELECT next_quiz_threshold FROM child_quiz_progress WHERE child_id=%s', (cid,))
             if r and r.get('next_quiz_threshold') is not None:
                 val = int(r['next_quiz_threshold'])
-                if 2 <= val <= 5:
+                if 2 <= val <= 10:
                     threshold = val
         except Exception:
             pass
 
     if threshold is None:
-        threshold = FEED_QUIZ_INTERVAL
-
-    s = setting(cid)
-    if s:
-        raw_freq = s.get('quiz_frequency')
-        if raw_freq is not None:
-            try:
-                freq = int(raw_freq)
-                threshold = min(threshold, max(1, freq))
-            except (TypeError, ValueError):
-                pass
+        threshold = roll_quiz_threshold(cid)
     return threshold
 
 
@@ -258,7 +260,7 @@ def feed_quiz_state(cid):
     else:
         try:
             persisted_threshold = int(persisted_threshold)
-            if not (2 <= persisted_threshold <= 5):
+            if not (2 <= persisted_threshold <= 10):
                 persisted_threshold = interval
         except (TypeError, ValueError):
             persisted_threshold = interval
@@ -312,7 +314,7 @@ def record_feed_view(cid, post_id, source_type="POST"):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            init_threshold = roll_quiz_threshold()
+            init_threshold = roll_quiz_threshold(cid)
             try:
                 cur.execute(
                     '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,viewed_post_ids,next_quiz_threshold)
@@ -500,7 +502,7 @@ def bump(cid):
 
 
 def reset(cid):
-    new_threshold = roll_quiz_threshold()
+    new_threshold = roll_quiz_threshold(cid)
     try:
         execute(
             '''INSERT INTO child_quiz_progress(child_id,posts_seen,quiz_required,required_quiz_id,required_at,viewed_post_ids,next_quiz_threshold)

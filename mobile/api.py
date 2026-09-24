@@ -77,6 +77,7 @@ from services.controls import (
 from services.curated_feed import (
     _child_real_age,
     authorize_curated_media,
+    curated_item_visible_to,
     get_feed_page,
     record_feed_impression,
     search_curated_content,
@@ -1766,6 +1767,15 @@ def register_mobile_api(bp):
         gate = _child_gate(feature)
         if gate:
             return gate
+
+        # Pre-upload category validation: reject parent-disabled/unknown
+        # categories before a presigned R2 URL is issued and before bytes move.
+        category = str(data.get("content_category") or "Other").strip()
+        if category not in SAFE_CATEGORIES:
+            return jsonify(error="invalid_content_category", allowed=SAFE_CATEGORIES), 400
+        if category not in effective_categories(uid):
+            return jsonify(error="category_disabled_by_parent"), 403
+
         filename = str(data.get("filename") or "").strip()
         media_type = str(data.get("media_type") or "").upper()
         if not media_type:
@@ -1886,6 +1896,7 @@ def register_mobile_api(bp):
             object_key=object_key,
             expires_at=expires_at.isoformat() + "Z",
             required_headers={"Content-Type": mime_type},
+            content_category=category,
         )
 
     @bp.route("/api/mobile/v2/uploads/mock-put/<upload_id>", methods=["PUT"])
@@ -2578,6 +2589,9 @@ def register_mobile_api(bp):
                 or any(not isinstance(category, str) for category in data["allowed_categories"])
             ):
                 return jsonify(error="invalid_categories"), 400
+            pacing_policy = str(data.get("quiz_pacing_policy") or "").upper().strip()
+            if pacing_policy and pacing_policy not in {"FREQUENT", "BALANCED", "LIGHT"}:
+                return jsonify(error="invalid_quiz_pacing_policy"), 400
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
@@ -2596,12 +2610,25 @@ def register_mobile_api(bp):
                 updated = save_controls(pid, child_id, form)
             except ValueError:
                 return jsonify(error="invalid_quiet_hours"), 400
-            log(child_id, "PARENT_CONTROLS_UPDATED", {"parent_id": pid, "before": current, "after": updated})
+            if pacing_policy:
+                execute(
+                    """INSERT INTO parent_quiz_settings(parent_id,child_id,quiz_frequency,quiz_pacing_policy,mandatory_quiz)
+                       VALUES(%s,%s,5,%s,TRUE)
+                       ON CONFLICT(child_id) DO UPDATE SET
+                         parent_id=EXCLUDED.parent_id,
+                         quiz_pacing_policy=EXCLUDED.quiz_pacing_policy,
+                         mandatory_quiz=TRUE""",
+                    (pid, child_id, pacing_policy),
+                )
+            log(child_id, "PARENT_CONTROLS_UPDATED", {"parent_id": pid, "before": current, "after": updated, "quiz_pacing_policy": pacing_policy or None})
             notify(child_id, "PARENT_CONTROLS", "Parent Mode updated your LittleNet permissions", "/child/dashboard/", pid)
         limit_row = fetch_one("SELECT * FROM child_time_limits WHERE child_id=%s", (child_id,))
+        pacing_row = fetch_one("SELECT quiz_pacing_policy FROM parent_quiz_settings WHERE child_id=%s", (child_id,)) or {}
+        controls_payload = dict(controls_for_child(child_id))
+        controls_payload["quiz_pacing_policy"] = str(pacing_row.get("quiz_pacing_policy") or "FREQUENT").upper()
         return jsonify(
             ok=True,
-            controls=_clean(controls_for_child(child_id)),
+            controls=_clean(controls_payload),
             time_limit=_clean(limit_row) if limit_row else None,
             categories=SAFE_CATEGORIES,
         )
@@ -2864,10 +2891,22 @@ def register_mobile_api(bp):
             return gate
         locked, remaining = lock_state(uid)
         used_resets = _kid_self_resets_today(uid)
+        limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
+        controls = controls_for_child(uid)
+        quiet = quiet_hours_state(uid)
         return jsonify(
             ok=True,
             minutes_today=minutes_today(uid),
             remaining_minutes=remaining,
+            daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
+            strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
+            quiet_hours={
+                "enabled": bool(controls.get("quiet_hours_enabled")),
+                "active": bool(quiet.get("active")),
+                "start": str(quiet.get("start") or controls.get("quiet_start") or "21:00"),
+                "end": str(quiet.get("end") or controls.get("quiet_end") or "07:00"),
+            },
+            server_time=datetime.now(timezone.utc).isoformat(),
             locked=locked,
             self_resets_used=used_resets,
             self_resets_remaining=max(0, 2 - used_resets),
@@ -2953,7 +2992,16 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             limit = 10
         session_id = request.args.get("session_id")
-        page = get_feed_page(uid, surface="FEED", cursor=cursor, limit=limit, session_id=session_id, mode=mode)
+        refill_from = request.args.get("refill_from")
+        page = get_feed_page(
+            uid,
+            surface="FEED",
+            cursor=cursor,
+            limit=limit,
+            session_id=session_id,
+            mode=mode,
+            refill_from_session_id=refill_from,
+        )
         from services.media_delivery import resolve_media_delivery
         from services.object_storage import is_reference as _is_r2_reference
         # One batched authorization pass for the whole page instead of ~10
@@ -2994,7 +3042,15 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             limit = 10
         session_id = request.args.get("session_id")
-        page = get_feed_page(uid, surface="REELS", cursor=cursor, limit=limit, session_id=session_id)
+        refill_from = request.args.get("refill_from")
+        page = get_feed_page(
+            uid,
+            surface="REELS",
+            cursor=cursor,
+            limit=limit,
+            session_id=session_id,
+            refill_from_session_id=refill_from,
+        )
         from services.media_delivery import resolve_media_delivery
         from services.object_storage import is_reference as _is_r2_reference
         # Batch the poster authorization for the whole page (same N+1 fix as feed).
@@ -3183,6 +3239,79 @@ def register_mobile_api(bp):
             return jsonify(error="content_not_found"), 404
         except PermissionError as exc:
             return jsonify(error=str(exc)), 403
+
+    @bp.route("/api/mobile/v2/kids/content/<source_type>/<int:source_id>/<action>", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_source_engagement(source_type, source_id, action):
+        gate = _child_gate()
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        stype = str(source_type or "").upper()
+        act = str(action or "").upper()
+        if stype != "CURATED":
+            return jsonify(error="unsupported_source_type"), 400
+        if act not in {"LIKE", "SAVE", "SHARE"}:
+            return jsonify(error="invalid_engagement_action"), 400
+        if not curated_item_visible_to(uid, source_id):
+            return jsonify(error="content_not_found"), 404
+
+        if act == "LIKE":
+            exists = fetch_one(
+                """SELECT 1 FROM content_reactions
+                   WHERE child_id=%s AND source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                (uid, source_id),
+            )
+            if exists:
+                execute(
+                    """DELETE FROM content_reactions
+                       WHERE child_id=%s AND source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                    (uid, source_id),
+                )
+                liked = False
+            else:
+                execute(
+                    """INSERT INTO content_reactions(child_id,source_type,source_id,reaction_type)
+                       VALUES(%s,'CURATED',%s,'LIKE') ON CONFLICT DO NOTHING""",
+                    (uid, source_id),
+                )
+                liked = True
+                record_signal(uid, "CURATED", source_id, "LIKE")
+            row = fetch_one(
+                """SELECT COUNT(*) AS n FROM content_reactions
+                   WHERE source_type='CURATED' AND source_id=%s AND reaction_type='LIKE'""",
+                (source_id,),
+            ) or {"n": 0}
+            return jsonify(ok=True, source_type="CURATED", source_id=source_id, liked=liked, likes=int(row["n"]))
+
+        if act == "SAVE":
+            exists = fetch_one(
+                "SELECT 1 FROM content_saves WHERE child_id=%s AND source_type='CURATED' AND source_id=%s",
+                (uid, source_id),
+            )
+            if exists:
+                execute(
+                    "DELETE FROM content_saves WHERE child_id=%s AND source_type='CURATED' AND source_id=%s",
+                    (uid, source_id),
+                )
+                saved = False
+            else:
+                execute(
+                    """INSERT INTO content_saves(child_id,source_type,source_id)
+                       VALUES(%s,'CURATED',%s) ON CONFLICT DO NOTHING""",
+                    (uid, source_id),
+                )
+                saved = True
+                record_signal(uid, "CURATED", source_id, "SAVE")
+            return jsonify(ok=True, source_type="CURATED", source_id=source_id, saved=saved)
+
+        execute(
+            "INSERT INTO content_shares(child_id,source_type,source_id) VALUES(%s,'CURATED',%s)",
+            (uid, source_id),
+        )
+        record_signal(uid, "CURATED", source_id, "SHARE")
+        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=True)
 
     @bp.route("/api/mobile/v2/kids/impressions", methods=["POST"])
     @csrf.exempt
