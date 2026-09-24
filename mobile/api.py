@@ -1597,9 +1597,18 @@ def register_mobile_api(bp):
         if not post:
             return jsonify(error="post_not_found"), 404
         post_settings = fetch_one("SELECT child_id, comments_enabled FROM posts WHERE post_id=%s", (post_id,)) or {}
-        if not bool(post_settings.get("comments_enabled", True)):
+        owner_id = int(post_settings.get("child_id") or post.get("child_id") or 0)
+        owner_parent_allows = bool(owner_id and feature_allowed(owner_id, "comments"))
+        if not bool(post_settings.get("comments_enabled", True)) or not owner_parent_allows:
             if request.method == "GET":
-                return jsonify(ok=True, comments=[], has_more=False, next_cursor=None, comments_enabled=False)
+                return jsonify(
+                    ok=True,
+                    comments=[],
+                    has_more=False,
+                    next_cursor=None,
+                    comments_enabled=False,
+                    disabled_reason="post_owner_parent" if not owner_parent_allows else "post_owner",
+                )
             return jsonify(error="comments_disabled"), 403
 
         if request.method == "GET":
