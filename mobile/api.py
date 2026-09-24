@@ -2703,7 +2703,10 @@ def register_mobile_api(bp):
                     form.add(flag, "on")
             form.add("quiet_start", str(merged.get("quiet_start") or "21:00"))
             form.add("quiet_end", str(merged.get("quiet_end") or "07:00"))
-            for category in merged.get("allowed_categories") or SAFE_CATEGORIES:
+            merged_categories = merged.get("allowed_categories")
+            if merged_categories is None:
+                merged_categories = SAFE_CATEGORIES
+            for category in merged_categories:
                 form.add("allowed_categories", category)
             try:
                 updated = save_controls(pid, child_id, form)
