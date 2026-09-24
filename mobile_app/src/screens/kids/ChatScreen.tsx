@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { fetchChat, fetchChatUpdates, MESSAGE_REACTION_EMOJIS, reactToMessage, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
+import { completeChatUpload, fetchChat, fetchChatUpdates, MESSAGE_REACTION_EMOJIS, reactToMessage, requestChatUploadSession, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
 import { CHAT_BLOCKED_COPY, dedupeChat, isChatMessagePending } from '../../kids/social';
+import { putFileToSignedUrl } from '../../kids/directUpload';
+import { localMediaSize, pickGalleryMedia, validateMediaIdentity } from '../../kids/postMedia';
+import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
 import { Button, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, Notice, OfflineBanner, Screen } from '../../ui/components';
@@ -95,6 +98,9 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [actionFor, setActionFor] = useState<number | null>(null);
   const [reactionBusy, setReactionBusy] = useState<number | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [mediaProgress, setMediaProgress] = useState(0);
+  const [videoModalUri, setVideoModalUri] = useState<string | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
   /** Message whose per-bubble timestamp is revealed (tap a bubble to toggle). */
   const [showTimeFor, setShowTimeFor] = useState<number | null>(null);
@@ -324,6 +330,68 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
   }
 
+  async function sendMedia(kind: 'image' | 'video') {
+    if (!session || !peerId || mediaUploading || sending) return;
+    if (!online) {
+      setSendError('You are offline. Reconnect to send media.');
+      return;
+    }
+    try {
+      const picked = await pickGalleryMedia(kind);
+      if (!picked) return;
+      validateMediaIdentity(picked.fileName, picked.mimeType);
+      const sizeBytes = picked.fileSize && picked.fileSize > 0 ? picked.fileSize : localMediaSize(picked.uri);
+      const extension = picked.fileName.includes('.') ? picked.fileName.split('.').pop()?.toLowerCase() : undefined;
+
+      setMediaUploading(true);
+      setMediaProgress(0);
+      setSendError('');
+      setInfo('');
+
+      const upload = await requestChatUploadSession(session.token, peerId, {
+        mediaType: kind === 'image' ? 'IMAGE' : 'VIDEO',
+        filename: picked.fileName,
+        sizeBytes,
+        mimeType: picked.mimeType,
+        extension,
+      });
+
+      await putFileToSignedUrl(upload.upload_url, picked.uri, upload.required_headers, {
+        onProgress: (sent, total) => {
+          if (total > 0) setMediaProgress(Math.max(0, Math.min(1, sent / total)));
+        },
+      });
+
+      const result = await completeChatUpload(session.token, peerId, upload.upload_id);
+      await load('refresh');
+      setInfo(
+        result.status === 'REVIEW'
+          ? 'Your media is waiting for a parent safety review. Only you can see it for now.'
+          : 'Media sent safely.',
+      );
+    } catch (err) {
+      setSendError(err instanceof ApiError && err.code.includes('blocked')
+        ? 'That media could not be sent because it did not pass LittleMuse safety checks.'
+        : err instanceof Error ? err.message : 'Could not send media. Try again.');
+    } finally {
+      setMediaUploading(false);
+      setMediaProgress(0);
+    }
+  }
+
+  function openAttachmentPicker() {
+    if (mediaUploading || sending) return;
+    Alert.alert(
+      'Send media',
+      'Photos and videos are safety-checked before your friend can see them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Photo', onPress: () => void sendMedia('image') },
+        { text: 'Video', onPress: () => void sendMedia('video') },
+      ],
+    );
+  }
+
   useEffect(() => {
     if (session && peerId && postId) {
       sharePostToChat(session.token, peerId, postId)
@@ -450,7 +518,24 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
                     </Text>
                   </View>
                 ) : null}
-                {m.message_type === 'SHARED_POST' ? (
+                {m.message_type === 'IMAGE' && m.media_url ? (
+                  <Image
+                    source={{ uri: m.media_url }}
+                    style={styles.chatImage}
+                    resizeMode="cover"
+                    accessibilityLabel="Photo message"
+                  />
+                ) : m.message_type === 'VIDEO' && m.media_url ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Play video message"
+                    onPress={() => setVideoModalUri(m.media_url ?? null)}
+                    style={styles.chatVideoCard}
+                  >
+                    <Feather name="play-circle" size={34} color={isOwn ? '#FFFFFF' : colors.brand} />
+                    <Text style={[styles.msg, isOwn && styles.msgOwn]}>Video message · tap to play</Text>
+                  </Pressable>
+                ) : m.message_type === 'SHARED_POST' ? (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="View shared post"
@@ -553,6 +638,15 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
             );
           }}
         />
+        {mediaUploading ? (
+          <View style={styles.mediaProgressRow}>
+            <Feather name="shield" size={14} color={colors.brand} />
+            <Text style={styles.mediaProgressText}>
+              Uploading for safety check… {Math.round(mediaProgress * 100)}%
+            </Text>
+          </View>
+        ) : null}
+
         {replyTo ? (
           <View style={styles.replyComposer}>
             <View style={{ flex: 1 }}>
@@ -572,6 +666,16 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
           </View>
         ) : null}
         <View style={styles.inputRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Attach photo or video"
+            accessibilityState={{ disabled: mediaUploading || sending || !online }}
+            disabled={mediaUploading || sending || !online}
+            onPress={openAttachmentPicker}
+            style={[styles.attachButton, (mediaUploading || sending || !online) && styles.sendButtonDisabled]}
+          >
+            <Feather name="plus" size={20} color={colors.brand} />
+          </Pressable>
           <TextInput
             style={styles.chatInput}
             value={text}
@@ -596,6 +700,28 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <Modal
+        visible={Boolean(videoModalUri)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setVideoModalUri(null)}
+      >
+        <View style={styles.videoModalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close video"
+            onPress={() => setVideoModalUri(null)}
+            style={styles.videoModalClose}
+          >
+            <Feather name="x" size={22} color="#FFFFFF" />
+          </Pressable>
+          {videoModalUri ? (
+            <View style={styles.videoModalContent}>
+              <VideoMedia source={videoModalUri} active height={420} nativeControls />
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -730,6 +856,56 @@ const styles = StyleSheet.create({
   },
   replyComposerTitle: { color: colors.brand, fontSize: 12, fontWeight: '800' },
   replyComposerText: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  chatImage: { width: 220, height: 220, borderRadius: 14, backgroundColor: '#E5E7EB' },
+  chatVideoCard: {
+    width: 220,
+    minHeight: 120,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    padding: 14,
+  },
+  mediaProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#EEF2FF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E7FF',
+  },
+  mediaProgressText: { color: colors.brand, fontSize: 12, fontWeight: '800' },
+  attachButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+  },
+  videoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  videoModalClose: {
+    position: 'absolute',
+    top: 52,
+    right: 20,
+    zIndex: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoModalContent: { width: '100%', maxWidth: 560 },
   typingBubble: {
     flexDirection: 'row',
     alignItems: 'center',
