@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
 );
 CREATE TABLE IF NOT EXISTS parent_quiz_settings (
  setting_id SERIAL PRIMARY KEY, parent_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE, child_id INTEGER UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
- quiz_frequency INTEGER NOT NULL DEFAULT 5 CHECK(quiz_frequency BETWEEN 1 AND 50), mandatory_quiz BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ quiz_frequency INTEGER NOT NULL DEFAULT 5 CHECK(quiz_frequency BETWEEN 1 AND 50), quiz_pacing_policy VARCHAR(16) NOT NULL DEFAULT 'FREQUENT' CHECK(quiz_pacing_policy IN ('FREQUENT','BALANCED','LIGHT')), mandatory_quiz BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS child_quiz_progress (
  progress_id SERIAL PRIMARY KEY,
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS child_quiz_progress (
  required_quiz_id INTEGER REFERENCES quizzes(quiz_id) ON DELETE SET NULL,
  required_at TIMESTAMP,
  viewed_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
- next_quiz_threshold INTEGER NOT NULL DEFAULT 5 CHECK(next_quiz_threshold BETWEEN 2 AND 5),
+ next_quiz_threshold INTEGER NOT NULL DEFAULT 5 CHECK(next_quiz_threshold BETWEEN 2 AND 10),
  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS child_quiz_attempts (

@@ -38,7 +38,10 @@ def test_random_reel_brain_break_is_server_driven_and_feed_stays_optional():
     feed = text("mobile_app/src/screens/kids/FeedScreen.tsx")
     reels = text("mobile_app/src/screens/kids/ReelsScreen.tsx")
     service = text("quiz/service.py")
-    assert "ALLOWED_QUIZ_THRESHOLDS = (2, 3, 4, 5)" in service
+    assert "'FREQUENT': (2, 3, 4, 5)" in service
+    assert "'BALANCED': (4, 5, 6, 7)" in service
+    assert "'LIGHT': (7, 8, 9, 10)" in service
+    assert "next_quiz_threshold" in service
     assert "Quiz Zone" in feed
     assert "scrollEnabled={!quizLocked}" not in feed
     assert "withQuizBreaks(visibleItems" not in feed

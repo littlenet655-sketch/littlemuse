@@ -238,7 +238,7 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           )}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{posts.length}</Text>
+              <Text style={styles.statNum}>{Number(counts.posts ?? 0)}</Text>
               <Text style={styles.statLabel}>Posts</Text>
             </View>
             <View style={styles.statItem}>

@@ -268,6 +268,7 @@ def test_feed_session_cursor_pagination(monkeypatch):
     # Mock get_or_create_feed_session to return 5 items
     dummy_items = [normalize_curated_item(_dummy_curated_row(i)) for i in range(1, 6)]
     monkeypatch.setattr(cf, "get_or_create_feed_session", lambda cid, surf, sess: ("test-sess-uuid", dummy_items))
+    monkeypatch.setattr(cf, "_has_refill_candidates", lambda cid, surf, sess, mode: False)
 
     # Page 1: cursor=0, limit=2
     p1 = get_feed_page(child_id=1, surface="FEED", cursor=0, limit=2)
@@ -290,3 +291,61 @@ def test_feed_session_cursor_pagination(monkeypatch):
     assert p3["next_cursor"] is None
     assert p3["has_more"] is False
 
+
+
+
+def test_feed_session_boundary_can_advertise_safe_refill(monkeypatch):
+    import services.curated_feed as cf
+
+    dummy_items = [normalize_curated_item(_dummy_curated_row(i)) for i in range(1, 4)]
+    monkeypatch.setattr(cf, "get_or_create_feed_session", lambda cid, surf, sess: ("sess-a", dummy_items))
+    monkeypatch.setattr(cf, "_has_refill_candidates", lambda cid, surf, sess, mode: True)
+
+    page = get_feed_page(child_id=1, surface="FEED", cursor=0, limit=10)
+    assert page["has_more"] is False
+    assert page["can_refill"] is True
+    assert page["exhaustion_reason"] == "SESSION_END"
+    assert all(item["feed_session_id"] == "sess-a" for item in page["items"])
+
+
+def test_refill_session_excludes_immediately_previous_session(monkeypatch):
+    import services.curated_feed as cf
+
+    previous = {("CURATED", 1), ("SOCIAL", 2)}
+    monkeypatch.setattr(cf, "_session_source_keys", lambda cid, surf, sid: previous if sid == "old-sess" else set())
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [
+        normalize_curated_item(_dummy_curated_row(1)),
+        normalize_curated_item(_dummy_curated_row(3)),
+    ])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [
+        normalize_social_item(_dummy_social_row(2)),
+        normalize_social_item(_dummy_social_row(4)),
+    ])
+    monkeypatch.setattr(cf, "get_recent_impression_keys", lambda *a, **k: set())
+
+    import services.recommendation as rec
+    monkeypatch.setattr(rec, "rank_candidates", lambda cid, rows: rows)
+    monkeypatch.setattr(rec, "apply_diversity_and_balance", lambda rows, max_consecutive=2: rows)
+
+    writes = []
+    monkeypatch.setattr(cf, "execute", lambda sql, params=(), returning=False: {"session_id": "new-sess"} if returning else writes.append((sql, params)))
+
+    class _Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    class _Conn:
+        def cursor(self): return _Cursor()
+        def commit(self): pass
+        def rollback(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(cf, "get_db_connection", lambda: _Conn())
+    monkeypatch.setattr("psycopg2.extras.execute_values", lambda cur, sql, records: writes.append((sql, records)))
+
+    sess, rows = cf.get_or_create_feed_session(1, "FEED", None, exclude_session_id="old-sess")
+    keys = {(r["source_type"], int(r["source_id"])) for r in rows}
+    assert sess == "new-sess"
+    assert ("CURATED", 1) not in keys
+    assert ("SOCIAL", 2) not in keys
+    assert ("CURATED", 3) in keys
+    assert ("SOCIAL", 4) in keys

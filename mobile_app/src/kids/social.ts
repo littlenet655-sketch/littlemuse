@@ -60,6 +60,13 @@ export interface SocialFeedIdentity extends KeyedItem {
   child_id?: number;
 }
 
+export function engagementTarget(item: SocialFeedIdentity): { sourceType: 'SOCIAL' | 'CURATED'; sourceId: number } | null {
+  const type = String(item.source_type || '').toUpperCase();
+  const rawId = item.source_id ?? item.post_id;
+  if ((type !== 'SOCIAL' && type !== 'CURATED') || !Number.isInteger(rawId) || Number(rawId) <= 0) return null;
+  return { sourceType: type as 'SOCIAL' | 'CURATED', sourceId: Number(rawId) };
+}
+
 export function socialPostTarget(item: SocialFeedIdentity): { postId: number } | null {
   return item.source_type === 'SOCIAL' && Number.isInteger(item.post_id) && Number(item.post_id) > 0
     ? { postId: Number(item.post_id) }

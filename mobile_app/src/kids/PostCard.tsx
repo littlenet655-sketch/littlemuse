@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
@@ -7,8 +7,8 @@ import type { FeedItem, FeedPage } from '../api/kidsFeed';
 import { useAuth } from '../auth/AuthProvider';
 import { queryClient } from '../query/client';
 import { invalidateSocialCaches, kidsKeys } from '../query/keys';
-import { deletePost, toggleLike, toggleSave } from '../api/kidsSocial';
-import { isPubliclyVisible, runSocialPostAction, socialPostTarget } from './social';
+import { deletePost, recordCuratedShare, toggleCuratedLike, toggleCuratedSave, toggleLike, toggleSave } from '../api/kidsSocial';
+import { engagementTarget, isPubliclyVisible, socialPostTarget } from './social';
 import { VideoMedia } from './VideoMedia';
 import { Avatar, StoryRing } from '../ui/social';
 import { colors, radius, spacing, type } from '../ui/tokens';
@@ -174,6 +174,7 @@ export function PostCard({
   );
   if (!isPubliclyVisible(item)) return null;
   const socialTarget = socialPostTarget(item);
+  const engagement = engagementTarget(item);
   const previewUrl = isVideo ? item.poster_url : item.media_url;
   // Delete is offered only for the viewer's own social posts (the server
   // re-checks ownership; curated/learn items have no target and no owner).
@@ -224,19 +225,16 @@ export function PostCard({
   function handleMediaPress(openOnSingleTap: boolean) {
     const now = Date.now();
     const delta = now - lastTapRef.current;
-    // Double-tap-to-like only applies to likeable (social) posts: on other
-    // media a second quick tap must not cancel the pending open.
-    if (socialTarget && delta > 0 && delta < DOUBLE_TAP_MS) {
+    // Both SOCIAL and CURATED items are source-aware like targets.
+    if (engagement && delta > 0 && delta < DOUBLE_TAP_MS) {
       // Double tap: cancel the pending single-tap open, burst, and like.
       lastTapRef.current = 0;
       if (openTimerRef.current) {
         clearTimeout(openTimerRef.current);
         openTimerRef.current = null;
       }
-      if (socialTarget) {
-        fireHeartBurst();
-        if (!item.viewer_liked) void onLike();
-      }
+      fireHeartBurst();
+      if (!item.viewer_liked) void onLike();
       return;
     }
     lastTapRef.current = now;
@@ -265,55 +263,90 @@ export function PostCard({
   }
 
   async function onLike() {
-    if (!session || !socialTarget) return;
-    const postId = socialTarget.postId;
-    const busyKey = `${postId}:like`;
+    if (!session || !engagement) return;
+    const { sourceType, sourceId } = engagement;
+    const busyKey = `${sourceType}:${sourceId}:like`;
     if (toggleBusyRef.current.has(busyKey)) return;
     toggleBusyRef.current.add(busyKey);
+    const matches = (post: FeedItem) =>
+      post.source_type === sourceType && Number(post.source_id ?? post.post_id) === sourceId;
+    const update = (old: InfiniteData<FeedPage> | undefined, liked: boolean, likes: number) => old ? ({
+      ...old,
+      pages: old.pages.map((page) => ({
+        ...page,
+        items: page.items.map((post) => matches(post) ? { ...post, viewer_liked: liked, likes } : post),
+      })),
+    }) : old;
     try {
-      const update = (old: InfiniteData<FeedPage> | undefined, liked: boolean, likes: number) => old ? ({
-        ...old,
-        pages: old.pages.map((page) => ({ ...page, items: page.items.map((post) => post.source_type === 'SOCIAL' && post.post_id === postId ? { ...post, viewer_liked: liked, likes } : post) })),
-      }) : old;
       const optimisticLiked = !item.viewer_liked;
-      const optimisticLikes = (item.likes ?? 0) + (item.viewer_liked ? -1 : 1);
+      const optimisticLikes = Math.max(0, (item.likes ?? 0) + (item.viewer_liked ? -1 : 1));
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, (old) => update(old, optimisticLiked, optimisticLikes));
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, optimisticLiked, optimisticLikes));
-      try {
-        const result = await runSocialPostAction(item, (id) => toggleLike(session.token, id));
-        if (!result) return;
-        queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, (old) => update(old, result.liked, result.likes));
-        queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.liked, result.likes));
-        await invalidateSocialCaches([postId]);
-      } catch {
-        await queryClient.invalidateQueries({ queryKey: kidsKeys.feed });
-      }
+      const result = sourceType === 'CURATED'
+        ? await toggleCuratedLike(session.token, sourceId)
+        : await toggleLike(session.token, sourceId);
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, (old) => update(old, result.liked, result.likes));
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.liked, result.likes));
+      if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
+    } catch {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: kidsKeys.feed }),
+        queryClient.invalidateQueries({ queryKey: kidsKeys.reels }),
+      ]);
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
   }
 
   async function onSave() {
-    if (!session || !socialTarget) return;
-    const postId = socialTarget.postId;
-    const busyKey = `${postId}:save`;
+    if (!session || !engagement) return;
+    const { sourceType, sourceId } = engagement;
+    const busyKey = `${sourceType}:${sourceId}:save`;
     if (toggleBusyRef.current.has(busyKey)) return;
     toggleBusyRef.current.add(busyKey);
+    const matches = (post: FeedItem) =>
+      post.source_type === sourceType && Number(post.source_id ?? post.post_id) === sourceId;
+    const update = (old: InfiniteData<FeedPage> | undefined, saved: boolean) => old ? ({
+      ...old,
+      pages: old.pages.map((page) => ({
+        ...page,
+        items: page.items.map((post) => matches(post) ? { ...post, viewer_saved: saved } : post),
+      })),
+    }) : old;
     try {
-      const result = await runSocialPostAction(item, (id) => toggleSave(session.token, id));
-      if (!result) return;
-      const update = (old: InfiniteData<FeedPage> | undefined) => old ? ({
-        ...old,
-        pages: old.pages.map((page) => ({ ...page, items: page.items.map((post) => post.source_type === 'SOCIAL' && post.post_id === postId ? { ...post, viewer_saved: result.saved } : post) })),
-      }) : old;
-      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, update);
-      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, update);
-      await invalidateSocialCaches([postId]);
+      const optimisticSaved = !item.viewer_saved;
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, (old) => update(old, optimisticSaved));
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, optimisticSaved));
+      const result = sourceType === 'CURATED'
+        ? await toggleCuratedSave(session.token, sourceId)
+        : await toggleSave(session.token, sourceId);
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.feed }, (old) => update(old, result.saved));
+      queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.saved));
+      if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
     } catch {
-      await queryClient.invalidateQueries({ queryKey: kidsKeys.saved });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: kidsKeys.feed }),
+        queryClient.invalidateQueries({ queryKey: kidsKeys.reels }),
+      ]);
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
+  }
+
+  async function onShare() {
+    if (!session || !engagement) return;
+    const { sourceType, sourceId } = engagement;
+    if (sourceType === 'CURATED') {
+      try {
+        await recordCuratedShare(session.token, sourceId);
+      } catch {
+        // Sharing remains available; analytics failure must not block the OS sheet.
+      }
+    }
+    const headline = item.title || item.caption || 'A safe LittleNet post';
+    await Share.share({
+      message: `${headline} — ${item.full_name ?? 'LittleNet'}\nLittleNet content: ${sourceType}:${sourceId}`,
+    });
   }
 
   return (
@@ -408,7 +441,7 @@ export function PostCard({
           ) : null}
         </View>
       ) : null}
-      {socialTarget ? (
+      {engagement ? (
         <View>
           <View style={styles.actions}>
             <Pressable
@@ -424,19 +457,21 @@ export function PostCard({
                 <IgIcon name="heart" size={26} color={colors.ink} />
               )}
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Comments"
-              onPress={onOpen}
-              style={styles.action}
-              hitSlop={6}
-            >
-              <IgIcon name="comment" size={26} color={colors.ink} />
-            </Pressable>
+            {socialTarget ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Comments"
+                onPress={onOpen}
+                style={styles.action}
+                hitSlop={6}
+              >
+                <IgIcon name="comment" size={26} color={colors.ink} />
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Share post"
-              onPress={onOpen}
+              onPress={() => void onShare()}
               style={styles.action}
               hitSlop={6}
             >
@@ -458,7 +493,7 @@ export function PostCard({
             </Pressable>
           </View>
           <Text style={styles.likeCount}>{item.likes ?? 0} likes</Text>
-          {typeof item.comments_count === 'number' && item.comments_count > 0 ? (
+          {socialTarget && typeof item.comments_count === 'number' && item.comments_count > 0 ? (
             <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`View ${item.comments_count} comments`}>
               <Text style={styles.commentCount}>View all {item.comments_count} comments</Text>
             </Pressable>
