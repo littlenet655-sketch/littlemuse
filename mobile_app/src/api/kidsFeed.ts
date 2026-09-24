@@ -8,6 +8,8 @@ export interface FeedItem {
   /** Session that authorized this exact item; required across refill sessions. */
   feed_session_id?: string;
   full_name?: string;
+  creator_key?: string;
+  creator_username?: string;
   avatar_url?: string | null;
   media_type?: string;
   media_url?: string | null;
@@ -22,6 +24,7 @@ export interface FeedItem {
   content_category?: string;
   likes?: number;
   comments_count?: number;
+  comments_enabled?: boolean;
   created_at?: string;
   child_id?: number;
   is_reel?: boolean;
