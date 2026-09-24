@@ -250,8 +250,49 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
   }, [session?.token, current?.post_id]);
 
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
-  if (error) return <Screen><ErrorState message="Could not load stories." onRetry={() => void load()} /></Screen>;
-  if (!current) return <Screen><EmptyState title="No stories" body="New stories from friends will appear here." /><Button label="Create a story" onPress={() => nav.navigate('CreateTab', { initialKind: 'story' })} /></Screen>;
+  if (error) {
+    return (
+      <Screen>
+        <View style={styles.emptyHeader}>
+          <Pressable
+            onPress={closeStories}
+            style={styles.closeDark}
+            accessibilityRole="button"
+            accessibilityLabel="Back to Home"
+            hitSlop={8}
+          >
+            <Feather name="arrow-left" size={22} color={colors.ink} />
+          </Pressable>
+        </View>
+        <ErrorState message="Could not load stories." onRetry={() => void load()} />
+        <View style={styles.emptyActions}>
+          <Button label="Back to Home" variant="secondary" onPress={closeStories} />
+        </View>
+      </Screen>
+    );
+  }
+  if (!current) {
+    return (
+      <Screen>
+        <View style={styles.emptyHeader}>
+          <Pressable
+            onPress={closeStories}
+            style={styles.closeDark}
+            accessibilityRole="button"
+            accessibilityLabel="Back to Home"
+            hitSlop={8}
+          >
+            <Feather name="arrow-left" size={22} color={colors.ink} />
+          </Pressable>
+        </View>
+        <EmptyState title="No stories" body="New stories from friends will appear here." />
+        <View style={styles.emptyActions}>
+          <Button label="Create a story" onPress={() => nav.navigate('KidsTabs', { tab: 'CreateTab', initialKind: 'story' })} />
+          <Button label="Back to Home" variant="secondary" onPress={closeStories} />
+        </View>
+      </Screen>
+    );
+  }
 
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
@@ -497,4 +538,22 @@ const styles = StyleSheet.create({
   viewerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
   viewerName: { color: '#FFFFFF', fontWeight: '700', flex: 1 },
   controls: { flexDirection: 'row', gap: 8, padding: spacing.md },
+  emptyHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  emptyActions: {
+    paddingHorizontal: 16,
+    gap: 12,
+    marginTop: 16,
+  },
+  closeDark: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EFEFEF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });

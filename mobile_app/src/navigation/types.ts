@@ -26,7 +26,7 @@ export type ChildStackParamList = {
   SavedContent: undefined;
   EditProfile: undefined;
   Connections: { mode?: 'followers' | 'following' } | undefined;
-  PostDetail: { postId: number };
+  PostDetail: { postId: number; openShare?: boolean };
   SafetyCentre: undefined;
   ReportHistory: undefined;
   OtherProfile: { targetId: number };

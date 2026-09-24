@@ -176,6 +176,7 @@ def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
         "moderation_status": str(row.get("moderation_status") or "ALLOWED"),
         "likes": int(row.get("likes") or 0),
         "comments_count": int(row.get("comments_count") or 0),
+        "comments_enabled": bool(row.get("comments_enabled", True)) and bool(row.get("owner_allows_comments", True)),
         "ranking_metadata": {
             "likes": int(row.get("likes") or 0),
             "comments_count": int(row.get("comments_count") or 0),
@@ -259,11 +260,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
             """SELECT p.*, u.full_name, cp.profile_picture,
                  (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
                  (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+                 COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments,
                  EXISTS(SELECT 1 FROM followers f WHERE f.approved = TRUE AND f.approval_stage = 'ACTIVE'
                    AND ((f.child_id = %s AND f.following_child_id = p.child_id) OR (f.child_id = p.child_id AND f.following_child_id = %s))) AS is_following
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+               LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
                  AND p.is_reel = TRUE
                   AND p.child_id = ANY(%s::int[])
@@ -284,11 +287,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
         """SELECT p.*, u.full_name, cp.profile_picture,
              (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
              (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+             COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments,
              EXISTS(SELECT 1 FROM followers f WHERE f.approved = TRUE AND f.approval_stage = 'ACTIVE'
                AND ((f.child_id = %s AND f.following_child_id = p.child_id) OR (f.child_id = p.child_id AND f.following_child_id = %s))) AS is_following
            FROM posts p
            JOIN users u ON u.user_id = p.child_id
            LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+           LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
            WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
              AND p.is_reel = FALSE
              AND (%s::int[] IS NULL OR p.child_id = ANY(%s::int[]))
@@ -558,6 +563,7 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
+               LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.post_id = ANY(%s) AND p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE""",
             (social_ids,),
         )

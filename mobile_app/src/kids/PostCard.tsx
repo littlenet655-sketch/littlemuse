@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image as RNImage, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
 import type { InfiniteData } from '@tanstack/react-query';
@@ -132,6 +132,7 @@ export function PostCard({
   onOpen,
   onProfile,
   onNotInterested,
+  onControlledShare,
   onDeleted,
   inlineVideoPlayback = false,
   videoActive = false,
@@ -140,6 +141,8 @@ export function PostCard({
   onOpen?: () => void;
   onProfile?: () => void;
   onNotInterested?: () => void;
+  /** Opens LittleMuse's approved-friend recipient flow for SOCIAL content. */
+  onControlledShare?: () => void;
   /** Fired after the server confirms the delete so parents can drop the card locally. */
   onDeleted?: (postId: number) => void;
   inlineVideoPlayback?: boolean;
@@ -336,17 +339,20 @@ export function PostCard({
   async function onShare() {
     if (!session || !engagement) return;
     const { sourceType, sourceId } = engagement;
-    if (sourceType === 'CURATED') {
-      try {
-        await recordCuratedShare(session.token, sourceId);
-      } catch {
-        // Sharing remains available; analytics failure must not block the OS sheet.
-      }
+    if (sourceType === 'SOCIAL') {
+      if (onControlledShare) onControlledShare();
+      else Alert.alert('Sharing is protected', 'Open this post to send it only to an approved LittleMuse friend.');
+      return;
     }
-    const headline = item.title || item.caption || 'A safe LittleNet post';
-    await Share.share({
-      message: `${headline} — ${item.full_name ?? 'LittleNet'}\nLittleNet content: ${sourceType}:${sourceId}`,
-    });
+    try {
+      await recordCuratedShare(session.token, sourceId);
+    } catch {
+      // Analytics failure does not change the safety boundary.
+    }
+    Alert.alert(
+      'Sharing stays inside LittleMuse',
+      'Curated learning content cannot be sent through unrestricted external apps from a child account. You can save it and revisit it safely here.',
+    );
   }
 
   return (
@@ -457,7 +463,7 @@ export function PostCard({
                 <IgIcon name="heart" size={26} color={colors.ink} />
               )}
             </Pressable>
-            {socialTarget ? (
+            {socialTarget && item.comments_enabled !== false ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Comments"
@@ -493,7 +499,7 @@ export function PostCard({
             </Pressable>
           </View>
           <Text style={styles.likeCount}>{item.likes ?? 0} likes</Text>
-          {socialTarget && typeof item.comments_count === 'number' && item.comments_count > 0 ? (
+          {socialTarget && item.comments_enabled !== false && typeof item.comments_count === 'number' && item.comments_count > 0 ? (
             <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`View ${item.comments_count} comments`}>
               <Text style={styles.commentCount}>View all {item.comments_count} comments</Text>
             </Pressable>

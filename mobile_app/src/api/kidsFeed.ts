@@ -143,7 +143,7 @@ export function recordFeedImpression(
   }, token);
 }
 
-export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean } }> {
+export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean; allow_comments?: boolean } }> {
   return get(routes.kidsHome, token);
 }
 

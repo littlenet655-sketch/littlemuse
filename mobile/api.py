@@ -323,6 +323,8 @@ def _post_json(row, viewer_id=None):
     out.pop("poster_path", None)
     out.pop("profile_picture", None)
     out.pop("story_music_path", None)
+    if "comments_enabled_effective" in out:
+        out["comments_enabled"] = bool(out.pop("comments_enabled_effective"))
     if viewer_id and out.get("post_id"):
         pid = int(out["post_id"])
         out["viewer_liked"] = bool(fetch_one("SELECT 1 FROM likes WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
@@ -1582,32 +1584,105 @@ def register_mobile_api(bp):
     @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comments", methods=["GET"])
     @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comment", methods=["GET", "POST"])
     @csrf.exempt
+    @limiter.limit("12 per minute", methods=["POST"])
     @_require_mobile("CHILD")
     def mobile_comment(post_id):
         gate = _child_gate()
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        if not feature_allowed(uid, "comments"):
+            return jsonify(error="disabled_by_parent", feature="comments"), 403
         post = post_visible_to(uid, post_id)
         if not post:
             return jsonify(error="post_not_found"), 404
+        post_settings = fetch_one("SELECT child_id, comments_enabled FROM posts WHERE post_id=%s", (post_id,)) or {}
+        owner_id = int(post_settings.get("child_id") or post.get("child_id") or 0)
+        owner_parent_allows = bool(owner_id and feature_allowed(owner_id, "comments"))
+        if not bool(post_settings.get("comments_enabled", True)) or not owner_parent_allows:
+            if request.method == "GET":
+                return jsonify(
+                    ok=True,
+                    comments=[],
+                    has_more=False,
+                    next_cursor=None,
+                    comments_enabled=False,
+                    disabled_reason="post_owner_parent" if not owner_parent_allows else "post_owner",
+                )
+            return jsonify(error="comments_disabled"), 403
+
         if request.method == "GET":
-            rows = fetch_all(
-                """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
-                          u.full_name, u.username, cp.profile_picture
-                   FROM comments c
-                   JOIN users u ON u.user_id = c.child_id
-                   LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
-                   WHERE c.post_id = %s AND c.moderation_status = 'ALLOWED'
-                   ORDER BY c.created_at ASC""",
-                (post_id,),
-            )
+            try:
+                limit = min(50, max(1, int(request.args.get("limit", 20))))
+            except (TypeError, ValueError):
+                limit = 20
+            try:
+                before_id = int(request.args.get("before_id")) if request.args.get("before_id") else None
+            except (TypeError, ValueError):
+                before_id = None
+
+            if before_id:
+                rows = fetch_all(
+                    """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
+                              u.full_name, u.username, cp.profile_picture
+                       FROM comments c
+                       JOIN users u ON u.user_id = c.child_id
+                       LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
+                       WHERE c.post_id = %s
+                         AND c.moderation_status = 'ALLOWED'
+                         AND NOT EXISTS (
+                           SELECT 1 FROM blocked_users b
+                           WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
+                              OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
+                         )
+                         AND NOT EXISTS (
+                           SELECT 1 FROM muted_users m
+                           WHERE m.muter_id=%s AND m.muted_id=c.child_id
+                         )
+                         AND c.comment_id < %s
+                       ORDER BY c.comment_id DESC
+                       LIMIT %s""",
+                    (post_id, uid, uid, uid, before_id, limit + 1),
+                ) or []
+            else:
+                rows = fetch_all(
+                    """SELECT c.comment_id, c.post_id, c.child_id, c.comment_text, c.created_at,
+                              u.full_name, u.username, cp.profile_picture
+                       FROM comments c
+                       JOIN users u ON u.user_id = c.child_id
+                       LEFT JOIN child_profiles cp ON cp.child_id = c.child_id
+                       WHERE c.post_id = %s
+                         AND c.moderation_status = 'ALLOWED'
+                         AND NOT EXISTS (
+                           SELECT 1 FROM blocked_users b
+                           WHERE (b.blocker_id=%s AND b.blocked_id=c.child_id)
+                              OR (b.blocker_id=c.child_id AND b.blocked_id=%s)
+                         )
+                         AND NOT EXISTS (
+                           SELECT 1 FROM muted_users m
+                           WHERE m.muter_id=%s AND m.muted_id=c.child_id
+                         )
+                       ORDER BY c.comment_id DESC
+                       LIMIT %s""",
+                    (post_id, uid, uid, uid, limit + 1),
+                ) or []
+            has_more = len(rows) > limit
+            page = rows[:limit]
             out = []
-            for r in rows:
+            for r in page:
                 item = dict(r)
                 item["avatar_url"] = _asset_url(item.pop("profile_picture", None))
+                item["can_delete"] = int(item.get("child_id") or 0) == uid or int(post_settings.get("child_id") or 0) == uid
                 out.append(_clean(item))
-            return jsonify(ok=True, comments=out)
+            next_cursor = int(page[-1]["comment_id"]) if has_more and page else None
+            return jsonify(
+                ok=True,
+                comments=out,
+                has_more=has_more,
+                next_cursor=next_cursor,
+                comments_enabled=True,
+            )
+
         text = str((_json_dict()).get("text") or "").strip()
         if not text:
             return jsonify(error="empty_comment"), 400
@@ -1629,9 +1704,9 @@ def register_mobile_api(bp):
         )
         if decision.action == "ALLOW":
             record_signal(uid, "SOCIAL", post_id, "COMMENT")
-            owner_id = post["child_id"]
-            if owner_id != uid and can_interact(owner_id, uid):
-                actor_name = g.mobile_user.get('full_name') or 'A friend'
+            owner_id = int(post_settings.get("child_id") or post.get("child_id") or 0)
+            if owner_id and owner_id != uid and can_interact(owner_id, uid):
+                actor_name = g.mobile_user.get("full_name") or "A friend"
                 notify(owner_id, "COMMENT", f"{actor_name} commented on your post", f"/post/{post_id}", uid)
                 try:
                     from services.push_notifications import notify_new_comment
@@ -1642,6 +1717,54 @@ def register_mobile_api(bp):
         if decision.action == "REVIEW":
             parent_notify(uid, "REVIEW_REQUIRED", "A comment needs review", "/parent/safety/")
         return jsonify(ok=True, status=decision.action, comment_id=row["comment_id"])
+
+    @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comments/<int:comment_id>", methods=["DELETE"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_delete_comment(post_id, comment_id):
+        gate = _child_gate()
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        row = fetch_one(
+            """SELECT c.comment_id,c.child_id,p.child_id AS post_owner
+               FROM comments c JOIN posts p ON p.post_id=c.post_id
+               WHERE c.comment_id=%s AND c.post_id=%s""",
+            (comment_id, post_id),
+        )
+        if not row:
+            return jsonify(error="comment_not_found"), 404
+        if uid not in {int(row["child_id"]), int(row["post_owner"])}:
+            return jsonify(error="forbidden"), 403
+        execute("DELETE FROM comments WHERE comment_id=%s AND post_id=%s", (comment_id, post_id))
+        count_row = fetch_one(
+            "SELECT COUNT(*) AS n FROM comments WHERE post_id=%s AND moderation_status='ALLOWED'",
+            (post_id,),
+        ) or {"n": 0}
+        log(uid, "COMMENT_DELETED", {"post_id": post_id, "comment_id": comment_id})
+        return jsonify(ok=True, comments_count=int(count_row["n"]))
+
+    @bp.route("/api/mobile/v1/kids/posts/<int:post_id>/comments-setting", methods=["PUT"])
+    @csrf.exempt
+    @_require_mobile("CHILD")
+    def mobile_comments_setting(post_id):
+        gate = _child_gate()
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        row = fetch_one("SELECT child_id FROM posts WHERE post_id=%s", (post_id,))
+        if not row:
+            return jsonify(error="post_not_found"), 404
+        if int(row["child_id"]) != uid:
+            return jsonify(error="forbidden"), 403
+        enabled = (_json_dict()).get("enabled")
+        if not isinstance(enabled, bool):
+            return jsonify(error="invalid_comments_setting"), 400
+        if enabled and not feature_allowed(uid, "comments"):
+            return jsonify(error="disabled_by_parent", feature="comments"), 403
+        execute("UPDATE posts SET comments_enabled=%s WHERE post_id=%s AND child_id=%s", (enabled, post_id, uid))
+        log(uid, "COMMENTS_SETTING_UPDATED", {"post_id": post_id, "enabled": enabled})
+        return jsonify(ok=True, comments_enabled=enabled)
 
     # --- Post/story safe delete (soft-delete + durable R2 media cleanup) ---
     # Convention: posts has no is_deleted column (unlike child_messages). The
@@ -2106,17 +2229,24 @@ def register_mobile_api(bp):
             s_music_url = music_row["audio_url"] if music_row else None
             s_music_start = int(data.get("music_start") or 0)
             s_music_dur = int(data.get("music_duration") or (music_row["duration_seconds"] if music_row else 30))
+            # Parent comments permission is authoritative. Stories do not expose
+            # the post-comment surface; posts/reels may opt out per item.
+            comments_enabled = (
+                kind != "STORY"
+                and feature_allowed(uid, "comments")
+                and bool(data.get("comments_enabled", True))
+            )
 
             if existing:
                 post_id = existing["post_id"]
             else:
                 cur.execute(
                     """INSERT INTO posts(child_id, media_type, source_media_path, caption, content_category,
-                                       audience_age_group, is_story, is_reel, is_safe, moderation_status,
+                                       audience_age_group, is_story, is_reel, comments_enabled, is_safe, moderation_status,
                                        processing_status, processing_started_at, location_name,
                                        story_music_id, story_music_title, story_music_artist, story_music_url,
                                        story_music_start, story_music_duration, upload_id, processing_attempts, last_attempt_at)
-                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
                        RETURNING post_id""",
                     (
                         uid,
@@ -2127,6 +2257,7 @@ def register_mobile_api(bp):
                         audience,
                         kind == "STORY",
                         kind == "REEL",
+                        comments_enabled,
                         location_name,
                         s_music_id,
                         s_music_title,
@@ -2579,7 +2710,7 @@ def register_mobile_api(bp):
         if request.method == "PUT":
             data = _json_dict()
             flags = {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
                 "quiet_hours_enabled", "educational_only_feed",
             }
             if any(key in data and not isinstance(data[key], bool) for key in flags):
@@ -2595,16 +2726,19 @@ def register_mobile_api(bp):
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
                 "quiet_hours_enabled", "quiet_start", "quiet_end", "educational_only_feed", "allowed_categories",
             }})
             form = MultiDict()
-            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "quiet_hours_enabled", "educational_only_feed"):
+            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "quiet_hours_enabled", "educational_only_feed"):
                 if bool(merged.get(flag)):
                     form.add(flag, "on")
             form.add("quiet_start", str(merged.get("quiet_start") or "21:00"))
             form.add("quiet_end", str(merged.get("quiet_end") or "07:00"))
-            for category in merged.get("allowed_categories") or SAFE_CATEGORIES:
+            merged_categories = merged.get("allowed_categories")
+            if merged_categories is None:
+                merged_categories = SAFE_CATEGORIES
+            for category in merged_categories:
                 form.add("allowed_categories", category)
             try:
                 updated = save_controls(pid, child_id, form)
@@ -2850,13 +2984,73 @@ def register_mobile_api(bp):
         pid = int(g.mobile_user["user_id"])
         if not owns(pid, child_id):
             return jsonify(error="child_not_found"), 404
-        rows = fetch_all(
-            """SELECT log_id,activity_type,activity_data,created_at
-               FROM activity_logs WHERE child_id=%s
-               ORDER BY created_at DESC LIMIT 100""",
-            (child_id,),
+        try:
+            limit = min(50, max(1, int(request.args.get("limit", 30))))
+        except (TypeError, ValueError):
+            limit = 30
+        try:
+            before_id = int(request.args.get("before_id")) if request.args.get("before_id") else None
+        except (TypeError, ValueError):
+            before_id = None
+
+        if before_id:
+            rows = fetch_all(
+                """SELECT log_id,activity_type,activity_data,created_at
+                   FROM activity_logs
+                   WHERE child_id=%s AND log_id < %s
+                   ORDER BY log_id DESC
+                   LIMIT %s""",
+                (child_id, before_id, limit + 1),
+            ) or []
+        else:
+            rows = fetch_all(
+                """SELECT log_id,activity_type,activity_data,created_at
+                   FROM activity_logs
+                   WHERE child_id=%s
+                   ORDER BY log_id DESC
+                   LIMIT %s""",
+                (child_id, limit + 1),
+            ) or []
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = int(page[-1]["log_id"]) if has_more and page else None
+
+        # Supervision metadata only: who the child recently chatted with and
+        # aggregate activity. Message text/media is intentionally not exposed.
+        recent_chat_partners = fetch_all(
+            """SELECT
+                   CASE WHEN cc.child1_id=%s THEN cc.child2_id ELSE cc.child1_id END AS child_id,
+                   u.full_name,u.username,cp.profile_picture,
+                   MAX(m.sent_at) AS last_interaction_at,
+                   COUNT(m.child_message_id) FILTER (
+                     WHERE m.sent_at >= NOW() - INTERVAL '30 days'
+                       AND m.is_deleted=FALSE
+                   ) AS messages_30d
+               FROM child_conversations cc
+               JOIN users u ON u.user_id=CASE WHEN cc.child1_id=%s THEN cc.child2_id ELSE cc.child1_id END
+               LEFT JOIN child_profiles cp ON cp.child_id=u.user_id
+               LEFT JOIN child_messages m ON m.conversation_id=cc.conversation_id
+                    AND m.is_deleted=FALSE
+               WHERE cc.child1_id=%s OR cc.child2_id=%s
+               GROUP BY cc.conversation_id,u.user_id,u.full_name,u.username,cp.profile_picture
+               HAVING MAX(m.sent_at) IS NOT NULL
+               ORDER BY MAX(m.sent_at) DESC
+               LIMIT 20""",
+            (child_id, child_id, child_id, child_id),
+        ) or []
+        partners = []
+        for row in recent_chat_partners:
+            item = dict(row)
+            item["avatar_url"] = _asset_url(item.pop("profile_picture", None))
+            partners.append(_clean(item))
+
+        return jsonify(
+            ok=True,
+            events=_clean(page),
+            has_more=has_more,
+            next_cursor=next_cursor,
+            recent_chat_partners=partners,
         )
-        return jsonify(ok=True, events=_clean(rows))
 
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")

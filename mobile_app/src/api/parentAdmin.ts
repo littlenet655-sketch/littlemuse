@@ -7,6 +7,7 @@ export interface ParentControls {
   allow_messaging: boolean;
   allow_posting: boolean;
   allow_discover: boolean;
+  allow_comments: boolean;
   quiet_hours_enabled: boolean;
   quiet_start: string;
   quiet_end: string;
@@ -101,6 +102,15 @@ export interface ActivityEvent {
   created_at?: string;
 }
 
+export interface RecentChatPartner {
+  child_id: number;
+  full_name?: string;
+  username?: string;
+  avatar_url?: string | null;
+  last_interaction_at?: string;
+  messages_30d?: number;
+}
+
 export interface AdminUser {
   user_id: number;
   username: string;
@@ -175,8 +185,12 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
   return apiRequest(routes.parentNotifications, body({}), token);
 }
 
-export function fetchParentActivity(token: string, childId: number): Promise<{ ok: boolean; events: ActivityEvent[] }> {
-  return apiRequest(routes.parentActivity(childId), {}, token);
+export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[] }> {
+  const params = new URLSearchParams();
+  if (beforeId) params.set('before_id', String(beforeId));
+  if (limit !== 30) params.set('limit', String(limit));
+  const query = params.toString();
+  return apiRequest(`${routes.parentActivity(childId)}${query ? `?${query}` : ''}`, {}, token);
 }
 
 /** Read-only per-child viewing insights: watch totals (7d/30d), per-category

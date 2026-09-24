@@ -21,6 +21,7 @@ FEATURE_COLUMNS = {
     'messaging':'allow_messaging',
     'posting':'allow_posting',
     'discover':'allow_discover',
+    'comments':'allow_comments',
 }
 
 
@@ -41,6 +42,7 @@ def _defaults(child_id=None):
         'allow_messaging':True,
         'allow_posting':True,
         'allow_discover':True,
+        'allow_comments':True,
         'quiet_hours_enabled':False,
         'quiet_start':'21:00',
         'quiet_end':'07:00',
@@ -63,8 +65,9 @@ def controls_for_child(child_id):
         out = _defaults(child_id)
     else:
         out=_defaults(child_id);out.update(dict(row))
-        cats=out.get('allowed_categories') or list(SAFE_CATEGORIES)
-        out['allowed_categories']=[c for c in cats if c in SAFE_CATEGORIES] or list(SAFE_CATEGORIES)
+        raw_cats=out.get('allowed_categories')
+        cats=list(SAFE_CATEGORIES) if raw_cats is None else list(raw_cats)
+        out['allowed_categories']=[c for c in cats if c in SAFE_CATEGORIES]
         out['quiet_start']=_clock(out.get('quiet_start'),'21:00')
         out['quiet_end']=_clock(out.get('quiet_end'),'07:00')
     _controls_cache[child_id] = {'data': out, 'time': now}
@@ -102,7 +105,11 @@ def _effective_categories_uncached(child_id):
     allowed=[x for x in c['allowed_categories'] if x in SAFE_CATEGORIES]
     if c.get('educational_only_feed'):
         allowed=[x for x in allowed if x in EDUCATIONAL_CATEGORIES]
-    base = allowed or (EDUCATIONAL_CATEGORIES if c.get('educational_only_feed') else list(SAFE_CATEGORIES))
+    # An explicitly empty parent selection is a deny-all policy. Never widen
+    # it back to every safe category.
+    if not allowed:
+        return []
+    base = allowed
     expanded = list(base)
     for cat in base:
         for syn in CATEGORY_SYNONYMS.get(cat, []):
@@ -150,7 +157,6 @@ def quiet_hours_active(child_id, at=None):
 
 def save_controls(parent_id,child_id,form):
     allowed=[x for x in form.getlist('allowed_categories') if x in SAFE_CATEGORIES]
-    if not allowed: allowed=list(SAFE_CATEGORIES)
     qstart=_clock(form.get('quiet_start'),'21:00');qend=_clock(form.get('quiet_end'),'07:00')
     _parse_clock(qstart);_parse_clock(qend)
     values={
@@ -159,19 +165,20 @@ def save_controls(parent_id,child_id,form):
         'allow_messaging':'allow_messaging' in form,
         'allow_posting':'allow_posting' in form,
         'allow_discover':'allow_discover' in form,
+        'allow_comments':'allow_comments' in form,
         'quiet_hours_enabled':'quiet_hours_enabled' in form,
         'educational_only_feed':'educational_only_feed' in form,
     }
     execute('''INSERT INTO parent_control_settings(
-        child_id,parent_id,allow_reels,allow_stories,allow_messaging,allow_posting,allow_discover,
+        child_id,parent_id,allow_reels,allow_stories,allow_messaging,allow_posting,allow_discover,allow_comments,
         quiet_hours_enabled,quiet_start,quiet_end,educational_only_feed,allowed_categories,updated_at
-      ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::time,%s::time,%s,%s::jsonb,NOW())
+      ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::time,%s::time,%s,%s::jsonb,NOW())
       ON CONFLICT(child_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,allow_reels=EXCLUDED.allow_reels,
       allow_stories=EXCLUDED.allow_stories,allow_messaging=EXCLUDED.allow_messaging,allow_posting=EXCLUDED.allow_posting,
-      allow_discover=EXCLUDED.allow_discover,quiet_hours_enabled=EXCLUDED.quiet_hours_enabled,
+      allow_discover=EXCLUDED.allow_discover,allow_comments=EXCLUDED.allow_comments,quiet_hours_enabled=EXCLUDED.quiet_hours_enabled,
       quiet_start=EXCLUDED.quiet_start,quiet_end=EXCLUDED.quiet_end,educational_only_feed=EXCLUDED.educational_only_feed,
       allowed_categories=EXCLUDED.allowed_categories,updated_at=NOW()''',(
         child_id,parent_id,values['allow_reels'],values['allow_stories'],values['allow_messaging'],values['allow_posting'],
-        values['allow_discover'],values['quiet_hours_enabled'],qstart,qend,values['educational_only_feed'],json.dumps(allowed)))
+        values['allow_discover'],values['allow_comments'],values['quiet_hours_enabled'],qstart,qend,values['educational_only_feed'],json.dumps(allowed)))
     _controls_cache.pop(child_id, None)
     return controls_for_child(child_id)
