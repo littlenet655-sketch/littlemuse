@@ -40,9 +40,9 @@ describe('Parity Wave 2: curated Story music', () => {
     assert.match(client, /curatedMusic: '\/api\/mobile\/v1\/music\/curated'/);
     assert.match(upload, /fetchCuratedMusic/);
     assert.match(upload, /music_id: input\.musicId \?\? null/);
-    assert.match(create, /pre-approved royalty-free catalog/);
-    assert.match(create, /musicId: kind === 'story' \? selectedMusicId : null/);
-    assert.match(create, /<CuratedMusicPreview/);
+    assert.match(create, /pre-approved royalty-free tracks/);
+    assert.match(create, /musicId: kind === 'story' \? storyMusicId : null/);
+    assert.match(create, /<StoryMusicPreview/);
   });
 
   it('plays stored Story music and mutes original story video when music exists', () => {
