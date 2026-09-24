@@ -2041,6 +2041,34 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
     queryFn: () => fetchParentActivity(session?.token ?? '', childId ?? 0),
     enabled: Boolean(session && childId),
   });
+  const [moreEvents, setMoreEvents] = useState<Array<{ log_id: number; activity_type: string; activity_data?: Record<string, unknown>; created_at?: string }>>([]);
+  const [moreCursor, setMoreCursor] = useState<number | null>(null);
+  const [moreHasMore, setMoreHasMore] = useState<boolean | null>(null);
+  const [loadingMoreActivity, setLoadingMoreActivity] = useState(false);
+
+  useEffect(() => {
+    setMoreEvents([]);
+    setMoreCursor(null);
+    setMoreHasMore(null);
+  }, [childId]);
+
+  async function loadMoreActivity() {
+    const cursor = moreCursor ?? query.data?.next_cursor ?? null;
+    const canLoad = moreHasMore ?? query.data?.has_more ?? false;
+    if (!session || !childId || !cursor || !canLoad || loadingMoreActivity) return;
+    setLoadingMoreActivity(true);
+    try {
+      const page = await fetchParentActivity(session.token, childId, cursor);
+      setMoreEvents((current) => {
+        const seen = new Set(current.map((event) => event.log_id));
+        return [...current, ...page.events.filter((event) => !seen.has(event.log_id))];
+      });
+      setMoreCursor(page.next_cursor);
+      setMoreHasMore(page.has_more);
+    } finally {
+      setLoadingMoreActivity(false);
+    }
+  }
 
   if (!childId) {
     return (
@@ -2076,7 +2104,9 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
     );
   }
 
-  const rows = query.data?.events ?? [];
+  const rows = [...(query.data?.events ?? []), ...moreEvents];
+  const recentPartners = query.data?.recent_chat_partners ?? [];
+  const canLoadMoreActivity = moreHasMore ?? query.data?.has_more ?? false;
 
   return (
     <Screen>
@@ -2086,14 +2116,34 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
         contentContainerStyle={styles.refreshScrollContent}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}
         ListHeaderComponent={
-          <SubScreenHero
-            kicker={child?.full_name ?? 'Child'}
-            title="Activity History"
-            subtitle="Chronological log of account, safety, and screen time events."
-            icon="activity"
-            iconColor="#7C3AED"
-            iconBg="#F5F3FF"
-          />
+          <>
+            <SubScreenHero
+              kicker={child?.full_name ?? 'Child'}
+              title="Activity History"
+              subtitle="Chronological log of account, safety, screen time, and high-level communication activity."
+              icon="activity"
+              iconColor="#7C3AED"
+              iconBg="#F5F3FF"
+            />
+            {recentPartners.length ? (
+              <Card>
+                <Text style={styles.rowTitle}>Recent chat partners</Text>
+                <Text style={styles.muted}>Shows who your child has interacted with, not private message content.</Text>
+                {recentPartners.map((partner) => (
+                  <View key={partner.child_id} style={[styles.rowBetween, { marginTop: spacing.md }]}>
+                    <View style={[styles.row, { flex: 1 }]}>
+                      <Avatar uri={partner.avatar_url} name={partner.full_name ?? partner.username ?? 'Friend'} size={36} />
+                      <View style={styles.flex}>
+                        <Text style={styles.rowTitle}>{partner.full_name ?? partner.username ?? 'Friend'}</Text>
+                        <Text style={styles.muted}>@{partner.username ?? 'friend'} · {Number(partner.messages_30d ?? 0)} messages in 30 days</Text>
+                      </View>
+                    </View>
+                    <TimeAgo value={partner.last_interaction_at} />
+                  </View>
+                ))}
+              </Card>
+            ) : null}
+          </>
         }
         ListEmptyComponent={
           query.isPending ? (
@@ -2114,6 +2164,16 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
             </Card>
           )
         }
+        ListFooterComponent={canLoadMoreActivity ? (
+          <View style={{ marginTop: spacing.md, marginBottom: spacing.lg }}>
+            <Button
+              label={loadingMoreActivity ? 'Loading older activity…' : 'Load older activity'}
+              variant="secondary"
+              disabled={loadingMoreActivity}
+              onPress={() => void loadMoreActivity()}
+            />
+          </View>
+        ) : null}
         renderItem={({ item: event }) => (
           <View style={styles.activityTimelineCard}>
             <View style={styles.activityIconBubble}>
