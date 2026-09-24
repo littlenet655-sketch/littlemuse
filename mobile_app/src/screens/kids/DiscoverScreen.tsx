@@ -1,5 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import Svg, { Path } from 'react-native-svg';
@@ -154,11 +156,46 @@ const CuratedRowCard = memo(function CuratedRowCard({ item }: { item: CuratedSea
 export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const { session } = useAuth();
   const online = useIsOnline();
+  const isFocused = useIsFocused();
   const { raw, setRaw, debounced } = useDebouncedSearch(300);
   // Default to the Explore content grid (not People) on first open.
   const [kind, setKind] = useState<'People' | 'Posts' | 'Reels' | 'Learn'>('Posts');
   const [recent, setRecent] = useState<string[]>([]);
   const [followBusy, setFollowBusy] = useState<number | null>(null);
+  const [explainerOpen, setExplainerOpen] = useState(false);
+
+  // Vertical FlashList refs for instant reset to top
+  const peopleListRef = useRef<any>(null);
+  const gridListRef = useRef<any>(null);
+
+  const resetToTop = useCallback(() => {
+    if (kind === 'People') {
+      peopleListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } else {
+      gridListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, [kind]);
+
+  // When Discover becomes focused: scroll active vertical list to top
+  useEffect(() => {
+    if (isFocused) {
+      resetToTop();
+    }
+  }, [isFocused, resetToTop]);
+
+  // When category changes (People -> Posts -> Reels -> Learn): reset vertical scroll position to top
+  useEffect(() => {
+    resetToTop();
+  }, [kind, resetToTop]);
+
+  // When search term materially changes: reset to top
+  const prevDebouncedRef = useRef(debounced);
+  useEffect(() => {
+    if (prevDebouncedRef.current !== debounced) {
+      prevDebouncedRef.current = debounced;
+      resetToTop();
+    }
+  }, [debounced, resetToTop]);
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const token = session?.token ?? 'signed-out';
   // Memoized: a fresh array identity every render would churn the query key.
@@ -385,7 +422,14 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <IgIcon name="verified" size={18} color={colors.brand} />
           <Text style={styles.safeStripText}>Classroom SafeSpace • Kid-moderated feed</Text>
         </View>
-        <Text style={styles.safeStripLink}>Learn more</Text>
+        <Pressable
+          onPress={() => setExplainerOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Learn more about Classroom SafeSpace"
+          hitSlop={8}
+        >
+          <Text style={styles.safeStripLink}>Learn more</Text>
+        </Pressable>
       </View>
 
       {error ? <GateNotice error={error} /> : null}
@@ -456,6 +500,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* People Mode: Vertical list of clean friend cards */}
       {kind === 'People' && kids.length > 0 ? (
         <FlashList
+          ref={peopleListRef}
           data={kids}
           keyExtractor={(k) => `kid:${k.user_id}`}
           contentContainerStyle={styles.peopleList}
@@ -485,6 +530,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Posts / Reels / Learn Mode: Instagram Explore 3-column grid */}
       {kind !== 'People' && gridItems.length > 0 ? (
         <FlashList
+          ref={gridListRef}
           data={gridItems}
           keyExtractor={(p) => `post:${p.post_id}`}
           numColumns={3}
@@ -495,6 +541,122 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           renderItem={renderGridCell}
         />
       ) : null}
+
+      {/* Child-Safe Classroom SafeSpace Explainer Modal */}
+      <Modal
+        visible={explainerOpen}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setExplainerOpen(false)}
+        accessibilityViewIsModal={true}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={styles.modalDismissArea}
+            onPress={() => setExplainerOpen(false)}
+            accessibilityLabel="Close"
+          />
+          <View style={styles.modalSheet} accessibilityRole="summary" accessibilityLabel="Classroom SafeSpace Guide">
+            <View style={styles.modalHeader}>
+              <View style={styles.modalTitleRow}>
+                <View style={styles.modalBadge}>
+                  <IgIcon name="verified" size={20} color={colors.brand} />
+                </View>
+                <View>
+                  <Text style={styles.modalTitle}>Classroom SafeSpace</Text>
+                  <Text style={styles.modalSubtitle}>Kid-Safe & Friendly Community</Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => setExplainerOpen(false)}
+                style={styles.modalCloseBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close explainer"
+                hitSlop={10}
+              >
+                <Feather name="x" size={20} color={colors.ink} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.explainerCard}>
+                <View style={styles.explainerIconWrap}>
+                  <Feather name="shield" size={18} color="#2563EB" />
+                </View>
+                <View style={styles.explainerTextWrap}>
+                  <Text style={styles.explainerHeading}>Checked Before Sharing</Text>
+                  <Text style={styles.explainerBody}>
+                    LittleNet checks posts and Reels before they can appear so you can explore safely.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.explainerCard}>
+                <View style={styles.explainerIconWrap}>
+                  <Feather name="user-check" size={18} color="#059669" />
+                </View>
+                <View style={styles.explainerTextWrap}>
+                  <Text style={styles.explainerHeading}>Parent Controls</Text>
+                  <Text style={styles.explainerBody}>
+                    Your parent can choose what kinds of content you can explore and adjust screen time.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.explainerCard}>
+                <View style={styles.explainerIconWrap}>
+                  <Feather name="lock" size={18} color="#7C3AED" />
+                </View>
+                <View style={styles.explainerTextWrap}>
+                  <Text style={styles.explainerHeading}>Private & Protected</Text>
+                  <Text style={styles.explainerBody}>
+                    Private information should stay private. We never share personal details with strangers.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.explainerCard}>
+                <View style={styles.explainerIconWrap}>
+                  <Feather name="flag" size={18} color="#D97706" />
+                </View>
+                <View style={styles.explainerTextWrap}>
+                  <Text style={styles.explainerHeading}>Friendly Reporting</Text>
+                  <Text style={styles.explainerBody}>
+                    You can report something that makes you uncomfortable, and our team will review it.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.explainerCard}>
+                <View style={styles.explainerIconWrap}>
+                  <Feather name="star" size={18} color="#0284C7" />
+                </View>
+                <View style={styles.explainerTextWrap}>
+                  <Text style={styles.explainerHeading}>Safe Recommendations</Text>
+                  <Text style={styles.explainerBody}>
+                    Discover only recommends fun, positive, and educational ideas approved for young creators.
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActionRow}>
+              <Pressable
+                onPress={() => setExplainerOpen(false)}
+                style={styles.gotItButton}
+                accessibilityRole="button"
+                accessibilityLabel="Got it, close info"
+              >
+                <Text style={styles.gotItButtonText}>Got it</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -784,5 +946,124 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFEFEF',
     borderWidth: 1,
     borderColor: colors.background,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalDismissArea: {
+    flex: 1,
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
+  },
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(37,99,235,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalScroll: {
+    maxHeight: 380,
+  },
+  modalContent: {
+    padding: 20,
+    gap: 14,
+  },
+  explainerCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    backgroundColor: '#F8FAFC',
+    padding: 14,
+    borderRadius: 14,
+  },
+  explainerIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  explainerTextWrap: {
+    flex: 1,
+  },
+  explainerHeading: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: 3,
+  },
+  explainerBody: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  modalActionRow: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  gotItButton: {
+    backgroundColor: colors.brand,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gotItButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
