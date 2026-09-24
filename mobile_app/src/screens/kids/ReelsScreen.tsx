@@ -191,7 +191,7 @@ const ReelCell = memo(function ReelCell({
         </Pressable>
 
         {/* Comment Button */}
-        {post ? (
+        {post && item.comments_enabled !== false ? (
           <Pressable
             style={styles.actionBtn}
             onPress={() => nav.navigate('PostDetail', post)}
