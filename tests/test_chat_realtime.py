@@ -75,7 +75,8 @@ def test_messages_after_id_adds_newer_than_filter(message_service):
     assert "m.child_message_id > %s::bigint" in sql
     assert 40 in params
     # Existing guards must survive: moderation filter + soft-delete + paging.
-    assert "m.moderation_status = 'ALLOWED' OR m.sender_child_id" in sql
+    assert "m.moderation_status = 'ALLOWED'" in sql
+    assert "m.sender_child_id = %s AND m.moderation_status = 'REVIEW'" in sql
     assert "m.is_deleted = FALSE" in sql
     assert "m.child_message_id < %s::bigint" in sql
     assert rows[0]["child_message_id"] == 42

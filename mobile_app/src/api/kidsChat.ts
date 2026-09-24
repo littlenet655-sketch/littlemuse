@@ -18,7 +18,7 @@ export interface ConversationItem {
   peer_id: number;
   peer_name?: string;
   peer_avatar_url?: string | null;
-  last_message?: { message_text?: string; sent_at?: string; sender_child_id?: number; is_seen?: boolean } | null;
+  last_message?: { message_text?: string; message_type?: string; sent_at?: string; sender_child_id?: number; is_seen?: boolean } | null;
 }
 
 export interface ChatMessage {
@@ -27,6 +27,13 @@ export interface ChatMessage {
   message_text?: string;
   message_type?: string;
   shared_post_id?: number | null;
+  reply_to_message_id?: number | null;
+  reply_message_text?: string | null;
+  reply_message_type?: string | null;
+  reply_sender_child_id?: number | null;
+  reactions?: Record<string, number>;
+  viewer_reaction?: string | null;
+  media_url?: string | null;
   moderation_status?: string;
   sent_at?: string;
   /** Read receipt: the server returns this per message (m.*) and marks peer
@@ -87,10 +94,51 @@ export function sendTyping(token: string, peerId: number): Promise<{ ok: boolean
   return postJson(`${routes.chat(peerId)}/typing`, {}, token);
 }
 
-export function sendChatText(token: string, peerId: number, messageText: string): Promise<{ ok: boolean; status: string }> {
-  return postJson(routes.chat(peerId), { message_text: messageText }, token);
+export function sendChatText(token: string, peerId: number, messageText: string, replyToMessageId?: number | null): Promise<{ ok: boolean; status: string; message_id?: number }> {
+  const body: Record<string, unknown> = { message_text: messageText };
+  if (replyToMessageId != null) body.reply_to_message_id = replyToMessageId;
+  return postJson(routes.chat(peerId), body, token);
+}
+
+export const MESSAGE_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
+
+export function reactToMessage(token: string, peerId: number, messageId: number, emoji: string): Promise<{ ok: boolean; viewer_reaction: string | null; reactions: Record<string, number> }> {
+  return postJson(routes.messageReaction(peerId, messageId), { emoji }, token);
 }
 
 export function sharePostToChat(token: string, peerId: number, postId: number): Promise<{ ok: boolean; message_id: number }> {
   return postJson(routes.sharePost(peerId), { post_id: postId }, token);
+}
+
+
+export interface ChatUploadSession {
+  ok: boolean;
+  upload_id: string;
+  upload_url: string;
+  object_key: string;
+  expires_at: string;
+  required_headers: Record<string, string>;
+  media_type: 'IMAGE' | 'VIDEO';
+}
+
+export function requestChatUploadSession(
+  token: string,
+  peerId: number,
+  input: { mediaType: 'IMAGE' | 'VIDEO'; filename: string; sizeBytes: number; mimeType: string; extension?: string },
+): Promise<ChatUploadSession> {
+  return postJson(routes.chatUploadSession(peerId), {
+    media_type: input.mediaType,
+    filename: input.filename,
+    size_bytes: input.sizeBytes,
+    mime_type: input.mimeType,
+    extension: input.extension,
+  }, token);
+}
+
+export function completeChatUpload(
+  token: string,
+  peerId: number,
+  uploadId: string,
+): Promise<{ ok: boolean; message_id: number; status: 'ALLOWED' | 'REVIEW' | string; idempotent?: boolean }> {
+  return postJson(routes.chatUploadComplete(peerId, uploadId), {}, token);
 }

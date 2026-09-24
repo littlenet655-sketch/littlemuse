@@ -87,7 +87,8 @@ def test_receiver_fetch_query_excludes_non_allow_messages(message_service):
     calls["rows"] = _receiver_rows()
     rows = svc.messages(11, 7)  # viewer 7 is the receiver
     sql = calls["last_fetch_all_sql"]
-    assert "m.moderation_status = 'ALLOWED' OR m.sender_child_id" in sql, (
+    assert "m.moderation_status = 'ALLOWED'" in sql
+    assert "m.sender_child_id = %s AND m.moderation_status = 'REVIEW'" in sql, (
         "receiver read path lost its moderation filter; REVIEW messages would "
         "be delivered as ordinary messages"
     )

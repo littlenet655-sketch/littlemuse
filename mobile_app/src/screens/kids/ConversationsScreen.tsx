@@ -191,8 +191,16 @@ export function ConversationsScreen({ navigation }: ChildScreenProps<'KidsTabs'>
         renderItem={({ item }) => {
           const unread = isConversationUnread(item);
           const own = myId != null && item.last_message?.sender_child_id === myId;
-          const rawPreview = item.last_message?.message_text ?? '';
-          const preview = own && rawPreview ? `You: ${rawPreview}` : rawPreview;
+          const kind = String(item.last_message?.message_type ?? 'TEXT').toUpperCase();
+          const rawText = item.last_message?.message_text ?? '';
+          const rawPreview = rawText || (
+            kind === 'IMAGE' ? '📷 Photo'
+            : kind === 'VIDEO' ? '🎬 Video'
+            : kind === 'VOICE' ? '🎤 Voice message'
+            : kind === 'SHARED_POST' ? '↗ Shared post'
+            : 'Message'
+          );
+          const preview = own ? `You: ${rawPreview}` : rawPreview;
           return (
             <Pressable
               style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}

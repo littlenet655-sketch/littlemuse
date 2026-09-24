@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Animated, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
-import { fetchChat, fetchChatUpdates, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
+import { completeChatUpload, fetchChat, fetchChatUpdates, MESSAGE_REACTION_EMOJIS, reactToMessage, requestChatUploadSession, sendChatText, sendTyping, sharePostToChat, type ChatMessage } from '../../api/kidsChat';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
 import { CHAT_BLOCKED_COPY, dedupeChat, isChatMessagePending } from '../../kids/social';
+import { putFileToSignedUrl } from '../../kids/directUpload';
+import { localMediaSize, pickGalleryMedia, validateMediaIdentity } from '../../kids/postMedia';
+import { VideoMedia } from '../../kids/VideoMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { useIsForeground, useIsOnline } from '../../query/client';
 import { Button, DisabledFeature, EmptyState, ErrorState, GateNotice, LoadingState, Notice, OfflineBanner, Screen } from '../../ui/components';
@@ -92,6 +95,12 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
   const [shareNotice, setShareNotice] = useState('');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [actionFor, setActionFor] = useState<number | null>(null);
+  const [reactionBusy, setReactionBusy] = useState<number | null>(null);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [mediaProgress, setMediaProgress] = useState(0);
+  const [videoModalUri, setVideoModalUri] = useState<string | null>(null);
   const [peerTyping, setPeerTyping] = useState(false);
   /** Message whose per-bubble timestamp is revealed (tap a bubble to toggle). */
   const [showTimeFor, setShowTimeFor] = useState<number | null>(null);
@@ -247,6 +256,7 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
     setSending(true);
     setSendError('');
     const outgoing = text.trim();
+    const replying = replyTo;
     // Optimistic bubble: the message appears instantly (Instagram-style) and
     // the server row replaces it on refresh. Temp ids are negative so they
     // can never collide with real ids and sort after existing messages.
@@ -256,6 +266,10 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
       sender_child_id: ownId,
       message_text: outgoing,
       message_type: 'TEXT',
+      reply_to_message_id: replying?.child_message_id ?? null,
+      reply_message_text: replying?.message_text ?? (replying?.message_type === 'SHARED_POST' ? 'Shared post' : null),
+      reply_message_type: replying?.message_type ?? null,
+      reply_sender_child_id: replying?.sender_child_id ?? null,
       // Fail-closed: render the optimistic bubble in the pending style until
       // the server row replaces it, so an unmoderated message never looks
       // approved (brief "waiting" flash on fast ALLOWED sends is intended).
@@ -264,9 +278,11 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
     };
     setMessages((prev) => dedupeChat([...prev, optimistic]));
     setText('');
+    setReplyTo(null);
+    setActionFor(null);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     try {
-      const res = await sendChatText(session.token, peerId, outgoing);
+      const res = await sendChatText(session.token, peerId, outgoing, replying?.child_message_id ?? null);
       // Always refresh: the server returns own REVIEW messages to the sender
       // so they render in the pending state below instead of vanishing.
       // The refresh also swaps the optimistic bubble for the real row.
@@ -281,10 +297,99 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
       // retry; do not leave a phantom message in the thread.
       setMessages((prev) => prev.filter((m) => m.child_message_id !== optimisticId));
       setText(outgoing);
+      setReplyTo(replying);
       setSendError(err instanceof ApiError && err.code.includes('blocked') ? CHAT_BLOCKED_COPY : 'Could not send. Tap Retry to try again.');
     } finally {
       setSending(false);
     }
+  }
+
+  async function toggleMessageReaction(message: ChatMessage, emoji: string) {
+    if (!session || !peerId || message.child_message_id <= 0 || reactionBusy) return;
+    setReactionBusy(message.child_message_id);
+    try {
+      const next = message.viewer_reaction === emoji ? '' : emoji;
+      const result = await reactToMessage(session.token, peerId, message.child_message_id, next);
+      setMessages((current) => current.map((item) => (
+        item.child_message_id === message.child_message_id
+          ? { ...item, reactions: result.reactions, viewer_reaction: result.viewer_reaction }
+          : item
+      )));
+      setActionFor(null);
+    } catch {
+      setSendError('Could not update that reaction. Try again.');
+    } finally {
+      setReactionBusy(null);
+    }
+  }
+
+  function startReply(message: ChatMessage) {
+    if (message.child_message_id <= 0) return;
+    setReplyTo(message);
+    setActionFor(null);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+  }
+
+  async function sendMedia(kind: 'image' | 'video') {
+    if (!session || !peerId || mediaUploading || sending) return;
+    if (!online) {
+      setSendError('You are offline. Reconnect to send media.');
+      return;
+    }
+    try {
+      const picked = await pickGalleryMedia(kind);
+      if (!picked) return;
+      validateMediaIdentity(picked.fileName, picked.mimeType);
+      const sizeBytes = picked.fileSize && picked.fileSize > 0 ? picked.fileSize : localMediaSize(picked.uri);
+      const extension = picked.fileName.includes('.') ? picked.fileName.split('.').pop()?.toLowerCase() : undefined;
+
+      setMediaUploading(true);
+      setMediaProgress(0);
+      setSendError('');
+      setInfo('');
+
+      const upload = await requestChatUploadSession(session.token, peerId, {
+        mediaType: kind === 'image' ? 'IMAGE' : 'VIDEO',
+        filename: picked.fileName,
+        sizeBytes,
+        mimeType: picked.mimeType,
+        extension,
+      });
+
+      await putFileToSignedUrl(upload.upload_url, picked.uri, upload.required_headers, {
+        onProgress: (sent, total) => {
+          if (total > 0) setMediaProgress(Math.max(0, Math.min(1, sent / total)));
+        },
+      });
+
+      const result = await completeChatUpload(session.token, peerId, upload.upload_id);
+      await load('refresh');
+      setInfo(
+        result.status === 'REVIEW'
+          ? 'Your media is waiting for a parent safety review. Only you can see it for now.'
+          : 'Media sent safely.',
+      );
+    } catch (err) {
+      setSendError(err instanceof ApiError && err.code.includes('blocked')
+        ? 'That media could not be sent because it did not pass LittleMuse safety checks.'
+        : err instanceof Error ? err.message : 'Could not send media. Try again.');
+    } finally {
+      setMediaUploading(false);
+      setMediaProgress(0);
+    }
+  }
+
+  function openAttachmentPicker() {
+    if (mediaUploading || sending) return;
+    Alert.alert(
+      'Send media',
+      'Photos and videos are safety-checked before your friend can see them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Photo', onPress: () => void sendMedia('image') },
+        { text: 'Video', onPress: () => void sendMedia('video') },
+      ],
+    );
   }
 
   useEffect(() => {
@@ -400,9 +505,37 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
             // The bubble itself, without the timestamp-toggle wrapper: shared
             // posts already contain their own "View shared post" button, so
             // they must not be nested inside another button for screen readers.
+            const reactionEntries = Object.entries(m.reactions ?? {}).filter(([, count]) => Number(count) > 0);
+            const replyLabel = m.reply_message_text
+              || (m.reply_message_type === 'SHARED_POST' ? 'Shared post' : m.reply_message_type ? String(m.reply_message_type).toLowerCase() : '');
             const bubble = (
               <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubblePeer]}>
-                {m.message_type === 'SHARED_POST' ? (
+                {m.reply_to_message_id ? (
+                  <View style={[styles.replyPreview, isOwn && styles.replyPreviewOwn]}>
+                    <Feather name="corner-up-left" size={12} color={isOwn ? 'rgba(255,255,255,0.8)' : colors.muted} />
+                    <Text style={[styles.replyPreviewText, isOwn && styles.replyPreviewTextOwn]} numberOfLines={2}>
+                      {replyLabel || 'Original message'}
+                    </Text>
+                  </View>
+                ) : null}
+                {m.message_type === 'IMAGE' && m.media_url ? (
+                  <Image
+                    source={{ uri: m.media_url }}
+                    style={styles.chatImage}
+                    resizeMode="cover"
+                    accessibilityLabel="Photo message"
+                  />
+                ) : m.message_type === 'VIDEO' && m.media_url ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Play video message"
+                    onPress={() => setVideoModalUri(m.media_url ?? null)}
+                    style={styles.chatVideoCard}
+                  >
+                    <Feather name="play-circle" size={34} color={isOwn ? '#FFFFFF' : colors.brand} />
+                    <Text style={[styles.msg, isOwn && styles.msgOwn]}>Video message · tap to play</Text>
+                  </Pressable>
+                ) : m.message_type === 'SHARED_POST' ? (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="View shared post"
@@ -427,16 +560,70 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
             return (
               <View style={[styles.row, isOwn && styles.rowOwn]}>
                 {m.message_type === 'SHARED_POST' ? (
-                  bubble
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Shared post message actions"
+                    accessibilityHint="Long press for reply and reactions"
+                    onLongPress={() => {
+                      if (!pending && m.child_message_id > 0) setActionFor(actionFor === m.child_message_id ? null : m.child_message_id);
+                    }}
+                  >
+                    {bubble}
+                  </Pressable>
                 ) : (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={showTime ? 'Hide message time' : 'Show message time'}
+                    accessibilityHint="Long press for reply and reactions"
                     onPress={() => setShowTimeFor(showTime ? null : m.child_message_id)}
+                    onLongPress={() => {
+                      if (!pending && m.child_message_id > 0) setActionFor(actionFor === m.child_message_id ? null : m.child_message_id);
+                    }}
                   >
                     {bubble}
                   </Pressable>
                 )}
+                {reactionEntries.length ? (
+                  <View style={[styles.reactionSummary, isOwn && styles.reactionSummaryOwn]}>
+                    {reactionEntries.map(([emoji, count]) => (
+                      <Pressable
+                        key={emoji}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${emoji} reaction, ${count}`}
+                        disabled={reactionBusy === m.child_message_id}
+                        onPress={() => void toggleMessageReaction(m, emoji)}
+                        style={[styles.reactionChip, m.viewer_reaction === emoji && styles.reactionChipActive]}
+                      >
+                        <Text style={styles.reactionChipText}>{emoji} {Number(count)}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                {actionFor === m.child_message_id ? (
+                  <View style={[styles.messageActions, isOwn && styles.messageActionsOwn]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Reply to message"
+                      onPress={() => startReply(m)}
+                      style={styles.messageActionButton}
+                    >
+                      <Feather name="corner-up-left" size={15} color={colors.ink} />
+                      <Text style={styles.messageActionText}>Reply</Text>
+                    </Pressable>
+                    {MESSAGE_REACTION_EMOJIS.map((emoji) => (
+                      <Pressable
+                        key={emoji}
+                        accessibilityRole="button"
+                        accessibilityLabel={`React ${emoji}`}
+                        disabled={reactionBusy === m.child_message_id}
+                        onPress={() => void toggleMessageReaction(m, emoji)}
+                        style={styles.emojiAction}
+                      >
+                        <Text style={styles.emojiActionText}>{emoji}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 {showTime ? <Text style={[styles.timeLabel, isOwn && styles.timeLabelOwn]}>{timeLabel(m.sent_at)}</Text> : null}
                 {pending ? (
                   <View style={styles.pendingBadge}>
@@ -451,7 +638,44 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
             );
           }}
         />
+        {mediaUploading ? (
+          <View style={styles.mediaProgressRow}>
+            <Feather name="shield" size={14} color={colors.brand} />
+            <Text style={styles.mediaProgressText}>
+              Uploading for safety check… {Math.round(mediaProgress * 100)}%
+            </Text>
+          </View>
+        ) : null}
+
+        {replyTo ? (
+          <View style={styles.replyComposer}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.replyComposerTitle}>Replying to {replyTo.sender_child_id === ownId ? 'yourself' : peerName}</Text>
+              <Text style={styles.replyComposerText} numberOfLines={1}>
+                {replyTo.message_text || (replyTo.message_type === 'SHARED_POST' ? 'Shared post' : 'Message')}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel reply"
+              hitSlop={8}
+              onPress={() => setReplyTo(null)}
+            >
+              <Feather name="x" size={18} color={colors.muted} />
+            </Pressable>
+          </View>
+        ) : null}
         <View style={styles.inputRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Attach photo or video"
+            accessibilityState={{ disabled: mediaUploading || sending || !online }}
+            disabled={mediaUploading || sending || !online}
+            onPress={openAttachmentPicker}
+            style={[styles.attachButton, (mediaUploading || sending || !online) && styles.sendButtonDisabled]}
+          >
+            <Feather name="plus" size={20} color={colors.brand} />
+          </Pressable>
           <TextInput
             style={styles.chatInput}
             value={text}
@@ -476,6 +700,28 @@ export function ChatScreen({ route, navigation }: ChildScreenProps<'Chat'>) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <Modal
+        visible={Boolean(videoModalUri)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setVideoModalUri(null)}
+      >
+        <View style={styles.videoModalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close video"
+            onPress={() => setVideoModalUri(null)}
+            style={styles.videoModalClose}
+          >
+            <Feather name="x" size={22} color="#FFFFFF" />
+          </Pressable>
+          {videoModalUri ? (
+            <View style={styles.videoModalContent}>
+              <VideoMedia source={videoModalUri} active height={420} nativeControls />
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -554,6 +800,112 @@ const styles = StyleSheet.create({
   seenLabel: { fontSize: 11, color: colors.muted, marginTop: 3, marginRight: 4, fontWeight: '600' },
   sharedCard: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedText: { textDecorationLine: 'underline' },
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#A3A3A3',
+    paddingLeft: 8,
+    marginBottom: 7,
+    maxWidth: 220,
+  },
+  replyPreviewOwn: { borderLeftColor: 'rgba(255,255,255,0.7)' },
+  replyPreviewText: { flex: 1, color: colors.muted, fontSize: 12, fontWeight: '700' },
+  replyPreviewTextOwn: { color: 'rgba(255,255,255,0.78)' },
+  reactionSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3, marginLeft: 4 },
+  reactionSummaryOwn: { justifyContent: 'flex-end', marginLeft: 0, marginRight: 4 },
+  reactionChip: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  reactionChipActive: { borderColor: colors.brand, backgroundColor: '#EEF2FF' },
+  reactionChipText: { fontSize: 12, color: colors.ink, fontWeight: '700' },
+  messageActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  messageActionsOwn: { alignSelf: 'flex-end' },
+  messageActionButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 },
+  messageActionText: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  emojiAction: { paddingHorizontal: 3, paddingVertical: 3 },
+  emojiActionText: { fontSize: 18 },
+  replyComposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: '#F8FAFC',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.brand,
+  },
+  replyComposerTitle: { color: colors.brand, fontSize: 12, fontWeight: '800' },
+  replyComposerText: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  chatImage: { width: 220, height: 220, borderRadius: 14, backgroundColor: '#E5E7EB' },
+  chatVideoCard: {
+    width: 220,
+    minHeight: 120,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    padding: 14,
+  },
+  mediaProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#EEF2FF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E7FF',
+  },
+  mediaProgressText: { color: colors.brand, fontSize: 12, fontWeight: '800' },
+  attachButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+  },
+  videoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  videoModalClose: {
+    position: 'absolute',
+    top: 52,
+    right: 20,
+    zIndex: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoModalContent: { width: '100%', maxWidth: 560 },
   typingBubble: {
     flexDirection: 'row',
     alignItems: 'center',

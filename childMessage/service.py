@@ -34,16 +34,41 @@ def messages(cid, viewer, limit=None, before_id=None, after_id=None):
     except (TypeError, ValueError):
         safe_limit = 100
     rows = fetch_all(
-        """SELECT m.*, u.full_name
+        """SELECT m.*, u.full_name,
+                  rm.message_text AS reply_message_text,
+                  rm.message_type AS reply_message_type,
+                  rm.sender_child_id AS reply_sender_child_id,
+                  COALESCE(
+                    (SELECT jsonb_object_agg(grouped.emoji, grouped.n)
+                     FROM (
+                       SELECT mr.emoji, COUNT(*)::int AS n
+                       FROM message_reactions mr
+                       WHERE mr.message_id=m.child_message_id
+                       GROUP BY mr.emoji
+                     ) grouped),
+                    '{}'::jsonb
+                  ) AS reactions,
+                  (SELECT mr2.emoji
+                   FROM message_reactions mr2
+                   WHERE mr2.message_id=m.child_message_id AND mr2.child_id=%s
+                   LIMIT 1) AS viewer_reaction
            FROM child_messages m
            JOIN users u ON u.user_id = m.sender_child_id
+           LEFT JOIN child_messages rm
+             ON rm.child_message_id=m.reply_to_message_id
+            AND rm.conversation_id=m.conversation_id
+            AND rm.is_deleted=FALSE
+            AND rm.moderation_status='ALLOWED'
            WHERE m.conversation_id = %s AND m.is_deleted = FALSE
-             AND (m.moderation_status = 'ALLOWED' OR m.sender_child_id = %s)
+             AND (
+               m.moderation_status = 'ALLOWED'
+               OR (m.sender_child_id = %s AND m.moderation_status = 'REVIEW')
+             )
              AND (%s::bigint IS NULL OR m.child_message_id < %s::bigint)
              AND (%s::bigint IS NULL OR m.child_message_id > %s::bigint)
            ORDER BY m.sent_at DESC, m.child_message_id DESC
            LIMIT %s""",
-        (cid, viewer, before_id, before_id, after_id, after_id, safe_limit),
+        (viewer, cid, viewer, before_id, before_id, after_id, after_id, safe_limit),
     )
     return list(reversed(rows))
 
