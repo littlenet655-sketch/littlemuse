@@ -298,14 +298,15 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       if (!entry.isViewable) continue;
       const item = entry.item as FeedItem | undefined;
       if (!item) continue;
-      if (!session?.token || !feed.sessionId) continue;
+      const itemSessionId = item.feed_session_id ?? feed.sessionId;
+      if (!session?.token || !itemSessionId) continue;
       const sourceId = Number(item.source_id ?? item.post_id ?? 0);
       if (!sourceId) continue;
       const key = feedKey(item);
       if (reportedViewsRef.current.has(key)) continue;
       reportedViewsRef.current.add(key);
       void recordFeedImpression(session.token, {
-        session_id: feed.sessionId,
+        session_id: itemSessionId,
         source_type: item.source_type ?? 'SOCIAL',
         source_id: sourceId,
         surface: 'FEED',

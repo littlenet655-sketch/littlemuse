@@ -5,6 +5,8 @@ export interface FeedItem {
   source_type: 'SOCIAL' | 'CURATED';
   source_id: number;
   post_id: number;
+  /** Session that authorized this exact item; required across refill sessions. */
+  feed_session_id?: string;
   full_name?: string;
   avatar_url?: string | null;
   media_type?: string;
@@ -42,8 +44,11 @@ export interface StoryItem {
 export interface FeedPage {
   ok: boolean;
   items: FeedItem[];
-  next_cursor: number;
+  next_cursor: number | null;
   has_more: boolean;
+  can_refill?: boolean;
+  exhaustion_reason?: 'SESSION_END' | 'NO_ELIGIBLE_CONTENT' | string | null;
+  total_in_session?: number;
   session_id: string;
 }
 
@@ -58,6 +63,7 @@ export function fetchFeedV2(
   sessionId?: string,
   modeOrSignal?: 'for_you' | 'friends' | 'learn' | AbortSignal,
   signal?: AbortSignal,
+  refillFrom?: string,
 ): Promise<FeedPage> {
   let mode: 'for_you' | 'friends' | 'learn' = 'for_you';
   let activeSignal = signal;
@@ -68,12 +74,21 @@ export function fetchFeedV2(
   }
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit), mode });
   if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
   return get<FeedPage>(`${routes.feedV2}?${p.toString()}`, token, activeSignal);
 }
 
-export function fetchReelsV2(token: string, cursor: number, limit = 10, sessionId?: string, signal?: AbortSignal): Promise<FeedPage> {
+export function fetchReelsV2(
+  token: string,
+  cursor: number,
+  limit = 10,
+  sessionId?: string,
+  signal?: AbortSignal,
+  refillFrom?: string,
+): Promise<FeedPage> {
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
   if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
   return apiRequest<FeedPage>(`${routes.reelsV2}?${p.toString()}`, {
     signal,
     timeoutMs: 30_000,

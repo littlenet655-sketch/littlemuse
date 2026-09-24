@@ -126,7 +126,7 @@ export class ReelMetricsTracker {
   toImpressionPayload(sessionId?: string): ImpressionEventPayload {
     const snap = this.getSnapshot();
     return {
-      session_id: sessionId,
+      session_id: sessionId ?? this.item.feed_session_id,
       source_type: snap.source_type,
       source_id: snap.source_id,
       surface: snap.surface,
