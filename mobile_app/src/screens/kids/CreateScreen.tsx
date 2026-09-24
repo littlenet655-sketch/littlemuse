@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Alert } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
@@ -92,12 +92,14 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const [tags, setTags] = useState('');
   const [location, setLocation] = useState('');
   const [contentCategory, setContentCategory] = useState('Other');
+  const [commentsEnabled, setCommentsEnabled] = useState(true);
   const homeQuery = useQuery({
     queryKey: [...kidsKeys.home, session?.token ?? 'signed-out'],
     enabled: Boolean(session?.token),
     queryFn: () => fetchKidsHome(session!.token),
     staleTime: 120_000,
   });
+  const parentAllowsComments = homeQuery.data?.controls?.allow_comments !== false;
   const allowedCategories = useMemo(() => {
     const source = homeQuery.data?.controls?.allowed_categories ?? ['Other'];
     const clean = source.filter((value) => typeof value === 'string' && value.trim().length > 0);
@@ -108,6 +110,10 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       setContentCategory(allowedCategories[0] ?? 'Other');
     }
   }, [allowedCategories, contentCategory]);
+  useEffect(() => {
+    if (kind === 'story' || !parentAllowsComments) setCommentsEnabled(false);
+    else setCommentsEnabled(true);
+  }, [kind, parentAllowsComments]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -278,6 +284,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
         contentCategory,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
         locationName: location.trim(),
+        commentsEnabled: kind !== 'story' && parentAllowsComments && commentsEnabled,
       });
       resetPipelineState();
       // Hand the local preview to the status screen; the authoritative
@@ -553,6 +560,28 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           onChangeText={setLocation}
           placeholder="Home, School, Art Class"
         />
+
+        {kind !== 'story' ? (
+          <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.line }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.ink, fontWeight: '800' }}>Allow comments</Text>
+                <Text style={{ color: colors.muted, marginTop: 3 }}>
+                  {parentAllowsComments
+                    ? 'Friends can leave safety-checked comments on this post.'
+                    : 'Your parent has turned social comments off.'}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Allow comments on this post"
+                value={parentAllowsComments && commentsEnabled}
+                disabled={!parentAllowsComments || busy}
+                onValueChange={setCommentsEnabled}
+                trackColor={{ true: colors.brand }}
+              />
+            </View>
+          </View>
+        ) : null}
       </Card>
       </View>
 
