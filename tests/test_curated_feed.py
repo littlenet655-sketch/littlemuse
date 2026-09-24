@@ -156,10 +156,12 @@ def test_curated_identity_is_hydrated_from_editorial_relation():
 
 
 def test_curated_creator_migration_uses_relational_creator_id():
-    migration = (ROOT / "db/migrations/20260924000002_curated_creators_engagement.sql").read_text(encoding="utf-8")
+    migration = (ROOT / "db/migrations/20260924000003_curated_creator_relational_alignment.sql").read_text(encoding="utf-8")
     service = (ROOT / "services/curated_feed.py").read_text(encoding="utf-8")
-    assert "creator_id BIGSERIAL PRIMARY KEY" in migration
-    assert "ADD COLUMN IF NOT EXISTS creator_id BIGINT REFERENCES curated_creators(creator_id)" in migration
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGSERIAL" in migration
+    assert "PRIMARY KEY (creator_id)" in migration
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGINT" in migration
+    assert "REFERENCES curated_creators(creator_id)" in migration
     assert "JOIN curated_creators cr ON cr.creator_id = cc.creator_id" in service
     assert "creator_payload" not in service
     assert '"creator_id": int(creator_id)' in service
