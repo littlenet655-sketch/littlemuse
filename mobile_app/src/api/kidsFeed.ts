@@ -34,14 +34,25 @@ export interface FeedItem {
   viewer_saved?: boolean;
 }
 
+export interface StoryMusic {
+  music_id?: number | null;
+  title: string;
+  artist: string;
+  audio_url?: string | null;
+  start_seconds?: number;
+  duration_seconds?: number;
+}
+
 export interface StoryItem {
   post_id: number;
+  child_id?: number;
   full_name?: string;
   avatar_url?: string | null;
   media_type?: string;
   media_url?: string | null;
   poster_url?: string | null;
   caption?: string;
+  story_music?: StoryMusic | null;
 }
 
 export interface FeedPage {
