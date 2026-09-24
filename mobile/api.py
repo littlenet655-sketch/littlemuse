@@ -3507,7 +3507,13 @@ def register_mobile_api(bp):
             viewer_reaction = emoji
             actor_name = g.mobile_user.get("full_name") or "A friend"
             notify(owner_id, "STORY_REACTION", f"{actor_name} reacted {emoji} to your story", f"/stories/{story_id}/", uid)
-            record_signal(uid, "SOCIAL", story_id, "STORY_REACTION")
+            record_signal(
+                uid,
+                "SOCIAL",
+                story_id,
+                "LIKE",
+                metadata={"interaction": "story_reaction", "emoji": emoji},
+            )
         rows = fetch_all(
             """SELECT emoji,COUNT(*) AS n
                FROM story_reactions WHERE story_id=%s
