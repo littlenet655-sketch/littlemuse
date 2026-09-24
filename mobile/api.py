@@ -323,6 +323,8 @@ def _post_json(row, viewer_id=None):
     out.pop("poster_path", None)
     out.pop("profile_picture", None)
     out.pop("story_music_path", None)
+    if "comments_enabled_effective" in out:
+        out["comments_enabled"] = bool(out.pop("comments_enabled_effective"))
     if viewer_id and out.get("post_id"):
         pid = int(out["post_id"])
         out["viewer_liked"] = bool(fetch_one("SELECT 1 FROM likes WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
