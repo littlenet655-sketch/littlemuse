@@ -18,6 +18,7 @@ from typing import Any
 
 from database.connection import execute, fetch_all, fetch_one, get_db_connection
 from services.controls import EDUCATIONAL_CATEGORIES, controls_for_child, effective_categories
+from services.curated_creators import creator_payload
 from services.request_cache import memo as _req_memo
 from services.social import _age_group, child_surface_open
 
@@ -62,12 +63,15 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
     """Normalize a curated_content row to the common LittleNet feed item format."""
     media_ref = row.get("delivery_object_key") or row.get("original_object_key") or ""
     poster_ref = row.get("poster_object_key") or row.get("thumbnail_object_key")
+    creator = creator_payload(row.get("creator_key"))
     return {
         "source_type": "CURATED",
         "source_id": int(row["content_id"]),
         "post_id": int(row["content_id"]),
-        "author_name": "LittleNet Learning",
-        "full_name": "LittleNet Learning",
+        "creator_key": creator["creator_key"],
+        "creator_username": creator["username"],
+        "author_name": creator["display_name"],
+        "full_name": creator["display_name"],
         "avatar_url": None,
         "media_type": str(row.get("media_type") or "IMAGE").upper(),
         "media_reference": media_ref,
@@ -84,15 +88,55 @@ def normalize_curated_item(row: dict[str, Any]) -> dict[str, Any]:
         "max_age": int(row.get("max_age") or 18),
         "is_safe": True,
         "moderation_status": "ALLOWED",
-        "likes": 0,
+        "likes": int(row.get("likes") or 0),
+        "viewer_liked": bool(row.get("viewer_liked", False)),
+        "viewer_saved": bool(row.get("viewer_saved", False)),
         "comments_count": 0,
+        "comments_enabled": False,
         "ranking_metadata": {
             "editorial_weight": float(row.get("editorial_weight") or 1.0),
             "published_at": str(row.get("published_at") or ""),
-            "author_name": "LittleNet Learning",
+            "author_name": creator["display_name"],
+            "creator_key": creator["creator_key"],
             "is_curated": True,
         },
     }
+
+
+def hydrate_curated_engagement(child_id: int, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach CURATED like/save state without ever touching social post tables."""
+    ids = sorted({int(item["source_id"]) for item in items if item.get("source_type") == "CURATED"})
+    if not ids:
+        return items
+    counts = fetch_all(
+        """SELECT source_id,COUNT(*) AS n FROM content_reactions
+           WHERE source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)
+           GROUP BY source_id""",
+        (ids,),
+    )
+    liked = fetch_all(
+        """SELECT source_id FROM content_reactions
+           WHERE child_id=%s AND source_type='CURATED' AND reaction_type='LIKE' AND source_id=ANY(%s)""",
+        (child_id, ids),
+    )
+    saved = fetch_all(
+        """SELECT source_id FROM content_saves
+           WHERE child_id=%s AND source_type='CURATED' AND source_id=ANY(%s)""",
+        (child_id, ids),
+    )
+    count_map = {int(row["source_id"]): int(row.get("n") or 0) for row in counts}
+    liked_ids = {int(row["source_id"]) for row in liked}
+    saved_ids = {int(row["source_id"]) for row in saved}
+    for item in items:
+        if item.get("source_type") != "CURATED":
+            continue
+        sid = int(item["source_id"])
+        item["likes"] = count_map.get(sid, 0)
+        item["viewer_liked"] = sid in liked_ids
+        item["viewer_saved"] = sid in saved_ids
+        item["comments_count"] = 0
+        item["comments_enabled"] = False
+    return items
 
 
 def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -162,7 +206,7 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
     # Strictly fail-closed: must be PUBLISHED, asset must be ALLOWED & is_safe=TRUE, category must be active
     rows = fetch_all(
         """SELECT 
-             cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
@@ -183,7 +227,7 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
            LIMIT %s""",
         (cats, is_reel, child_age, child_age, age_grp, age_grp, limit),
     )
-    return [normalize_curated_item(r) for r in rows]
+    return hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in rows])
 
 
 def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 60) -> list[dict[str, Any]]:
@@ -469,7 +513,7 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
     if curated_ids:
         c_rows = fetch_all(
             """SELECT 
-                 cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+                 cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
                  cc.is_reel, cc.editorial_weight, cc.published_at,
                  cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
                  cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
@@ -484,7 +528,8 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                  AND cma.is_safe = TRUE""",
             (curated_ids,),
         )
-        curated_map = {int(r["content_id"]): normalize_curated_item(r) for r in c_rows}
+        curated_items = hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in c_rows])
+        curated_map = {int(r["source_id"]): r for r in curated_items}
 
     social_map = {}
     if social_ids:
@@ -759,7 +804,7 @@ def search_curated_content(child_id: int, query: str, limit: int = 20) -> list[d
     pattern = f"%{cleaned}%"
     rows = fetch_all(
         """SELECT DISTINCT
-             cc.content_id, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
+             cc.content_id, cc.creator_key, cc.title, cc.caption, cc.audience_age_group, cc.min_age, cc.max_age,
              cc.is_reel, cc.editorial_weight, cc.published_at,
              cma.asset_id, cma.media_type, cma.delivery_object_key, cma.original_object_key,
              cma.poster_object_key, cma.thumbnail_object_key, cma.mime_type, cma.width, cma.height,
