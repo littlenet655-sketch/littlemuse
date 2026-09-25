@@ -122,40 +122,6 @@ type FeedTab = 'For You' | 'Friends' | 'Learn';
  * and every optimistic like/save, but the header subtree (stories tray, tabs)
  * only re-renders when its own inputs change.
  */
-/**
- * Polished voluntary quiz card shown at the top of the Learn section.
- * Children can practice age-tailored questions anytime without affecting Reel doom-scroll gates.
- */
-function QuizZoneCard({ onStart }: { onStart: () => void }) {
-  return (
-    <View style={styles.quizZoneCard} accessibilityRole="summary" accessibilityLabel="Quiz Zone">
-      <View style={styles.quizZoneContent}>
-        <View style={styles.quizZoneIconWrap}>
-          <Text style={styles.quizZoneEmoji}>🧠</Text>
-        </View>
-        <View style={styles.quizZoneTextWrap}>
-          <View style={styles.quizZoneBadge}>
-            <Text style={styles.quizZoneBadgeText}>AGE-BASED QUIZ</Text>
-          </View>
-          <Text style={styles.quizZoneTitle}>Quiz Zone</Text>
-          <Text style={styles.quizZoneSubtitle}>
-            Test yourself with a quiz made for your age. Earn XP whenever you want!
-          </Text>
-        </View>
-      </View>
-      <Pressable
-        style={({ pressed }) => [styles.quizZoneButton, pressed && styles.quizZoneButtonPressed]}
-        onPress={onStart}
-        accessibilityRole="button"
-        accessibilityLabel="Start Quiz"
-      >
-        <Feather name="play" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
-        <Text style={styles.quizZoneButtonText}>Start Quiz</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 const FeedListHeader = memo(function FeedListHeader({
   token,
   myId,
@@ -165,7 +131,6 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories,
   online,
   error,
-  onStartQuizZone,
 }: {
   token?: string;
   myId?: number;
@@ -175,7 +140,6 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories: (story?: TrayStory) => void;
   online: boolean;
   error: unknown;
-  onStartQuizZone?: () => void;
 }) {
   return (
     <>
@@ -196,7 +160,6 @@ const FeedListHeader = memo(function FeedListHeader({
       </View>
       <OfflineBanner online={online} />
       {error ? <GateNotice error={error} /> : null}
-      {tab === 'Learn' ? <QuizZoneCard onStart={() => onStartQuizZone?.()} /> : null}
     </>
   );
 });
@@ -376,7 +339,6 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       tab={tab}
       onTabChange={onTabChange}
       onOpenStories={onOpenStories}
-      onStartQuizZone={() => nav.navigate('Quiz', { returnTo: 'KidsTabs' })}
       online={online}
       error={feed.error}
     />
@@ -488,83 +450,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 280,
     lineHeight: 18,
-  },
-  quizZoneCard: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
-    padding: spacing.md,
-    borderRadius: 16,
-    backgroundColor: '#F0F9FF',
-    borderWidth: 1.5,
-    borderColor: '#BAE6FD',
-    shadowColor: '#0284C7',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  quizZoneContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  quizZoneIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  quizZoneEmoji: {
-    fontSize: 22,
-  },
-  quizZoneTextWrap: {
-    flex: 1,
-  },
-  quizZoneBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#E0F2FE',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  quizZoneBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#0284C7',
-    letterSpacing: 0.5,
-  },
-  quizZoneTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: colors.ink,
-    letterSpacing: -0.3,
-    marginBottom: 2,
-  },
-  quizZoneSubtitle: {
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 18,
-  },
-  quizZoneButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.brand,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
-    borderRadius: 12,
-  },
-  quizZoneButtonPressed: {
-    opacity: 0.85,
-  },
-  quizZoneButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
   },
 });

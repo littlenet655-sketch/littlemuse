@@ -188,10 +188,15 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     resetToTop();
   }, [kind, resetToTop]);
 
-  // When search term materially changes: reset to top
+  // When search term materially changes: reset to top. When a brand-new
+  // search starts (empty -> non-empty), jump to the People tab so username
+  // matches are visible immediately instead of the posts grid.
   const prevDebouncedRef = useRef(debounced);
   useEffect(() => {
     if (prevDebouncedRef.current !== debounced) {
+      if (!prevDebouncedRef.current.trim() && debounced.trim()) {
+        setKind('People');
+      }
       prevDebouncedRef.current = debounced;
       resetToTop();
     }

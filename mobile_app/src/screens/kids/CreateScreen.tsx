@@ -625,7 +625,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
             <Pressable
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel="Change the selected media"
+              accessibilityLabel="Retake or choose a different photo or video"
               onPress={() => {
                 setMedia(null);
                 resetPipelineState();
@@ -634,7 +634,10 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
               }}
               style={styles.changeBtn}
             >
-              <Text style={styles.changeBtnText}>Change</Text>
+              <View style={styles.changeBtnContent}>
+                <Feather name="camera" size={13} color={colors.brand} />
+                <Text style={styles.changeBtnText}>Retake / Choose different</Text>
+              </View>
             </Pressable>
           </View>
         </Card>
@@ -1110,6 +1113,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 12,
     backgroundColor: '#F2F2F2',
+  },
+  changeBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   changeBtnText: {
     fontSize: 12,

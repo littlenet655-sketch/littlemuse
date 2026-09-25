@@ -514,7 +514,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const handleLike = useCallback(async (item: FeedItem) => {
     if (!session) return;
     const target = engagementTarget(item);
-    if (!target) return;
+    if (!target) {
+      Alert.alert('Could not like', 'This reel cannot be liked right now. Please try another one.');
+      return;
+    }
     const { sourceType, sourceId } = target;
     const busyKey = `${sourceType}:${sourceId}:like`;
     if (toggleBusyRef.current.has(busyKey)) return;
@@ -539,7 +542,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.liked, result.likes));
       if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
     } catch {
-      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
+      // Roll the optimistic like back in place instead of a full refetch,
+      // so the feed does not flicker on a failed tap.
+      queryClient.setQueriesData<InfiniteData<FeedPage>>(
+        { queryKey: kidsKeys.reels },
+        (old) => update(old, item.viewer_liked ?? false, item.likes ?? 0),
+      );
+      Alert.alert('Could not like', 'Your like could not be saved. Check your connection and try again.');
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
@@ -548,7 +557,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const handleSave = useCallback(async (item: FeedItem) => {
     if (!session) return;
     const target = engagementTarget(item);
-    if (!target) return;
+    if (!target) {
+      Alert.alert('Could not save', 'This reel cannot be saved right now. Please try another one.');
+      return;
+    }
     const { sourceType, sourceId } = target;
     const busyKey = `${sourceType}:${sourceId}:save`;
     if (toggleBusyRef.current.has(busyKey)) return;
@@ -572,7 +584,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.saved));
       if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
     } catch {
-      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
+      // Roll the optimistic save back in place instead of a full refetch,
+      // so the feed does not flicker on a failed tap.
+      queryClient.setQueriesData<InfiniteData<FeedPage>>(
+        { queryKey: kidsKeys.reels },
+        (old) => update(old, item.viewer_saved ?? false),
+      );
+      Alert.alert('Could not save', 'Your save could not be recorded. Check your connection and try again.');
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
