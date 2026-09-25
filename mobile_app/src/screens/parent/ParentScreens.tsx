@@ -489,19 +489,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           </View>
         </View>
 
-        {/* Bottom Guidance Card */}
-        <View style={styles.bottomCtaCard}>
-          <View style={styles.bottomCtaHeader}>
-            <View style={styles.bottomCtaIconWrap}>
-              <Feather name="shield" size={20} color="#0284C7" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.bottomCtaTitle}>Independent Child Safekeeping</Text>
-              <Text style={styles.bottomCtaSub}>Every child profile has distinct content filters, friendship gates, and daily limits</Text>
-            </View>
-          </View>
-          <Button label="+ Add Child Profile" onPress={() => navigation.navigate('CreateChild')} />
-        </View>
       </RefreshingScroll>
     </Screen>
   );
