@@ -343,6 +343,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             icon="users"
             iconColor="#2563EB"
             bgTone="#EFF6FF"
+            onPress={() => navigation.navigate('Children')}
           />
           <Metric
             value={reviews ? `${reviews} Open` : '0 Open'}
@@ -351,6 +352,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             iconColor={reviews ? '#DC2626' : '#059669'}
             bgTone={reviews ? '#FEF2F2' : '#ECFDF5'}
             tone={reviews ? 'alert' : 'normal'}
+            onPress={() => navigation.navigate('ParentSafety')}
           />
           <Metric
             value={String(unreadAlerts)}
@@ -358,6 +360,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             icon="bell"
             iconColor="#7C3AED"
             bgTone="#F5F3FF"
+            onPress={() => navigation.navigate('ParentNotifications')}
           />
         </View>
 
@@ -411,20 +414,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
                 />
               ))}
 
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate('CreateChild')}
-                style={styles.addChildCard}
-              >
-                <View style={styles.addChildCardPlusWrap}>
-                  <Feather name="user-plus" size={18} color={colors.brand} />
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.addChildCardTitle}>Add Another Child Account</Text>
-                  <Text style={styles.addChildCardSub}>Set up individualized AI boundaries and daily screen allowances</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color="#9CA3AF" />
-              </Pressable>
             </>
           ) : (
             <Card>
@@ -500,19 +489,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           </View>
         </View>
 
-        {/* Bottom Guidance Card */}
-        <View style={styles.bottomCtaCard}>
-          <View style={styles.bottomCtaHeader}>
-            <View style={styles.bottomCtaIconWrap}>
-              <Feather name="shield" size={20} color="#0284C7" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.bottomCtaTitle}>Independent Child Safekeeping</Text>
-              <Text style={styles.bottomCtaSub}>Every child profile has distinct content filters, friendship gates, and daily limits</Text>
-            </View>
-          </View>
-          <Button label="+ Add Child Profile" onPress={() => navigation.navigate('CreateChild')} />
-        </View>
       </RefreshingScroll>
     </Screen>
   );
@@ -600,6 +576,7 @@ function Metric({
   iconColor,
   bgTone = '#FFFFFF',
   tone = 'normal',
+  onPress,
 }: {
   value: string;
   label: string;
@@ -607,9 +584,15 @@ function Metric({
   iconColor: string;
   bgTone?: string;
   tone?: 'normal' | 'alert';
+  onPress?: () => void;
 }) {
   return (
-    <View style={[styles.metric, { backgroundColor: bgTone }, tone === 'alert' && styles.metricAlert]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[styles.metric, { backgroundColor: bgTone }, tone === 'alert' && styles.metricAlert]}
+    >
       <View style={styles.metricTop}>
         <View style={[styles.metricIconWrap, { backgroundColor: `${iconColor}15` }]}>
           <Feather name={icon} size={16} color={iconColor} />
@@ -617,7 +600,7 @@ function Metric({
         <Text style={[styles.metricValue, tone === 'alert' && styles.metricValueAlert]}>{value}</Text>
       </View>
       <Text style={styles.metricLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -2106,6 +2089,7 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
 
   const rows = [...(query.data?.events ?? []), ...moreEvents];
   const recentPartners = query.data?.recent_chat_partners ?? [];
+  const likedSaved = query.data?.liked_saved ?? [];
   const canLoadMoreActivity = moreHasMore ?? query.data?.has_more ?? false;
 
   return (
@@ -2143,6 +2127,31 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
                 ))}
               </Card>
             ) : null}
+            <Card>
+              <Text style={styles.rowTitle}>Liked & saved</Text>
+              <Text style={styles.muted}>Posts and reels your child has liked or saved. Content itself stays private.</Text>
+              {likedSaved.length ? (
+                likedSaved.map((item) => (
+                  <View key={item.log_id} style={[styles.rowBetween, { marginTop: spacing.md }]}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      <View style={styles.activityIconBubble}>
+                        <Feather name={item.action === 'liked' ? 'heart' : 'bookmark'} size={16} color="#7C3AED" />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.rowTitle}>
+                          {item.action === 'liked' ? 'Liked' : 'Saved'}
+                          {item.target_label ? ` · ${item.target_label}` : ''}
+                        </Text>
+                        <Text style={styles.muted}>{item.target_type === 'CURATED' ? 'Curated reel' : 'Post'}</Text>
+                      </View>
+                    </View>
+                    <TimeAgo value={item.created_at} />
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.muted, { marginTop: spacing.sm }]}>Nothing liked or saved yet.</Text>
+              )}
+            </Card>
           </>
         }
         ListEmptyComponent={
@@ -2342,40 +2351,6 @@ export function ParentSettingsScreen(_props: ParentScreenProps<'ParentSettings'>
             <View style={styles.adminChip}>
               <Feather name="shield" size={11} color="#2563EB" />
               <Text style={styles.adminChipText}>Verified</Text>
-            </View>
-          </View>
-        </Card>
-
-        {/* Security Architecture Card */}
-        <Text style={styles.sectionHeaderLabelStandalone}>SECURITY & ENVIRONMENT</Text>
-        <Card>
-          <View style={styles.settingsSecItem}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#EFF6FF' }]}>
-              <Feather name="server" size={16} color="#2563EB" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Server-Enforced Safety</Text>
-              <Text style={styles.settingsSecSub}>All child time limits and filters are enforced in the cloud</Text>
-            </View>
-          </View>
-
-          <View style={styles.settingsSecItem}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#ECFDF5' }]}>
-              <Feather name="lock" size={16} color="#059669" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Multi-Device Invalidation</Text>
-              <Text style={styles.settingsSecSub}>Active token and multi-device revocation</Text>
-            </View>
-          </View>
-
-          <View style={[styles.settingsSecItem, { borderBottomWidth: 0 }]}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#FDF2F8' }]}>
-              <Feather name="users" size={16} color="#DB2777" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Dual-Consent Friendships</Text>
-              <Text style={styles.settingsSecSub}>Two parents must approve before child chatting is enabled</Text>
             </View>
           </View>
         </Card>

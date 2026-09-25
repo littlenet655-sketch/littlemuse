@@ -216,7 +216,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 onPress={() => nav.navigate('Connections', { mode: 'followers' })}
               >
                 <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
-                <Text style={styles.statLabel}>Classmates</Text>
+                <Text style={styles.statLabel}>Followers</Text>
               </Pressable>
               <View style={styles.statItem}>
                 <Text style={styles.statNum}>{Number(counts.following ?? 0)}</Text>

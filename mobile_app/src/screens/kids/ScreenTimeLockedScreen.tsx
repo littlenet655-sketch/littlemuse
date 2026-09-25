@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchKidsTimeLimitStatus, resetKidsTimeLimitSelf, sendHeartbeat } from '../../api/kidsFeed';
-import { resetsDisplayState } from '../../navigation/gates';
+import { fetchKidsTimeLimitStatus, sendHeartbeat } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { colors, radius, spacing } from '../../ui/tokens';
 
@@ -24,10 +23,6 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [checking, setChecking] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [resetsRemaining, setResetsRemaining] = useState<number | null>(null);
-  const [resetsUsed, setResetsUsed] = useState<number>(0);
-  const [resetsUnreachable, setResetsUnreachable] = useState(false);
   const isQuiet = lockType === 'quiet_hours';
 
   useEffect(() => {
@@ -37,43 +32,17 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
       try {
         const res = await fetchKidsTimeLimitStatus(session.token);
         if (cancelled) return;
-        setResetsRemaining(res.resets_remaining);
-        setResetsUsed(res.resets_used);
-        setResetsUnreachable(false);
         if (!res.locked) {
           onUnlock();
         }
       } catch {
-        // Server is authoritative: never guess a reset count offline. The
-        // card stays disabled and explains the outage instead.
-        if (!cancelled) setResetsUnreachable(true);
+        // Server is authoritative: a failed status check leaves the lock screen up.
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [session?.token, isQuiet, onUnlock]);
-
-  async function handleKidSelfReset() {
-    if (!session?.token) return;
-    setResetting(true);
-    try {
-      const res = await resetKidsTimeLimitSelf(session.token);
-      setResetsRemaining(res.resets_remaining);
-      setResetsUsed(res.resets_used);
-      setResetsUnreachable(false);
-      Alert.alert(
-        'Unlocked! 🎉',
-        `Your screen time has been reset! You have ${res.resets_remaining} self-reset(s) left today. Have fun and remember to take kind breaks.`,
-        [{ text: 'Continue to LittleNet', onPress: onUnlock }],
-      );
-    } catch (err: any) {
-      const msg = err?.message || 'Could not reset time. You may have already used your 2 daily resets.';
-      Alert.alert('Reset Not Available', msg);
-    } finally {
-      setResetting(false);
-    }
-  }
 
   async function handleCheckForTime() {
     if (!session?.token) return;
@@ -86,14 +55,11 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
         ]);
         return;
       }
-      if (typeof res.self_resets_remaining === 'number') {
-        setResetsRemaining(res.self_resets_remaining);
-      }
       Alert.alert(
         'Still Resting ⏳',
         isQuiet
           ? 'Quiet hours are still active for bedtime. Check back tomorrow morning!'
-          : 'Your daily screen-time limit is still reached. You can use your self-reset (if available) or ask your parent in Parent Controls.',
+          : 'Your daily screen-time limit is still reached. Ask your parent in Parent Controls for more time.',
         [{ text: 'OK' }],
       );
     } catch {
@@ -113,10 +79,6 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
       ],
     );
   }
-
-  const resetsState = resetsDisplayState(resetsRemaining);
-  const canSelfReset = !isQuiet && resetsState === 'available';
-  const selfResetsExhausted = !isQuiet && resetsState === 'exhausted';
 
   return (
     <View style={[styles.container, isQuiet ? styles.quietBg : styles.screenTimeBg]}>
@@ -156,63 +118,6 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
             : "You've reached your daily screen-time limit. Taking breaks keeps our eyes and minds healthy and fresh."}
         </Text>
 
-        {/* Kid Self-Reset Feature Card */}
-        {!isQuiet && (
-          <View style={styles.selfResetCard}>
-            <View style={styles.selfResetTopRow}>
-              <View style={styles.selfResetBadge}>
-                <Feather name="zap" size={14} color="#D97706" />
-                <Text style={styles.selfResetBadgeText}>DAILY SELF-RESETS</Text>
-              </View>
-              <Text style={styles.selfResetCountText}>
-                {resetsRemaining !== null ? `${resetsRemaining}/2 Left Today` : 'Checking resets…'}
-              </Text>
-            </View>
-
-            {resetsUnreachable ? (
-              <View style={styles.exhaustedBox}>
-                <Feather name="wifi-off" size={16} color="#B45309" />
-                <Text style={[styles.exhaustedText, { color: '#92400E' }]}>
-                  Couldn't reach LittleNet to check your remaining resets. Reconnect and tap "Check if Parent Added Time".
-                </Text>
-              </View>
-            ) : null}
-
-            {canSelfReset ? (
-              <>
-                <Text style={styles.selfResetDescription}>
-                  You are allowed to reset your screen-time limit up to 2 times per day on your own!
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.selfResetBtn, pressed && styles.btnPressed]}
-                  onPress={() => void handleKidSelfReset()}
-                  disabled={resetting}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reset my screen time"
-                >
-                  {resetting ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <>
-                      <Feather name="rotate-ccw" size={16} color="#FFFFFF" />
-                      <Text style={styles.selfResetBtnText}>
-                        Reset My Time Now ({resetsRemaining} left)
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-              </>
-            ) : selfResetsExhausted ? (
-              <View style={styles.exhaustedBox}>
-                <Feather name="alert-circle" size={16} color="#DC2626" />
-                <Text style={styles.exhaustedText}>
-                  You have used all 2 self-resets for today. Please ask your parent to add more time.
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        )}
-
         {/* Offline Activities Suggestions */}
         <View style={styles.offlineSection}>
           <Text style={styles.offlineHeader}>FUN THINGS TO DO OFFLINE 🎨</Text>
@@ -235,7 +140,6 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
-                selfResetsExhausted && styles.primaryBtnHighlight,
                 pressed && styles.btnPressed,
               ]}
               onPress={handleAskParent}

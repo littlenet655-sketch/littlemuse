@@ -9,10 +9,11 @@ function text(relative: string): string {
   return fs.readFileSync(path.join(root, relative), 'utf8');
 }
 
-test('normal Feed has Quiz Zone but no compulsory marker lock', () => {
+test('Learn tab has no pinned Quiz Zone card (quizzes surface randomly between reels)', () => {
   const feed = text('src/screens/kids/FeedScreen.tsx');
-  assert.match(feed, /Quiz Zone/);
-  assert.match(feed, /Start Quiz/);
+  assert.doesNotMatch(feed, /Quiz Zone/);
+  assert.doesNotMatch(feed, /QuizZoneCard/);
+  assert.doesNotMatch(feed, /onStartQuizZone/);
   assert.doesNotMatch(feed, /withQuizBreaks\(visibleItems/);
   assert.doesNotMatch(feed, /scrollEnabled=\{!quizLocked\}/);
 });
