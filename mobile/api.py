@@ -2818,10 +2818,14 @@ def register_mobile_api(bp):
                 "UPDATE upload_sessions SET status='CONSUMED', consumed_at=NOW() WHERE upload_id=%s",
                 (upload_id,),
             )
-            conn.commit()
-
+            # Tags must persist on the SAME cursor BEFORE conn.commit(): a tag
+            # failure after the commit would strand a committed post with its
+            # upload consumed and moderation never dispatched (the client would
+            # see "Checking privately..." forever). Inside this transaction the
+            # failure rolls back the post row and the CONSUMED mark together.
             if validated_tags:
-                save_post_tags(post_id, validated_tags)
+                save_post_tags(post_id, validated_tags, cur)
+            conn.commit()
         except Exception:
             conn.rollback()
             raise

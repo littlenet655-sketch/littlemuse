@@ -125,3 +125,54 @@ def test_failed_write_is_not_replayed(monkeypatch):
     assert cursor.executed == [('INSERT INTO events(value) VALUES(%s)', ('once',))]
     raw.rollback.assert_called_once_with()
     raw.close.assert_called_once_with()
+
+
+def test_pool_exhaustion_fails_closed_without_direct_connect(monkeypatch):
+    """Pool checkout raising (exhausted) must never fall back to psycopg2.connect.
+
+    The old code caught every exception from the pool path and opened an
+    unrestricted direct connection, silently bypassing DB_POOL_MAX_CONNECTIONS.
+    """
+    from psycopg2.pool import PoolError
+
+    class ExplodingPool:
+        def getconn(self):
+            raise PoolError("connection pool exhausted")
+
+    monkeypatch.setattr(connection, "_get_pool", lambda: ExplodingPool())
+
+    import psycopg2
+
+    connect_calls = []
+    real_connect = psycopg2.connect
+
+    def _spy_connect(*args, **kwargs):
+        connect_calls.append((args, kwargs))
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(psycopg2, "connect", _spy_connect)
+
+    with pytest.raises(connection.PoolExhaustedError, match="pool exhausted"):
+        connection.get_db_connection()
+
+    assert connect_calls == [], "must not bypass the pool with a direct connection"
+
+
+def test_repeated_validation_failure_raises_pool_exhausted(monkeypatch):
+    """Two failed checkouts/validations raise instead of opening a direct connection."""
+    import psycopg2
+
+    connect_calls = []
+    monkeypatch.setattr(psycopg2, "connect", lambda *a, **k: connect_calls.append((a, k)))
+
+    broken1 = FakeConnection(validation_error=OperationalError("server gone"))
+    broken2 = FakeConnection(validation_error=OperationalError("server gone"))
+    pool = FakePool(broken1, broken2)
+    monkeypatch.setattr(connection, "_get_pool", lambda: pool)
+    connection.reset_pool_metrics()  # clear validation cache so both conns are validated
+
+    with pytest.raises(connection.PoolExhaustedError, match="failed validation"):
+        connection.get_db_connection()
+
+    assert connect_calls == []
+    assert pool.discarded == [broken1, broken2]
