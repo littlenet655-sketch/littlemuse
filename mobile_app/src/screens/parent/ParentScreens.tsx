@@ -2089,6 +2089,7 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
 
   const rows = [...(query.data?.events ?? []), ...moreEvents];
   const recentPartners = query.data?.recent_chat_partners ?? [];
+  const likedSaved = query.data?.liked_saved ?? [];
   const canLoadMoreActivity = moreHasMore ?? query.data?.has_more ?? false;
 
   return (
@@ -2126,6 +2127,31 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
                 ))}
               </Card>
             ) : null}
+            <Card>
+              <Text style={styles.rowTitle}>Liked & saved</Text>
+              <Text style={styles.muted}>Posts and reels your child has liked or saved. Content itself stays private.</Text>
+              {likedSaved.length ? (
+                likedSaved.map((item) => (
+                  <View key={item.log_id} style={[styles.rowBetween, { marginTop: spacing.md }]}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      <View style={styles.activityIconBubble}>
+                        <Feather name={item.action === 'liked' ? 'heart' : 'bookmark'} size={16} color="#7C3AED" />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.rowTitle}>
+                          {item.action === 'liked' ? 'Liked' : 'Saved'}
+                          {item.target_label ? ` · ${item.target_label}` : ''}
+                        </Text>
+                        <Text style={styles.muted}>{item.target_type === 'CURATED' ? 'Curated reel' : 'Post'}</Text>
+                      </View>
+                    </View>
+                    <TimeAgo value={item.created_at} />
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.muted, { marginTop: spacing.sm }]}>Nothing liked or saved yet.</Text>
+              )}
+            </Card>
           </>
         }
         ListEmptyComponent={

@@ -387,6 +387,91 @@ def _profile_json(row):
     out.pop("profile_picture", None)
     return _clean(out)
 
+
+_LIKE_SAVE_TYPES = (
+    "POST_LIKED", "POST_UNLIKED", "POST_SAVED", "POST_UNSAVED",
+    "CURATED_LIKED", "CURATED_UNLIKED", "CURATED_SAVED", "CURATED_UNSAVED",
+)
+_LIKE_SAVE_ACTIVE = {"POST_LIKED", "POST_SAVED", "CURATED_LIKED", "CURATED_SAVED"}
+
+
+def _liked_saved_snapshot(child_id, limit=30):
+    """Current liked/saved state per target for parent supervision.
+
+    Supervision metadata only: target type/id, the action, when it happened,
+    and a display label (post author's handle or curated content title).
+    Captions, message text, and media bytes are never exposed.
+    """
+    rows = fetch_all(
+        """SELECT DISTINCT ON ((activity_data->>'target_type'), (activity_data->>'target_id'))
+                  log_id, activity_type, activity_data, created_at
+           FROM activity_logs
+           WHERE child_id=%s AND activity_type IN
+               ('POST_LIKED','POST_UNLIKED','POST_SAVED','POST_UNSAVED',
+                'CURATED_LIKED','CURATED_UNLIKED','CURATED_SAVED','CURATED_UNSAVED')
+           ORDER BY (activity_data->>'target_type'), (activity_data->>'target_id'), log_id DESC""",
+        (child_id,),
+    ) or []
+    # Defensive: keep only the newest row per target even if DISTINCT ON is bypassed.
+    newest = {}
+    for r in rows:
+        data = r.get("activity_data") or {}
+        key = (data.get("target_type"), str(data.get("target_id")))
+        if key not in newest or r["log_id"] > newest[key]["log_id"]:
+            newest[key] = r
+    latest = [r for r in newest.values() if r["activity_type"] in _LIKE_SAVE_ACTIVE]
+    latest.sort(key=lambda r: r["created_at"], reverse=True)
+    latest = latest[:limit]
+    parsed = []
+    post_ids, curated_ids = [], []
+    for r in latest:
+        data = r.get("activity_data") or {}
+        try:
+            tid = int(data.get("target_id"))
+        except (TypeError, ValueError):
+            continue
+        ttype = data.get("target_type")
+        if ttype == "POST":
+            post_ids.append(tid)
+        elif ttype == "CURATED":
+            curated_ids.append(tid)
+        else:
+            continue
+        parsed.append((r, ttype, tid))
+    authors = {}
+    if post_ids:
+        for prow in fetch_all(
+            "SELECT p.post_id, u.username, u.full_name FROM posts p "
+            "JOIN users u ON u.user_id=p.child_id WHERE p.post_id = ANY(%s)",
+            (post_ids,),
+        ) or []:
+            authors[prow["post_id"]] = prow["username"] or prow["full_name"] or "friend"
+    titles = {}
+    if curated_ids:
+        for crow in fetch_all(
+            "SELECT content_id, title FROM curated_content WHERE content_id = ANY(%s)",
+            (curated_ids,),
+        ) or []:
+            titles[crow["content_id"]] = crow["title"]
+    out = []
+    for r, ttype, tid in parsed:
+        action = "liked" if r["activity_type"].endswith("_LIKED") else "saved"
+        label = None
+        if ttype == "POST" and tid in authors:
+            label = "Post by @" + str(authors[tid])
+        elif ttype == "CURATED" and tid in titles:
+            label = str(titles[tid])
+        out.append({
+            "log_id": r["log_id"],
+            "activity_type": r["activity_type"],
+            "action": action,
+            "target_type": ttype,
+            "target_id": tid,
+            "target_label": label,
+            "created_at": r["created_at"],
+        })
+    return out
+
 def _post_json(row, viewer_id=None):
     if not row:
         return None
@@ -2088,9 +2173,11 @@ def register_mobile_api(bp):
         if exists:
             execute("DELETE FROM likes WHERE post_id=%s AND child_id=%s", (post_id, uid))
             liked = False
+            log(uid, "POST_UNLIKED", {"target_type": "POST", "target_id": post_id})
         else:
             execute("INSERT INTO likes(post_id,child_id) VALUES(%s,%s)", (post_id, uid))
             liked = True
+            log(uid, "POST_LIKED", {"target_type": "POST", "target_id": post_id})
             record_signal(uid, "SOCIAL", post_id, "LIKE")
             owner_id = post["child_id"]
             if owner_id != uid and can_interact(owner_id, uid):
@@ -2118,9 +2205,11 @@ def register_mobile_api(bp):
         if exists:
             execute("DELETE FROM saved_posts WHERE child_id=%s AND post_id=%s", (uid, post_id))
             saved = False
+            log(uid, "POST_UNSAVED", {"target_type": "POST", "target_id": post_id})
         else:
             execute("INSERT INTO saved_posts(child_id,post_id) VALUES(%s,%s) ON CONFLICT DO NOTHING", (uid, post_id))
             saved = True
+            log(uid, "POST_SAVED", {"target_type": "POST", "target_id": post_id})
             record_signal(uid, "SOCIAL", post_id, "SAVE")
         return jsonify(ok=True, saved=saved)
 
@@ -3599,6 +3688,7 @@ def register_mobile_api(bp):
             has_more=has_more,
             next_cursor=next_cursor,
             recent_chat_partners=partners,
+            liked_saved=_clean(_liked_saved_snapshot(child_id)),
         )
 
     @bp.route("/api/mobile/v1/admin/dashboard")
@@ -4115,6 +4205,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 liked = False
+                log(uid, "CURATED_UNLIKED", {"target_type": "CURATED", "target_id": source_id})
             else:
                 execute(
                     """INSERT INTO content_reactions(child_id,source_type,source_id,reaction_type)
@@ -4122,6 +4213,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 liked = True
+                log(uid, "CURATED_LIKED", {"target_type": "CURATED", "target_id": source_id})
                 record_signal(uid, "CURATED", source_id, "LIKE")
             row = fetch_one(
                 """SELECT COUNT(*) AS n FROM content_reactions
@@ -4141,6 +4233,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 saved = False
+                log(uid, "CURATED_UNSAVED", {"target_type": "CURATED", "target_id": source_id})
             else:
                 execute(
                     """INSERT INTO content_saves(child_id,source_type,source_id)
@@ -4148,6 +4241,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 saved = True
+                log(uid, "CURATED_SAVED", {"target_type": "CURATED", "target_id": source_id})
                 record_signal(uid, "CURATED", source_id, "SAVE")
             return jsonify(ok=True, source_type="CURATED", source_id=source_id, saved=saved)
 

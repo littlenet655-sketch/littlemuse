@@ -102,6 +102,16 @@ export interface ActivityEvent {
   created_at?: string;
 }
 
+export interface LikedSavedItem {
+  log_id: number;
+  activity_type: string;
+  action: 'liked' | 'saved';
+  target_type: 'POST' | 'CURATED';
+  target_id: number;
+  target_label?: string;
+  created_at?: string;
+}
+
 export interface RecentChatPartner {
   child_id: number;
   full_name?: string;
@@ -185,7 +195,7 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
   return apiRequest(routes.parentNotifications, body({}), token);
 }
 
-export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[] }> {
+export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[]; liked_saved: LikedSavedItem[] }> {
   const params = new URLSearchParams();
   if (beforeId) params.set('before_id', String(beforeId));
   if (limit !== 30) params.set('limit', String(limit));
