@@ -51,15 +51,16 @@ export function resetsDisplayState(resetsRemaining: number | null): ResetsDispla
 
 /**
  * Reactive child route from authoritative gates.
- * Order: quiz -> home. Unknown/missing onboarding ALWAYS fails closed to
- * Quiz: a stale cached flag must never bypass unknown onboarding state.
+ * Order: quiz -> home. Unknown/missing onboarding FAILS OPEN to the current
+ * route (defect C1/C2): no quiz may block app launch or Home entry. A known
+ * quiz_required=true (periodic feed latch) still routes to Quiz.
  */
 export function resolveChildRoute(
   onboarding: OnboardingState | null | undefined,
   _fallbackQuizRequired: boolean,
   current: ChildRoute = 'KidsTabs',
 ): ChildRoute {
-  if (!onboarding) return 'Quiz';
+  if (!onboarding) return current;
   if (onboarding.quiz_required) return 'Quiz';
   return current === 'Quiz' ? 'KidsTabs' : current;
 }

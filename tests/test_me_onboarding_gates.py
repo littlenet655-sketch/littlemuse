@@ -76,11 +76,14 @@ def test_me_child_no_quiz_gates_clear(client):
     assert "face_required" not in payload["onboarding"]
 
 
-def test_me_child_with_onboarding_quiz(client):
+def test_me_child_onboarding_quiz_no_longer_gates(client):
+    # Defect C1/C2: the mandatory onboarding quiz was removed. Even when
+    # needs_onboarding_quiz() is true, it must not set quiz_required —
+    # only the periodic feed latch (feed_quiz_state) gates Kids Mode.
     with _ctx(202, "CHILD", onboarding_quiz=True):
         res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
     assert res.status_code == 200
-    assert res.get_json()["onboarding"] == {"quiz_required": True}
+    assert res.get_json()["onboarding"] == {"quiz_required": False}
 
 
 def test_me_child_with_feed_quiz(client):

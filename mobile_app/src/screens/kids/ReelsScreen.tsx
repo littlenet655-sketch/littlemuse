@@ -19,7 +19,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
 import { ApiError } from '../../api/client';
 import { submitRecommendationAction } from '../../api/recommendation';
-import { recordCuratedShare, submitReport, toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
+import { submitReport, toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { engagementTarget, feedKey, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
 import { useFeed } from '../../kids/useFeed';
@@ -605,11 +605,8 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       if (post) nav.navigate('PostDetail', { ...post, openShare: true });
       return;
     }
-    try {
-      await recordCuratedShare(session.token, target.sourceId);
-    } catch {
-      // Analytics failure does not relax the child sharing boundary.
-    }
+    // Curated reels cannot leave the app: show the boundary notice without
+    // recording a share, since no share actually happened.
     Alert.alert(
       'Sharing stays inside LittleMuse',
       'Curated learning reels cannot be sent through unrestricted external apps from a child account. Save it to revisit it safely.',

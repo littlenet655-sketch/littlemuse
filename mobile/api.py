@@ -30,6 +30,8 @@ from auth.password_reset import (
 from auth.service import login_user
 from child.service import (
     can_discover_child,
+    cancel_outgoing_follow,
+    child_has_guardian,
     counts,
     create_child_profile,
     discoverable_child_ids,
@@ -37,8 +39,10 @@ from child.service import (
     follow_child,
     get_child_profile,
     get_random_children,
+    incoming_follow_pending,
     is_follow_pending,
     is_following,
+    outgoing_follow_pending,
     profile_exists,
     replace_profile_tags,
     unfollow_child,
@@ -324,9 +328,14 @@ def _require_mobile(*roles):
     return decorator
 
 def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
-    """Authoritative gate state: only the onboarding quiz gates Kids Mode."""
+    """Authoritative gate state: only the periodic feed quiz latch gates Kids Mode.
+
+    The mandatory onboarding quiz was removed (defect C1/C2); needs_onboarding_quiz()
+    no longer contributes here. It remains in use for non-gating purposes
+    (quiz-page defaults, discoverability in services/social.py).
+    """
     if quiz_state is None:
-        quiz_state = {"required": bool(feed_quiz_state(uid).get("required") or needs_onboarding_quiz(uid))}
+        quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
     return {"quiz_required": bool(quiz_state.get("required"))}
 
 def _kid_self_resets_today(child_id: int) -> int:
@@ -338,9 +347,6 @@ def _kid_self_resets_today(child_id: int) -> int:
 
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
-    if needs_onboarding_quiz(uid):
-
-        return jsonify(error="onboarding_quiz_required", gate="quiz"), 428
     if feature and not feature_allowed(uid, feature):
         return jsonify(error="disabled_by_parent", feature=feature), 403
     quiet = quiet_hours_state(uid)
@@ -533,7 +539,7 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
         if quiz_state is None:
             q_state = feed_quiz_state(uid)
             quiz_state = {
-                "required": bool(q_state.get("required") or needs_onboarding_quiz(uid)),
+                "required": bool(q_state.get("required")),
                 "posts_seen": int(q_state.get("posts_seen", 0)),
                 "interval": int(q_state.get("interval", 5)),
                 "next_quiz_threshold": int(q_state.get("next_quiz_threshold", 5)),
@@ -567,7 +573,7 @@ def _mobile_login_response(user, method="PASSWORD"):
         uid = int(user["user_id"])
         qs = feed_quiz_state(uid)
         quiz_state = {
-            "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+            "required": bool(qs.get("required")),
             "posts_seen": int(qs.get("posts_seen", 0)),
             "interval": int(qs.get("interval", 5)),
             "next_quiz_threshold": int(qs.get("next_quiz_threshold", 5)),
@@ -1350,7 +1356,7 @@ def register_mobile_api(bp):
             uid = int(g.mobile_user["user_id"])
             qs = feed_quiz_state(uid)
             quiz_state = {
-                "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+                "required": bool(qs.get("required")),
                 "posts_seen": int(qs.get("posts_seen", 0)),
                 "interval": int(qs.get("interval", 4)),
             }
@@ -2057,12 +2063,27 @@ def register_mobile_api(bp):
             return jsonify(error="self_follow"), 400
         if not can_discover_child(uid, child_id):
             return jsonify(error="child_unavailable"), 404
-        if is_following(uid, child_id) or is_follow_pending(uid, child_id):
+        if is_following(uid, child_id):
+            # Active friendship: unfollowing removes both directions.
             unfollow_child(uid, child_id)
             return jsonify(ok=True, status="removed")
+        if outgoing_follow_pending(uid, child_id):
+            # Cancel MY request. Unwinds trigger-generated handshake rows, but
+            # never deletes their genuine incoming request.
+            cancel_outgoing_follow(uid, child_id)
+            return jsonify(ok=True, status="cancelled")
+        if not child_has_guardian(child_id):
+            # Nobody on the other side can ever approve: refuse now instead of
+            # creating a request that deadlocks at RECEIVER_PARENT_PENDING.
+            return jsonify(error="target_has_no_guardian",
+                           message="This user can't receive follow requests right now."), 400
+        # Follow back is a fresh outgoing request of mine; their incoming
+        # request is left untouched for their parent to approve.
         follow_child(uid, child_id)
         record_signal(uid, "CREATOR", child_id, "FOLLOW")
         parent_notify(uid, "FOLLOW_REQUEST", "A new connection request needs approval", "/parent/follow-requests/")
+        if incoming_follow_pending(uid, child_id):
+            return jsonify(ok=True, status="follow_back_pending")
         return jsonify(ok=True, status="pending")
 
     @bp.route("/api/mobile/v1/kids/connections")

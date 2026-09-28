@@ -2,7 +2,7 @@ from flask import Blueprint,render_template,request,redirect,session,jsonify
 from extensions import limiter
 from decorators import parent_required
 from parent.service import children,owns,pending_follows
-from database.connection import fetch_one,fetch_all,execute,get_db_connection
+from database.connection import fetch_one,fetch_all,execute,execute_count,get_db_connection
 from services.usage import minutes_today, online_state
 from services.social import notify
 from services.behavior import behavior_summary
@@ -164,9 +164,12 @@ def follow_action():
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
     action=request.form.get('action')
-    if action=='approve':execute('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
-    elif action=='reject':execute('DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
+    if action=='approve':changed=execute_count('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
+    elif action=='reject':changed=execute_count('DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
     else:return jsonify(error='invalid action'),400
+    if not changed:
+        # Stale or already-handled request: say so instead of redirecting silently.
+        return redirect('/parent/follow-requests/?error=request_not_found')
     return redirect('/parent/follow-requests/')
 @parent_bp.route('/parent/time-limit/',methods=['GET','POST'])
 @parent_required
@@ -316,7 +319,10 @@ def behavior():
 def activity():
     kids=children(session['user_id']);cid=int(request.args.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
-    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s ORDER BY created_at DESC LIMIT 100',(cid,)),child_id=cid)
+    # Same liked/saved snapshot the mobile ParentActivityScreen shows; lazy
+    # import keeps the web blueprint free of mobile-api import-order coupling.
+    from mobile.api import _liked_saved_snapshot
+    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s ORDER BY created_at DESC LIMIT 100',(cid,)),liked_saved=_liked_saved_snapshot(cid),child_id=cid)
 
 @parent_bp.route('/parent/child/<int:child_id>/')
 @parent_required

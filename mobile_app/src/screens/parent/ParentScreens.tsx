@@ -373,15 +373,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
                 <Text style={styles.sectionCountText}>{children.length}</Text>
               </View>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('CreateChild')}
-              hitSlop={8}
-              style={styles.addInlineButton}
-            >
-              <Feather name="plus" size={13} color={colors.brand} />
-              <Text style={styles.addInlineText}>Add Child</Text>
-            </Pressable>
           </View>
 
           {dashboard.isPending ? (
@@ -693,20 +684,6 @@ export function ParentChildrenScreen({ navigation }: ParentScreenProps<'Children
                 onActivity={() => navigation.navigate('ParentActivity', { childId: child.user_id })}
               />
             ))}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('CreateChild')}
-              style={styles.addChildCard}
-            >
-              <View style={styles.addChildCardPlusWrap}>
-                <Feather name="user-plus" size={18} color={colors.brand} />
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.addChildCardTitle}>Add Another Child</Text>
-                <Text style={styles.addChildCardSub}>Configure individual safety shields and screen limits</Text>
-              </View>
-              <Feather name="chevron-right" size={18} color="#9CA3AF" />
-            </Pressable>
           </>
         ) : (
           <Card>
@@ -1911,6 +1888,12 @@ export function ParentFollowRequestsScreen(_props: ParentScreenProps<'FollowRequ
         client.invalidateQueries({ queryKey: parentKeys.dashboard }),
       ]);
     },
+    onError: () => {
+      Alert.alert(
+        'Could not update',
+        'This request may already have been handled. Pull to refresh and try again.',
+      );
+    },
   });
   const rows = query.data?.pending ?? [];
 
@@ -2407,22 +2390,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   sectionCountText: { color: '#2563EB', fontSize: 10, fontWeight: '800' },
-  addInlineButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  addInlineText: {
-    color: colors.brand,
-    fontWeight: '800',
-    fontSize: 12,
-  },
   parentWelcomeBanner: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
@@ -2697,29 +2664,6 @@ const styles = StyleSheet.create({
   quickActionText: { color: '#334155', fontSize: 11, fontWeight: '700' },
   cardChevronWrap: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 2 },
   detailsPromptText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
-  addChildCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    borderStyle: 'dashed',
-    borderRadius: 18,
-    padding: 14,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  addChildCardPlusWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addChildCardTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
-  addChildCardSub: { fontSize: 11, color: colors.muted, marginTop: 2 },
   emptyChildContainer: {
     alignItems: 'center',
     paddingVertical: spacing.sm,

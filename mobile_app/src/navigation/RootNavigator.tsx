@@ -92,7 +92,7 @@ function ChildGateSync() {
         const index = state?.index ?? 0;
         const current = state?.routes[index]?.name as keyof ChildStackParamList | undefined;
         if (!current) return;
-        const target = resolveChildRoute(session?.onboarding, session?.user.quiz_required ?? true, current);
+        const target = resolveChildRoute(session?.onboarding, session?.user.quiz_required ?? false, current);
         if (current === target) return;
         navigation.reset({
           index: 0,
@@ -117,7 +117,7 @@ function ChildNavigator() {
 
   const initialRoute = resolveChildRoute(
     session?.onboarding,
-    session?.user.quiz_required ?? true,
+    session?.user.quiz_required ?? false,
     'KidsTabs',
   );
 

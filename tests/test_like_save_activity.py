@@ -81,10 +81,30 @@ def parent_user_row(user_id=PARENT_ID):
     }
 
 
+class StatementCapture:
+    """Stands in for database.connection.execute: records every statement the
+    code issues instead of hitting a database. Lets tests prove the persistence
+    INSERTs/DELETEs actually fire (a regression deleting them fails)."""
+
+    def __init__(self):
+        self.statements = []
+
+    def __call__(self, sql, params=()):
+        self.statements.append((sql, params))
+        return None
+
+    def has(self, fragment, params=None):
+        for sql, p in self.statements:
+            if fragment in sql and (params is None or tuple(p) == tuple(params)):
+                return True
+        return False
+
+
 def test_like_and_unlike_log_rows(client):
     """Like writes POST_LIKED; unlike writes POST_UNLIKED. Metadata only, child from session."""
     state = {"liked": False}
     calls = []
+    capture = StatementCapture()
 
     def fetch_one_router(sql, params=()):
         if "FROM users WHERE user_id" in sql:
@@ -98,14 +118,9 @@ def test_like_and_unlike_log_rows(client):
     def fake_log(child_id, activity_type, data=None):
         calls.append((child_id, activity_type, data or {}))
 
-    patches = [
-        patch("mobile.api._child_gate", return_value=None),
-        patch("mobile.api.post_visible_to", return_value={"post_id": POST_ID, "child_id": 303}),
-        patch("mobile.api.can_interact", return_value=True),
-    ]
     with patch("mobile.api._mobile_token_revoked", return_value=False), \
          patch("mobile.api.fetch_one", side_effect=fetch_one_router), \
-         patch("mobile.api.execute", return_value=None), \
+         patch("mobile.api.execute", side_effect=capture), \
          patch("mobile.api.log", side_effect=fake_log), \
          patch("mobile.api.record_signal"), \
          patch("mobile.api.notify"), \
@@ -120,6 +135,9 @@ def test_like_and_unlike_log_rows(client):
 
     assert calls[0] == (CHILD_ID, "POST_LIKED", {"target_type": "POST", "target_id": POST_ID})
     assert calls[1] == (CHILD_ID, "POST_UNLIKED", {"target_type": "POST", "target_id": POST_ID})
+    # persistence actually issued: the like INSERT and the unlike DELETE hit the DB layer
+    assert capture.has("INSERT INTO likes", (POST_ID, CHILD_ID))
+    assert capture.has("DELETE FROM likes", (POST_ID, CHILD_ID))
     # metadata only: no captions, no media bytes; child comes from the session
     for logged_child, _atype, data in calls:
         assert set(data.keys()) == {"target_type", "target_id"}
@@ -129,6 +147,7 @@ def test_like_and_unlike_log_rows(client):
 def test_save_and_unsave_log_rows(client):
     state = {"saved": False}
     calls = []
+    capture = StatementCapture()
 
     def fetch_one_router(sql, params=()):
         if "FROM users WHERE user_id" in sql:
@@ -142,7 +161,7 @@ def test_save_and_unsave_log_rows(client):
 
     with patch("mobile.api._mobile_token_revoked", return_value=False), \
          patch("mobile.api.fetch_one", side_effect=fetch_one_router), \
-         patch("mobile.api.execute", return_value=None), \
+         patch("mobile.api.execute", side_effect=capture), \
          patch("mobile.api.log", side_effect=fake_log), \
          patch("mobile.api.record_signal"), \
          patch("mobile.api._child_gate", return_value=None), \
@@ -155,10 +174,14 @@ def test_save_and_unsave_log_rows(client):
 
     assert calls[0] == (CHILD_ID, "POST_SAVED", {"target_type": "POST", "target_id": POST_ID})
     assert calls[1] == (CHILD_ID, "POST_UNSAVED", {"target_type": "POST", "target_id": POST_ID})
+    # persistence actually issued: the save INSERT and the unsave DELETE hit the DB layer
+    assert capture.has("INSERT INTO saved_posts", (CHILD_ID, POST_ID))
+    assert capture.has("DELETE FROM saved_posts", (CHILD_ID, POST_ID))
 
 
 def test_curated_like_and_save_log_rows(client):
     calls = []
+    capture = StatementCapture()
 
     def fetch_one_router(sql, params=()):
         if "FROM users WHERE user_id" in sql:
@@ -172,7 +195,7 @@ def test_curated_like_and_save_log_rows(client):
 
     with patch("mobile.api._mobile_token_revoked", return_value=False), \
          patch("mobile.api.fetch_one", side_effect=fetch_one_router), \
-         patch("mobile.api.execute", return_value=None), \
+         patch("mobile.api.execute", side_effect=capture), \
          patch("mobile.api.log", side_effect=fake_log), \
          patch("mobile.api.record_signal"), \
          patch("mobile.api._child_gate", return_value=None), \
@@ -188,10 +211,14 @@ def test_curated_like_and_save_log_rows(client):
 
     assert calls[0] == (CHILD_ID, "CURATED_LIKED", {"target_type": "CURATED", "target_id": CURATED_ID})
     assert calls[1] == (CHILD_ID, "CURATED_SAVED", {"target_type": "CURATED", "target_id": CURATED_ID})
+    # persistence actually issued for both curated tables
+    assert capture.has("INSERT INTO content_reactions")
+    assert capture.has("INSERT INTO content_saves")
 
 
 def test_curated_unlike_and_unsave_log_rows(client):
     calls = []
+    capture = StatementCapture()
 
     def fetch_one_router(sql, params=()):
         if "FROM users WHERE user_id" in sql:
@@ -207,7 +234,7 @@ def test_curated_unlike_and_unsave_log_rows(client):
 
     with patch("mobile.api._mobile_token_revoked", return_value=False), \
          patch("mobile.api.fetch_one", side_effect=fetch_one_router), \
-         patch("mobile.api.execute", return_value=None), \
+         patch("mobile.api.execute", side_effect=capture), \
          patch("mobile.api.log", side_effect=fake_log), \
          patch("mobile.api.record_signal"), \
          patch("mobile.api._child_gate", return_value=None), \
@@ -223,6 +250,9 @@ def test_curated_unlike_and_unsave_log_rows(client):
 
     assert calls[0] == (CHILD_ID, "CURATED_UNLIKED", {"target_type": "CURATED", "target_id": CURATED_ID})
     assert calls[1] == (CHILD_ID, "CURATED_UNSAVED", {"target_type": "CURATED", "target_id": CURATED_ID})
+    # persistence actually issued: the unlike/unsave DELETEs hit the DB layer
+    assert capture.has("DELETE FROM content_reactions")
+    assert capture.has("DELETE FROM content_saves")
 
 
 def test_parent_activity_gate_blocks_other_parents_child(client):
@@ -236,36 +266,47 @@ def test_parent_activity_gate_blocks_other_parents_child(client):
 
 
 def test_parent_activity_returns_liked_saved_for_own_child(client):
-    snapshot = [
+    # Exercise the REAL _liked_saved_snapshot (not a canned patch): the DB
+    # layer (fetch_all) is stubbed, but the snapshot logic — DISTINCT ON
+    # parsing, latest-state-per-target, labels — runs for real.
+    rows = [
         {
             "log_id": 9,
             "activity_type": "POST_LIKED",
-            "action": "liked",
-            "target_type": "POST",
-            "target_id": POST_ID,
-            "target_label": "Post by @friend",
-            "created_at": "2026-09-25T10:00:00",
+            "activity_data": {"target_type": "POST", "target_id": POST_ID},
+            "created_at": datetime(2026, 9, 25, 10, 0),
         },
         {
             "log_id": 10,
             "activity_type": "CURATED_SAVED",
-            "action": "saved",
-            "target_type": "CURATED",
-            "target_id": CURATED_ID,
-            "target_label": "Ocean Wonders",
-            "created_at": "2026-09-25T11:00:00",
+            "activity_data": {"target_type": "CURATED", "target_id": CURATED_ID},
+            "created_at": datetime(2026, 9, 25, 11, 0),
         },
     ]
+
+    def fetch_all_router(sql, params=()):
+        if "DISTINCT ON" in sql:
+            return rows
+        if "FROM posts" in sql:
+            return [{"post_id": POST_ID, "username": "friend", "full_name": "Friend"}]
+        if "FROM curated_content" in sql:
+            return [{"content_id": CURATED_ID, "title": "Ocean Wonders"}]
+        # events page and chat-partner queries: empty
+        return []
+
     with patch("mobile.api._mobile_token_revoked", return_value=False), \
          patch("mobile.api.fetch_one", return_value=parent_user_row()), \
          patch("mobile.api.owns", return_value=True), \
-         patch("mobile.api.fetch_all", return_value=[]), \
-         patch("mobile.api._liked_saved_snapshot", return_value=snapshot):
+         patch("mobile.api.fetch_all", side_effect=fetch_all_router):
         response = client.get(f"/api/mobile/v1/parent/activity/{CHILD_ID}", headers=parent_headers())
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["liked_saved"] == snapshot
+    liked_saved = payload["liked_saved"]
+    assert len(liked_saved) == 2
+    by_action = {it["action"]: it for it in liked_saved}
+    assert by_action["liked"]["target_label"] == "Post by @friend"
+    assert by_action["saved"]["target_label"] == "Ocean Wonders"
     # existing shape untouched
     assert "events" in payload and "recent_chat_partners" in payload
 

@@ -7,7 +7,7 @@ import type { FeedItem, FeedPage } from '../api/kidsFeed';
 import { useAuth } from '../auth/AuthProvider';
 import { queryClient } from '../query/client';
 import { invalidateSocialCaches, kidsKeys } from '../query/keys';
-import { deletePost, recordCuratedShare, toggleCuratedLike, toggleCuratedSave, toggleLike, toggleSave } from '../api/kidsSocial';
+import { deletePost, toggleCuratedLike, toggleCuratedSave, toggleLike, toggleSave } from '../api/kidsSocial';
 import { engagementTarget, isPubliclyVisible, socialPostTarget } from './social';
 import { VideoMedia } from './VideoMedia';
 import { Avatar, StoryRing } from '../ui/social';
@@ -338,17 +338,14 @@ export function PostCard({
 
   async function onShare() {
     if (!session || !engagement) return;
-    const { sourceType, sourceId } = engagement;
+    const { sourceType } = engagement;
     if (sourceType === 'SOCIAL') {
       if (onControlledShare) onControlledShare();
       else Alert.alert('Sharing is protected', 'Open this post to send it only to an approved LittleMuse friend.');
       return;
     }
-    try {
-      await recordCuratedShare(session.token, sourceId);
-    } catch {
-      // Analytics failure does not change the safety boundary.
-    }
+    // Curated content cannot leave the app: show the boundary notice without
+    // recording a share, since no share actually happened.
     Alert.alert(
       'Sharing stays inside LittleMuse',
       'Curated learning content cannot be sent through unrestricted external apps from a child account. You can save it and revisit it safely here.',

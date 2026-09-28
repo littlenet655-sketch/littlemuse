@@ -85,13 +85,13 @@ describe('role-aware cold-start routing', () => {
     assert.equal(decideInitialRoute(session, { quiz_required: false }), 'child');
   });
 
-  it('unknown child onboarding fails closed to child_quiz regardless of cached quiz flag', async () => {
+  it('unknown child onboarding fails open to home (defect C1/C2)', async () => {
     const storage = memoryBackend();
     const staleQuiz = await persistSession(storage, loginResponse('CHILD', true));
-    assert.equal(decideInitialRoute(staleQuiz, null), 'child_quiz');
-    assert.equal(decideInitialRoute(staleQuiz, undefined), 'child_quiz');
+    assert.equal(decideInitialRoute(staleQuiz, null), 'child');
+    assert.equal(decideInitialRoute(staleQuiz, undefined), 'child');
     const staleClear = await persistSession(storage, loginResponse('CHILD', false));
-    assert.equal(decideInitialRoute(staleClear, null), 'child_quiz');
-    assert.equal(decideInitialRoute(staleClear, undefined), 'child_quiz');
+    assert.equal(decideInitialRoute(staleClear, null), 'child');
+    assert.equal(decideInitialRoute(staleClear, undefined), 'child');
   });
 });

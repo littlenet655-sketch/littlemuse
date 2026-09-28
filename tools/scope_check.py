@@ -9,7 +9,7 @@ checks = {
     'Messages/chat': ('childMessage/routes.py', '/messages/'),
     'Discover': ('child/routes.py', '/discover/'),
     'Parent email OTP gate': ('auth/routes.py', '/verify-parent-email/'),
-    'Mandatory age onboarding quiz': ('auth/api.py', '/quiz/start/?onboarding=1'),
+    'Voluntary quiz endpoint (mandatory onboarding gate removed per defect C1/C2)': ('quiz/routes.py', '/quiz/start/'),
     '18+ hard block': ('safety/policy.py', '18+ content hard blocked'),
     'NSFW visual moderation': ('safety/visual_service.py', 'Falconsai/nsfw_image_detection'),
     'YOLO object detection': ('safety/visual_service.py', 'from ultralytics import YOLO'),

@@ -34,11 +34,11 @@ describe('reactive child gate routing (quiz -> home)', () => {
     assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'KidsTabs');
   });
 
-  it('restart never bypasses an unknown gate (fails closed)', () => {
-    assert.equal(resolveChildRoute(null, false), 'Quiz');
-    assert.equal(resolveChildRoute(null, true), 'Quiz');
-    assert.equal(resolveChildRoute(undefined, false), 'Quiz');
-    assert.equal(resolveChildRoute(undefined, true), 'Quiz');
+  it('restart with unknown gate fails open to home (defect C1/C2)', () => {
+    assert.equal(resolveChildRoute(null, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(null, true), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, true), 'KidsTabs');
   });
 
   it('routes backend gates to their resolving screens', () => {

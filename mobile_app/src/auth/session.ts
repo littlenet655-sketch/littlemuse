@@ -86,14 +86,15 @@ export async function clearSession(storage: StorageBackend): Promise<void> {
 
 /**
  * Cold-start routing from a restored session plus authoritative gates.
- * For CHILD, unknown/missing onboarding ALWAYS fails closed to child_quiz:
- * a stale cached flag must never bypass unknown onboarding state.
+ * For CHILD, unknown/missing onboarding FAILS OPEN to the home stack
+ * (defect C1/C2): no quiz may block app launch. A known quiz_required=true
+ * (periodic feed latch) still routes to the quiz.
  */
 export function decideInitialRoute(session: PersistedSession | null, onboarding?: { quiz_required: boolean } | null): InitialRoute {
   if (!session) return 'auth';
   if (session.user.role === 'PARENT') return 'parent';
   if (session.user.role === 'ADMIN') return 'admin';
-  if (!onboarding) return 'child_quiz';
+  if (!onboarding) return 'child';
   if (onboarding.quiz_required) return 'child_quiz';
   return 'child';
 }

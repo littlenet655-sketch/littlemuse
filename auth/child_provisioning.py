@@ -131,7 +131,7 @@ def create_child_for_verified_parent(parent_id, form):
         cur.execute(
             """INSERT INTO activity_logs(child_id,activity_type,activity_data)
                VALUES(%s,'ACCOUNT_CREATED_BY_PARENT',%s::jsonb)""",
-            (child_id, '{"verified_parent":true,"onboarding_quiz_required":true}'),
+            (child_id, '{"verified_parent":true,"onboarding_quiz_required":false}'),
         )
         conn.commit()
     except Exception as exc:

@@ -40,6 +40,32 @@ def follow_child(a,b):
 def unfollow_child(a,b):
     execute('DELETE FROM followers WHERE (child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s)',(a,b,b,a))
 
+def outgoing_follow_pending(a,b):
+    """Directional: an unapproved follow request FROM a TO b (a's own request)."""
+    return bool(fetch_one('SELECT 1 FROM followers WHERE approved=FALSE AND child_id=%s AND following_child_id=%s LIMIT 1',(a,b)))
+
+def incoming_follow_pending(a,b):
+    """Directional: an unapproved follow request FROM b TO a (their request to me)."""
+    return outgoing_follow_pending(b,a)
+
+def cancel_outgoing_follow(a,b):
+    """Cancel a's own unapproved request to b.
+
+    Deletes only a's outgoing row plus trigger-generated handshake rows
+    (SENDER_PARENT_APPROVED/RECEIVER_PARENT_PENDING). Never deletes b's
+    genuine REQUESTED incoming request.
+    """
+    execute("""DELETE FROM followers WHERE approved=FALSE AND (
+        (child_id=%s AND following_child_id=%s)
+        OR (child_id=%s AND following_child_id=%s
+            AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING'))
+    )""",(a,b,b,a))
+
+def child_has_guardian(cid):
+    """True when the child has an approved parent/guardian who can approve requests."""
+    return bool(fetch_one("""SELECT 1 FROM parent_child_map
+        WHERE child_id=%s AND approved=TRUE AND approval_status='APPROVED' LIMIT 1""",(cid,)))
+
 
 def discoverable_child_ids(cid):
     """Return minors the viewer may discover, fresh on every HTTP request.
