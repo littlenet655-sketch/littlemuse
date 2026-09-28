@@ -166,7 +166,7 @@ def follow_action():
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
     action=request.form.get('action')
-    if action=='approve':changed=execute_count('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
+    if action=='approve':changed=execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')",(a,b))
     elif action=='reject':changed=execute_count("DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')))",(a,b,b,a))
     else:return jsonify(error='invalid action'),400
     if not changed:
