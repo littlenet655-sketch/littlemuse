@@ -7,7 +7,7 @@ from services.social import visible_posts,active_stories,notify,parent_notify,po
 from safety.moderation_service import evaluate,record,safety_level
 from safety.policy import decide
 from safety.visual_service import video_duration_seconds
-from quiz.service import bump
+from quiz.service import bump, quiz_due
 from services.audit import log
 from services.controls import SAFE_CATEGORIES, controls_for_child, effective_categories
 from extensions import limiter
@@ -99,7 +99,7 @@ def feed():
 @upload_bp.route('/reels/')
 @child_required
 def reels():
-    bump(session['user_id']);return render_template('reels.html',reels=visible_posts(session['user_id'],True,10,0))
+    bump(session['user_id']);return render_template('reels.html',reels=visible_posts(session['user_id'],True,10,0),quiz_due=quiz_due(session['user_id']))
 @upload_bp.route('/api/reels/')
 @child_required
 def api_reels():

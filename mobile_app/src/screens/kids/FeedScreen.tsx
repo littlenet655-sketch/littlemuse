@@ -189,6 +189,33 @@ const CaughtUpCard = memo(function CaughtUpCard() {
   );
 });
 
+/**
+ * Voluntary Safety Quiz entry point (defect follow-up: the old Quiz button was
+ * removed instead of repaired). Shown only at the top of the Learn tab — it
+ * opens the Quiz screen on demand and never blocks or forces anything.
+ */
+const QuizPromoCard = memo(function QuizPromoCard({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Open the safety quiz"
+      style={styles.quizPromoWrap}
+    >
+      <View style={styles.quizPromoIcon}>
+        <Feather name="award" size={22} color="#7C3AED" />
+      </View>
+      <View style={styles.quizPromoText}>
+        <Text style={styles.quizPromoTitle}>Safety Quiz</Text>
+        <Text style={styles.quizPromoSub}>
+          Sharpen your online safety skills — just for fun, never required.
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color="#9CA3AF" />
+    </Pressable>
+  );
+});
+
 const FeedRow = memo(function FeedRow({
   item,
   videoActive,
@@ -288,6 +315,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     setTab(next);
   }, []);
   const onOpenStories = useCallback((story?: TrayStory) => nav.navigate('Stories', story ? { initialStoryId: story.post_id, initialChildId: story.child_id } : {}), [nav]);
+  // Voluntary Quiz entry: opens the Quiz hub on demand, never gates anything.
+  const openQuiz = useCallback(() => nav.navigate('Quiz', {}), [nav]);
   // A deleted post vanishes from the local list immediately (server already
   // confirmed the soft-delete; cache invalidation happens in the card).
   const deletedItem = useCallback((item: FeedItem) => {
@@ -332,17 +361,20 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [session]);
 
   const listHeader = useMemo(() => (
-    <FeedListHeader
-      token={session?.token}
-      myId={session?.user.user_id}
-      myName={session?.user.full_name}
-      tab={tab}
-      onTabChange={onTabChange}
-      onOpenStories={onOpenStories}
-      online={online}
-      error={feed.error}
-    />
-  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error]);
+    <>
+      <FeedListHeader
+        token={session?.token}
+        myId={session?.user.user_id}
+        myName={session?.user.full_name}
+        tab={tab}
+        onTabChange={onTabChange}
+        onOpenStories={onOpenStories}
+        online={online}
+        error={feed.error}
+      />
+      {tab === 'Learn' ? <QuizPromoCard onPress={openQuiz} /> : null}
+    </>
+  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error, openQuiz]);
 
   const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     const key = feedKey(item);
@@ -451,4 +483,28 @@ const styles = StyleSheet.create({
     maxWidth: 280,
     lineHeight: 18,
   },
+  quizPromoWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+  },
+  quizPromoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quizPromoText: { flex: 1 },
+  quizPromoTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  quizPromoSub: { fontSize: 12, color: colors.muted, marginTop: 2, lineHeight: 16 },
 });

@@ -171,6 +171,32 @@ export function extendChildScreenTime(token: string, childId: number, additional
   return apiRequest(routes.parentExtendTimeLimit(childId), { method: 'POST', body: JSON.stringify({ additional_minutes: additionalMinutes }) }, token);
 }
 
+export interface PendingExtensionRequest {
+  request_id: number;
+  child_id: number;
+  child_name: string;
+  requested_minutes: number;
+  status: 'PENDING';
+  created_at: string;
+}
+
+export function fetchPendingExtensionRequests(token: string): Promise<{ ok: boolean; requests: PendingExtensionRequest[] }> {
+  return apiRequest(routes.parentExtensionRequests, {}, token);
+}
+
+export function decideExtensionRequest(
+  token: string,
+  requestId: number,
+  action: 'approve' | 'reject',
+  grantedMinutes?: number,
+): Promise<{ ok: boolean; message: string; granted_minutes?: number }> {
+  return apiRequest(
+    routes.parentExtensionRequestAction(requestId, action),
+    { method: 'POST', body: JSON.stringify(action === 'approve' && grantedMinutes != null ? { granted_minutes: grantedMinutes } : {}) },
+    token,
+  );
+}
+
 export function fetchParentSafety(token: string): Promise<{ ok: boolean; events: ReviewEvent[] }> {
   return apiRequest(routes.parentSafety, {}, token);
 }

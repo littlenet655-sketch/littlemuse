@@ -6,14 +6,16 @@ import { ApiError } from '../src/api/errors';
 import { validateResetInput } from '../src/auth/resetValidation';
 import { captureLivePhotoCore, CameraBlockedError, CameraCancelledError, CameraPermissionError } from '../src/camera/capture';
 
-describe('reactive child gate routing (quiz -> home)', () => {
-  it('orders gates quiz first, then home', () => {
-    assert.equal(childNextRoute(true), 'Quiz');
+describe('quiz latch is a nudge: routing never leaves the child', () => {
+  it('never routes to Quiz on a due quiz — the prompt card handles it', () => {
+    assert.equal(childNextRoute(true), 'KidsTabs');
     assert.equal(childNextRoute(false), 'KidsTabs');
   });
 
-  it('cold restore with quiz_required stays on Quiz', () => {
-    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'Quiz');
+  it('cold restore with quiz_required stays on the current route', () => {
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'KidsTabs'), 'KidsTabs');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'ReelsTab'), 'ReelsTab');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'KidsTabs');
   });
 
   it('preserves ungated product routes', () => {
@@ -24,15 +26,15 @@ describe('reactive child gate routing (quiz -> home)', () => {
     assert.equal(resolveChildRoute(clear, false, 'Chat'), 'Chat');
   });
 
-  it('forces active gates from every product route', () => {
+  it('never forces a due quiz out of any product route', () => {
     for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat'] as const) {
-      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), 'Quiz');
+      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), route);
     }
   });
 
-  it('enters the product once after a gate clears', () => {
+  it('stays on the voluntarily opened Quiz screen once the latch clears', () => {
     const clear = { quiz_required: false };
-    assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'KidsTabs');
+    assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'Quiz');
   });
 
   it('restart with unknown gate fails open to home (defect C1/C2)', () => {
@@ -42,8 +44,8 @@ describe('reactive child gate routing (quiz -> home)', () => {
     assert.equal(resolveChildRoute(undefined, true), 'KidsTabs');
   });
 
-  it('routes backend gates to their resolving screens', () => {
-    assert.equal(screenForGate('quiz'), 'Quiz');
+  it('quiz is not a route gate: no backend gate resolves to Quiz', () => {
+    assert.equal(screenForGate('quiz'), null);
     assert.equal(screenForGate('parent_verification'), 'OtpVerify');
     assert.equal(screenForGate('email_verification'), 'OtpVerify');
     assert.equal(screenForGate('quiet_hours'), null);
@@ -51,13 +53,13 @@ describe('reactive child gate routing (quiz -> home)', () => {
   });
 });
 
-describe('quiz completion gating (authoritative refresh)', () => {
-  it('proceeds only when the refresh confirms every gate clear', () => {
+describe('quiz completion signal (authoritative refresh)', () => {
+  it('proceeds only when the refresh confirms the quiz was counted', () => {
     assert.equal(shouldProceedAfterRefresh({ quiz_required: false }), true);
     assert.equal(shouldProceedAfterRefresh({ quiz_required: true }), false);
   });
 
-  it('never proceeds on unknown/failed refresh (stays gated with retry)', () => {
+  it('never proceeds on unknown/failed refresh (stays on the quiz screen with retry)', () => {
     assert.equal(shouldProceedAfterRefresh(null), false);
     assert.equal(shouldProceedAfterRefresh(undefined), false);
   });

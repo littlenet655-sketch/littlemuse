@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
 import { Feather } from '@expo/vector-icons';
 import {
+  decideExtensionRequest,
   extendChildScreenTime,
   fetchFollowRequests,
   fetchParentActivity,
@@ -11,6 +12,7 @@ import {
   fetchParentDashboard,
   fetchParentNotifications,
   fetchParentSafety,
+  fetchPendingExtensionRequests,
   fetchViewingInsights,
   markParentNotificationsRead,
   resetChildPassword,
@@ -23,6 +25,7 @@ import {
   type ParentChild,
   type ParentControls,
   type ParentNotification,
+  type PendingExtensionRequest,
   type ReviewPreview,
   type ViewingInsights,
 } from '../../api/parentAdmin';
@@ -1343,6 +1346,129 @@ function SelectChild({ children, onPick }: { children: ParentChild[]; onPick: (i
   );
 }
 
+/**
+ * Pending extra-time requests from the child (defect follow-up: child asks,
+ * parent decides). Approving writes a today-only bonus grant server-side;
+ * the grant is enforced by lock_state(), never by client math.
+ */
+function ExtensionRequestQueue({
+  token,
+  childId,
+  childName,
+}: {
+  token: string;
+  childId: number;
+  childName: string;
+}) {
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: parentKeys.extensionRequests,
+    queryFn: () => fetchPendingExtensionRequests(token),
+    enabled: Boolean(token),
+  });
+  const [grantMinutes, setGrantMinutes] = useState<Record<number, string>>({});
+  const decide = useMutation({
+    mutationFn: (p: { requestId: number; action: 'approve' | 'reject'; minutes?: number }) =>
+      decideExtensionRequest(token, p.requestId, p.action, p.minutes),
+    onSuccess: async (_data, vars) => {
+      await client.invalidateQueries({ queryKey: parentKeys.extensionRequests });
+      await client.invalidateQueries({ queryKey: parentKeys.dashboard });
+      if (vars.action === 'approve') {
+        Alert.alert(
+          'Time Granted! ✨',
+          `Added ${vars.minutes} bonus minutes for ${childName} — today only. Kids Mode unlocks now.`,
+        );
+      }
+    },
+    onError: (err) => {
+      Alert.alert('Request Failed', errorText(err));
+    },
+  });
+
+  const mine = (query.data?.requests ?? []).filter((r) => r.child_id === childId);
+  if (query.isPending || mine.length === 0) return null;
+
+  return (
+    <Card style={styles.extReqCard}>
+      <Text style={styles.presetHeading}>EXTRA-TIME REQUESTS</Text>
+      <Text style={[styles.muted, { marginBottom: 4 }]}>
+        {childName} asked for more time today. Approving adds bonus minutes for today only — it does not change the daily base limit.
+      </Text>
+      {mine.map((r) => {
+        const grant = Number(grantMinutes[r.request_id] ?? r.requested_minutes);
+        const grantValid = Number.isInteger(grant) && grant >= 1 && grant <= 720;
+        const busy = decide.isPending;
+        return (
+          <View key={r.request_id} style={styles.extReqRow}>
+            <Text style={styles.extReqTitle}>
+              {r.child_name} asked for {r.requested_minutes} more minutes
+            </Text>
+            <Text style={styles.extReqMeta}>
+              Requested <TimeAgo value={r.created_at} />
+            </Text>
+            <View style={styles.extReqActions}>
+              <View style={styles.extGrantField}>
+                <Field
+                  label="Grant (min)"
+                  value={grantMinutes[r.request_id] ?? String(r.requested_minutes)}
+                  onChangeText={(v) => setGrantMinutes((m) => ({ ...m, [r.request_id]: v }))}
+                  keyboardType="number-pad"
+                  error={grantValid ? undefined : 'Enter 1–720.'}
+                />
+              </View>
+              <Pressable
+                disabled={busy || !grantValid}
+                onPress={() => {
+                  void (async () => {
+                    if (await ensureParentAuthForAction())
+                      decide.mutate({ requestId: r.request_id, action: 'approve', minutes: grant });
+                  })();
+                }}
+                style={styles.extApproveBtn}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color="#059669" />
+                ) : (
+                  <>
+                    <Feather name="check" size={14} color="#059669" />
+                    <Text style={styles.extApproveBtnText}>Approve</Text>
+                  </>
+                )}
+              </Pressable>
+              <Pressable
+                disabled={busy}
+                onPress={() => {
+                  Alert.alert(
+                    'Reject Request?',
+                    `${r.child_name} asked for ${r.requested_minutes} more minutes. They will be told you said not right now.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reject',
+                        style: 'destructive',
+                        onPress: () => {
+                          void (async () => {
+                            if (await ensureParentAuthForAction())
+                              decide.mutate({ requestId: r.request_id, action: 'reject' });
+                          })();
+                        },
+                      },
+                    ],
+                  );
+                }}
+                style={styles.extRejectBtn}
+              >
+                <Text style={styles.extRejectBtnText}>Reject</Text>
+              </Pressable>
+            </View>
+            {decide.error ? <Notice message={errorText(decide.error)} /> : null}
+          </View>
+        );
+      })}
+    </Card>
+  );
+}
+
 export function ParentScreenTimeScreen({ route }: ParentScreenProps<'ScreenTime'>) {
   const { session } = useAuth();
   const client = useQueryClient();
@@ -1475,6 +1601,13 @@ export function ParentScreenTimeScreen({ route }: ParentScreenProps<'ScreenTime'
               </Text>
             </View>
           ) : null}
+
+          {/* Child's extra-time requests, if any */}
+          <ExtensionRequestQueue
+            token={session?.token ?? ''}
+            childId={childId}
+            childName={child.full_name}
+          />
 
           {/* Usage Gauge Card */}
           <Card>
@@ -3246,6 +3379,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+
+  /* Screen-time extension requests (child asks, parent decides) */
+  extReqCard: { marginTop: 12 },
+  extReqRow: {
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  extReqTitle: { color: colors.ink, fontSize: 14, fontWeight: '800' },
+  extReqMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  extReqActions: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center' },
+  extGrantField: { flex: 1 },
+  extApproveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  extApproveBtnText: { color: '#059669', fontSize: 13, fontWeight: '800' },
+  extRejectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  extRejectBtnText: { color: colors.muted, fontSize: 13, fontWeight: '800' },
 
   /* Child Account Management */
   accountPanel: {

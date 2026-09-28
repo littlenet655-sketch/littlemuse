@@ -12,6 +12,7 @@ export const kidsKeys = {
   post: (id: number) => ['kids', 'post', id],
   comments: (id: number) => ['kids', 'comments', id],
   saved: ['kids', 'saved'],
+  timeLimit: ['kids', 'time-limit', 'status'],
   connections: ['kids', 'connections'],
   notifications: ['kids', 'notifications'],
   conversations: ['kids', 'conversations'],
@@ -27,6 +28,7 @@ export const parentKeys = {
   activity: (childId: number) => ['parent', 'activity', childId],
   insights: (childId: number) => ['parent', 'insights', childId],
   notifications: ['parent', 'notifications'],
+  extensionRequests: ['parent', 'extension-requests'],
 } as const;
 
 export const adminKeys = {

@@ -228,6 +228,34 @@ export function resetKidsTimeLimitSelf(token: string): Promise<{
   return apiRequest(routes.kidsTimeLimitReset, { method: 'POST' }, token);
 }
 
+export type ExtensionRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+
+export interface ExtensionRequest {
+  request_id: number;
+  requested_minutes: number;
+  status: ExtensionRequestStatus;
+  granted_minutes?: number | null;
+  created_at: string;
+  decided_at?: string | null;
+}
+
+export function requestScreenTimeExtension(
+  token: string,
+  requestedMinutes: number,
+): Promise<{ ok: boolean; message: string; request: ExtensionRequest }> {
+  return apiRequest(
+    routes.kidsExtensionRequest,
+    { method: 'POST', body: JSON.stringify({ requested_minutes: requestedMinutes }) },
+    token,
+  );
+}
+
+export function fetchExtensionRequestStatus(
+  token: string,
+): Promise<{ ok: boolean; request: ExtensionRequest | null }> {
+  return get<{ ok: boolean; request: ExtensionRequest | null }>(routes.kidsExtensionRequest, token);
+}
+
 export function recordImpressionBatch(
   token: string,
   events: Array<{

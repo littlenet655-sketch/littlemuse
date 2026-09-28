@@ -132,14 +132,14 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   // Fix 2: navigating away mid-feedback-window must not fire setState/completeQuiz.
   useEffect(() => clearPendingTimeouts, []);
 
-  /** Authoritative completion: refresh gates, proceed only when clear. */
+  /** Authoritative completion: refresh, proceed only when the quiz counted. */
   async function completeQuiz() {
     setBusy(true);
     setGateMessage('');
     try {
       const next = await refreshMe();
       if (!shouldProceedAfterRefresh(next.onboarding)) {
-        setGateMessage('The safety check still shows a required step. Reloading your quiz…');
+        setGateMessage('Your quiz was not counted yet. Reloading your quiz…');
         await load();
         return;
       }
@@ -151,7 +151,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       // 401: the session is cleared upstream and the navigator leaves the
       // quiz; the finally below still resets busy so nothing is left disabled.
       if (err instanceof ApiError && err.status === 401) return;
-      setGateMessage('Could not confirm quiz completion. Check your connection and retry — you are still safely gated.');
+      setGateMessage('Could not confirm quiz completion. Check your connection and retry — nothing else is blocked.');
     } finally {
       setBusy(false);
     }

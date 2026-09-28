@@ -42,11 +42,16 @@ def test_random_reel_brain_break_is_server_driven_and_feed_stays_optional():
     assert "'BALANCED': (4, 5, 6, 7)" in service
     assert "'LIGHT': (7, 8, 9, 10)" in service
     assert "next_quiz_threshold" in service
-    assert "Quiz Zone" in feed
+    # The Feed tab carries no pinned Quiz Zone card (mobile quizBreaksRandom
+    # contract): quizzes surface only as the dismissible prompt between reels.
+    assert "Quiz Zone" not in feed
     assert "scrollEnabled={!quizLocked}" not in feed
     assert "withQuizBreaks(visibleItems" not in feed
-    assert "const displayItems = feed.items" in reels
-    assert "scrollEnabled={!quizLocked}" in reels
+    # Non-blocking nudge: the prompt card is inserted by a pure helper driven
+    # by the server's quiz_due signal; scrolling is never locked.
+    assert "withQuizPromptRow(feed.items, showQuizPrompt)" in reels
+    assert "QuizPromptCard" in reels
+    assert "scrollEnabled={!quizLocked}" not in reels
     assert "if (result.quiz_required)" in reels
     assert "withQuizBreaks(feed.items" not in reels
 

@@ -5,8 +5,10 @@
  * (and sometimes a `gate` field). This module keeps every parsing rule in one
  * pure, test-covered place so screens can render explicit UX for each gate:
  * 401 logged-out/invalid, 403 forbidden/disabled, 423 locked (quiet hours or
- * screen-time), 428 action-required (quiz/parent verification), 503
- * temporarily unavailable.
+ * screen-time), 428 action-required (parent verification), 503
+ * temporarily unavailable. Quiz 428s are no longer emitted by the server;
+ * their parsing stays only as a defensive mapping for stale backends and
+ * never routes to Quiz (see navigation/gates.ts: the latch is a nudge).
  */
 
 export type GateKind =

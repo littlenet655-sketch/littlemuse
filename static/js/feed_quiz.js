@@ -1,9 +1,11 @@
 /**
- * LittleNet compulsory doom-scroll break.
+ * LittleNet brain-break NUDGE (non-blocking).
  *
- * PostgreSQL owns the view counter and the required quiz latch. The browser only
- * reports concrete post/reel IDs after they become substantially visible. Refresh,
- * new tabs, or JavaScript state resets cannot clear an already-required break.
+ * PostgreSQL owns the view counter and the quiz-due signal. The browser only
+ * reports concrete post/reel IDs after they become substantially visible, and
+ * renders a DISMISSIBLE prompt card when a quiz is due. Content is never
+ * blocked: a child who ignores the card keeps full access (defect: the
+ * periodic latch is a nudge, not a session lock).
  */
 
 const FeedQuiz = (() => {
@@ -12,8 +14,8 @@ const FeedQuiz = (() => {
   const QUIZ_INTERVAL = 4;
   let currentQuizId = null;
   let quizAnswered = false;
-  let gateOpen = false;
-  let previousOverflow = '';
+  let nudgeDismissed = false; // per page view: a dismissed nudge never re-nags
+  let nudgeOpen = false;
 
   function _csrf() {
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -32,22 +34,6 @@ const FeedQuiz = (() => {
     return data;
   }
 
-  function _lockScroll() {
-    if (gateOpen) return;
-    gateOpen = true;
-    previousOverflow = document.documentElement.style.overflow || '';
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    document.body.classList.add('littlenet-quiz-locked');
-  }
-
-  function _unlockScroll() {
-    gateOpen = false;
-    document.documentElement.style.overflow = previousOverflow;
-    document.body.style.overflow = '';
-    document.body.classList.remove('littlenet-quiz-locked');
-  }
-
   function _postId(target) {
     const raw = target?.dataset?.postCard || target?.dataset?.doubleLike || target?.dataset?.postId || '';
     const id = Number.parseInt(String(raw), 10);
@@ -56,7 +42,6 @@ const FeedQuiz = (() => {
 
   /** Called whenever a real feed/reel item becomes substantially visible. */
   async function onPostViewed(target) {
-    if (gateOpen) return;
     const postId = typeof target === 'number' ? target : _postId(target);
     if (!postId) return;
 
@@ -70,90 +55,95 @@ const FeedQuiz = (() => {
       // interval, but it can never be larger than the LittleNet safety default.
       const interval = Number(state.interval || QUIZ_INTERVAL);
       void interval;
-      if (state.required) await _showQuizGate();
+      // Nudge, never lock: the view is always counted; the card is optional.
+      if (state.required) _showNudgeCard();
     } catch (_) {
-      // A child must not be able to bypass the intervention by making the view
-      // counter endpoint unavailable. Fail closed and offer Retry only.
-      _lockScroll();
-      _injectRetryGate('LittleNet could not verify your brain-break status. Reconnect and retry to continue.');
+      // Telemetry is non-blocking: a failed view report never locks scrolling.
     }
   }
 
   async function _syncRequiredState() {
+    // A server-rendered prompt card between reels takes precedence on load.
+    if (document.getElementById('quiz-prompt-card')) return;
     try {
       const state = await _json('/quiz/api/feed-quiz/status/');
-      if (state.required) await _showQuizGate();
+      if (state.required) _showNudgeCard();
     } catch (_) {
-      _lockScroll();
-      _injectRetryGate('LittleNet could not verify your brain-break status. Reconnect and retry to continue.');
+      // Fail open: status trouble never blocks the child.
     }
   }
 
-  async function _showQuizGate() {
-    _lockScroll();
-    await _loadRequiredQuiz();
+  /** Dismissible bottom-sheet shell (not modal, never locks scroll). */
+  function _nudgeShell() {
+    document.querySelectorAll('.feed-quiz-nudge').forEach(el => el.remove());
+    const shell = document.createElement('div');
+    shell.className = 'feed-quiz-nudge';
+    shell.setAttribute('role', 'dialog');
+    shell.setAttribute('aria-label', 'Brain break quiz prompt');
+    shell.style.cssText = 'position:fixed;left:12px;right:12px;bottom:76px;z-index:99990;display:flex;justify-content:center;pointer-events:none;';
+    const card = document.createElement('div');
+    card.className = 'feed-quiz-card fq-visible';
+    card.style.cssText = 'pointer-events:auto;width:min(520px,100%);background:#fff;border-radius:24px;padding:22px;box-shadow:0 28px 70px rgba(0,0,0,.28);position:relative;';
+    shell.appendChild(card);
+    document.body.appendChild(shell);
+    nudgeOpen = true;
+    return card;
   }
 
-  async function _loadRequiredQuiz() {
+  function _closeNudge() {
+    document.querySelectorAll('.feed-quiz-nudge').forEach(el => el.remove());
+    nudgeOpen = false;
+  }
+
+  function _dismissNudge() {
+    nudgeDismissed = true;
+    _closeNudge();
+  }
+
+  function _xButton(onClick) {
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Dismiss quiz prompt');
+    x.textContent = '✕';
+    x.style.cssText = 'position:absolute;top:10px;right:12px;border:0;background:none;font-size:16px;color:#94A3B8;cursor:pointer;padding:6px;';
+    x.addEventListener('click', onClick);
+    return x;
+  }
+
+  /** The non-blocking prompt: take the quiz, or dismiss and keep scrolling. */
+  function _showNudgeCard() {
+    if (nudgeDismissed || nudgeOpen) return;
+    const card = _nudgeShell();
+    card.appendChild(_xButton(_dismissNudge));
+    card.insertAdjacentHTML('beforeend', `
+      <div class="fq-header"><span class="fq-badge">🧠 Brain Break</span></div>
+      <p class="fq-question">Time for a quick brain break!</p>
+      <p class="fq-sub">A short quiz is ready for you. Your scrolling keeps working — no rush.</p>
+      <div class="fq-options">
+        <button class="fq-option fq-primary" id="fq-take-quiz" type="button" style="width:100%;">Take the quiz</button>
+        <button class="fq-option" id="fq-not-now" type="button" style="width:100%;">Not now</button>
+      </div>
+    `);
+    card.querySelector('#fq-take-quiz').addEventListener('click', () => { void _loadQuizIntoNudge(card); });
+    card.querySelector('#fq-not-now').addEventListener('click', _dismissNudge);
+  }
+
+  async function _loadQuizIntoNudge(card) {
+    card.innerHTML = '<p class="fq-question">Loading your quiz…</p>';
+    card.appendChild(_xButton(_dismissNudge));
     try {
       const data = await _json('/quiz/api/feed-quiz/');
-      if (!data.available || !data.required) throw new Error('no required quiz available');
+      if (!data.available || !data.required) throw new Error('no quiz available');
       currentQuizId = data.quiz_id;
       quizAnswered = false;
-      _injectBlockingCard(data);
+      _renderQuizForm(data, card);
     } catch (_) {
-      // Safety/product rule: the intervention is compulsory. If the quiz service
-      // cannot supply the required question, keep the gate closed and offer Retry.
-      _injectRetryGate();
+      // Fail open: quiz-service trouble never blocks the child.
+      _dismissNudge();
     }
   }
 
-  function _overlayShell() {
-    document.querySelectorAll('.feed-quiz-lock-overlay').forEach(el => el.remove());
-    const overlay = document.createElement('div');
-    overlay.className = 'feed-quiz-lock-overlay';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'Mandatory brain break');
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.76);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:18px;overflow:auto;';
-    document.body.appendChild(overlay);
-    return overlay;
-  }
-
-  function _injectRetryGate(message = 'Your next age-based quiz is loading. Answer it to continue scrolling.') {
-    _lockScroll();
-    const overlay = _overlayShell();
-    const card = document.createElement('div');
-    card.className = 'feed-quiz-card fq-visible';
-    card.style.cssText = 'width:min(520px,100%);background:#fff;border-radius:24px;padding:24px;box-shadow:0 28px 70px rgba(0,0,0,.28);';
-    card.innerHTML = `
-      <div class="fq-header"><span class="fq-badge">🧠 Brain Break</span></div>
-      <p class="fq-question">${_escape(message)}</p>
-      <button type="button" class="fq-option fq-retry" style="width:100%;">Retry quiz</button>
-    `;
-    overlay.appendChild(card);
-    card.querySelector('.fq-retry').addEventListener('click', async () => {
-      card.querySelector('.fq-retry').disabled = true;
-      try {
-        const state = await _json('/quiz/api/feed-quiz/status/');
-        if (!state.required) {
-          overlay.remove();
-          _unlockScroll();
-          return;
-        }
-        await _loadRequiredQuiz();
-      } catch (_) {
-        _injectRetryGate('Still unable to verify the compulsory brain break. Please reconnect and retry.');
-      }
-    });
-  }
-
-  function _injectBlockingCard(data) {
-    const overlay = _overlayShell();
-    const card = document.createElement('div');
-    card.className = 'feed-quiz-card fq-visible';
-    card.style.cssText = 'width:min(560px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:24px;padding:24px;box-shadow:0 28px 70px rgba(0,0,0,.28);';
-
+  function _renderQuizForm(data, card) {
     const emojis = { 'Science':'🔬', 'Math':'➕', 'Riddle':'🧩', 'General Knowledge':'🌍',
       'India Special':'🇮🇳', 'Fun Fact':'🤩', 'Technology':'💻', 'Coding':'👨‍💻',
       'Internet Safety':'🔐', 'Environment':'🌿', 'Space':'🚀', 'Health':'❤️',
@@ -163,7 +153,7 @@ const FeedQuiz = (() => {
 
     card.innerHTML = `
       <div class="fq-header">
-        <span class="fq-badge">${icon} Mandatory Brain Break</span>
+        <span class="fq-badge">${icon} Brain Break</span>
         <span class="fq-xp-badge">+10 XP ⭐</span>
       </div>
       <div class="fq-category">${_escape(data.category)}</div>
@@ -176,21 +166,21 @@ const FeedQuiz = (() => {
         `).join('')}
       </div>
       <div class="fq-feedback" id="fq-feedback-${data.quiz_id}" hidden></div>
-      <div style="margin-top:14px;font-size:12px;font-weight:700;opacity:.72;text-align:center;">Answer to continue Home or Reels.</div>
+      <div style="margin-top:14px;font-size:12px;font-weight:700;opacity:.72;text-align:center;">Take it when you like — nothing is blocked.</div>
     `;
-    overlay.appendChild(card);
+    card.appendChild(_xButton(_dismissNudge));
 
-    card.querySelectorAll('.fq-option').forEach(btn => {
-      btn.addEventListener('click', () => _submitAnswer(btn.dataset.answer, data, card, overlay));
+    card.querySelectorAll('.fq-option[data-answer]').forEach(btn => {
+      btn.addEventListener('click', () => _submitAnswer(btn.dataset.answer, data, card));
     });
   }
 
-  async function _submitAnswer(answer, data, card, overlay) {
+  async function _submitAnswer(answer, data, card) {
     if (quizAnswered) return;
     if (Number(data.quiz_id) !== Number(currentQuizId)) return;
     quizAnswered = true;
-    card.querySelectorAll('.fq-option').forEach(b => { b.disabled = true; b.classList.add('fq-disabled'); });
-    card.querySelectorAll('.fq-option').forEach(b => { if (b.dataset.answer === answer) b.classList.add('fq-selected'); });
+    card.querySelectorAll('.fq-option[data-answer]').forEach(b => { b.disabled = true; b.classList.add('fq-disabled'); });
+    card.querySelectorAll('.fq-option[data-answer]').forEach(b => { if (b.dataset.answer === answer) b.classList.add('fq-selected'); });
 
     try {
       const result = await _json('/quiz/api/feed-quiz/answer/', {
@@ -199,7 +189,7 @@ const FeedQuiz = (() => {
         body: JSON.stringify({ quiz_id: data.quiz_id, answer }),
       });
 
-      card.querySelectorAll('.fq-option').forEach(b => {
+      card.querySelectorAll('.fq-option[data-answer]').forEach(b => {
         if (b.dataset.answer === result.correct_answer) b.classList.add('fq-correct');
         else if (b.dataset.answer === answer && !result.correct) b.classList.add('fq-wrong');
       });
@@ -215,16 +205,16 @@ const FeedQuiz = (() => {
         fb.innerHTML = `💡 Good try! The correct answer was <b>${_escape(result.correct_answer)}</b>${result.explanation ? `<div class="fq-explanation">📖 ${_escape(result.explanation)}</div>` : ''}`;
       }
 
-      // Any accepted answer satisfies the intervention; XP is awarded only for
-      // correct answers. The server has already cleared the PostgreSQL latch.
-      setTimeout(() => { overlay.remove(); currentQuizId = null; _unlockScroll(); }, result.explanation ? 2800 : 1800);
+      // Any accepted answer satisfies the nudge; the server has already
+      // cleared the quiz-due signal. The card goes away on its own.
+      setTimeout(() => { currentQuizId = null; _closeNudge(); }, result.explanation ? 2800 : 1800);
     } catch (e) {
       quizAnswered = false;
-      card.querySelectorAll('.fq-option').forEach(b => { b.disabled = false; b.classList.remove('fq-disabled'); });
+      card.querySelectorAll('.fq-option[data-answer]').forEach(b => { b.disabled = false; b.classList.remove('fq-disabled'); });
       const fb = card.querySelector(`#fq-feedback-${data.quiz_id}`);
       fb.hidden = false;
       fb.className = 'fq-feedback fq-feedback-wrong';
-      fb.textContent = 'Could not submit yet. Please try again — the brain break must be completed to continue.';
+      fb.textContent = 'Could not submit yet. Please try again.';
     }
   }
 
@@ -247,7 +237,7 @@ const FeedQuiz = (() => {
     const initialTargets = [...document.querySelectorAll(selector)];
     if (!initialTargets.length) return;
 
-    // Catch an obligation latched in another tab before any new view can advance.
+    // Catch a quiz-due signal raised in another tab before any new view lands.
     _syncRequiredState();
 
     const seen = new WeakSet();

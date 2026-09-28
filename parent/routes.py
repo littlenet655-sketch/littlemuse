@@ -179,11 +179,48 @@ def time_limit():
     kids=children(session['user_id']);cid=int(request.values.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
     if request.method=='POST':
+        action=request.form.get('action') or 'save_limit'
+        if action=='approve_extension':
+            return _web_extension_decide(cid,'APPROVED')
+        if action=='reject_extension':
+            return _web_extension_decide(cid,'REJECTED')
         try:mins=int(request.form['daily_limit'])
         except:return ('Invalid limit',400)
         if not 1<=mins<=1440:return ('Limit must be 1-1440 minutes',400)
         execute('INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode) VALUES(%s,%s,%s) ON CONFLICT(child_id) DO UPDATE SET daily_limit_minutes=EXCLUDED.daily_limit_minutes,strict_mode=EXCLUDED.strict_mode,updated_at=NOW()',(cid,mins,'strict_mode' in request.form));return redirect(f'/parent/time-limit/?child_id={cid}')
-    return render_template('time_limit.html',child_id=cid,limit=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,)))
+    execute("UPDATE screen_time_extension_requests SET status='EXPIRED' WHERE status='PENDING' AND created_at::date < CURRENT_DATE")
+    pending=fetch_all('''SELECT r.request_id,r.requested_minutes,r.created_at,u.full_name AS child_name
+        FROM screen_time_extension_requests r JOIN users u ON u.user_id=r.child_id
+        WHERE r.child_id=%s AND r.status='PENDING' ORDER BY r.created_at ASC''',(cid,)) or []
+    return render_template('time_limit.html',child_id=cid,limit=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,)),extension_requests=pending)
+
+
+def _web_extension_decide(cid, decision):
+    pid=session['user_id']
+    try:req_id=int(request.form['request_id'])
+    except:return ('Invalid request',400)
+    req=fetch_one("SELECT request_id,child_id,requested_minutes FROM screen_time_extension_requests WHERE request_id=%s AND status='PENDING'",(req_id,))
+    if not req or int(req['child_id'])!=cid or not owns(pid,cid):return ('Forbidden',403)
+    if decision=='APPROVED':
+        try:granted=int(request.form.get('granted_minutes') or req['requested_minutes'])
+        except:return ('Invalid minutes',400)
+        if not 1<=granted<=720:return ('Grant 1-720 minutes',400)
+        moved=execute_count("UPDATE screen_time_extension_requests SET status='APPROVED',decided_at=NOW(),decided_by=%s,granted_minutes=%s WHERE request_id=%s AND status='PENDING'",(pid,granted,req_id))
+        if not moved:return redirect(f'/parent/time-limit/?child_id={cid}')
+        execute('''INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode,bonus_minutes,bonus_date)
+                   VALUES(%s,60,TRUE,%s,CURRENT_DATE)
+                   ON CONFLICT(child_id) DO UPDATE SET
+                     bonus_minutes=CASE WHEN child_time_limits.bonus_date=CURRENT_DATE THEN child_time_limits.bonus_minutes ELSE 0 END+EXCLUDED.bonus_minutes,
+                     bonus_date=CURRENT_DATE,updated_at=NOW()''',(cid,granted))
+        execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED','SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE",(cid,))
+        log(cid,'SCREEN_TIME_EXTENSION_APPROVED',{'parent_id':pid,'request_id':req_id,'granted_minutes':granted})
+        notify(cid,'SCREEN_TIME_EXTENSION_APPROVED',f'Your parent added {granted} minutes of screen time for today!','/child/dashboard/',pid)
+    else:
+        moved=execute_count("UPDATE screen_time_extension_requests SET status='REJECTED',decided_at=NOW(),decided_by=%s WHERE request_id=%s AND status='PENDING'",(pid,req_id))
+        if moved:
+            log(cid,'SCREEN_TIME_EXTENSION_REJECTED',{'parent_id':pid,'request_id':req_id})
+            notify(cid,'SCREEN_TIME_EXTENSION_REJECTED','Your parent reviewed your extra-time request and said not right now.','/child/dashboard/',pid)
+    return redirect(f'/parent/time-limit/?child_id={cid}')
 @parent_bp.route('/parent/safety/',methods=['GET'])
 @parent_required
 def safety():

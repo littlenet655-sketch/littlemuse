@@ -4253,3 +4253,13 @@ button, a, .ig-icon-btn, .ig-nav-item, .nav-item {
 }
 
 
+.quiz-prompt-card{display:grid;place-items:center;background:linear-gradient(160deg,#1E293B,#0F172A)}
+.quiz-prompt-inner{position:relative;width:min(420px,88%);background:#FFFFFF;border-radius:24px;padding:28px 24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.quiz-prompt-dismiss{position:absolute;top:10px;right:12px;border:0;background:none;font-size:18px;color:#94A3B8;cursor:pointer;padding:6px}
+.quiz-prompt-badge{display:inline-block;background:#EFF6FF;color:#1D4ED8;font-weight:800;font-size:12px;border-radius:999px;padding:6px 12px;margin-bottom:12px}
+.quiz-prompt-inner h2{margin:0 0 8px;font-size:20px;color:#0F172A}
+.quiz-prompt-inner p{margin:0 0 18px;font-size:14px;color:#475569;line-height:1.5}
+.quiz-prompt-inner .btn.primary{display:inline-block;text-decoration:none}
+.fq-sub{margin:0 0 14px;font-size:13px;color:#64748B;line-height:1.5}
+.fq-option.fq-primary{background:#0095F6!important;color:#fff!important;border-color:#0095F6!important;font-weight:800}
+.feed-quiz-nudge .feed-quiz-card{animation:fq-pop-in .25s ease-out}

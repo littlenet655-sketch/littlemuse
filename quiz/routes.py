@@ -122,8 +122,9 @@ def api_feed_quiz_status():
 
 
 # Keep the original paths as compatibility aliases, but the browser uses the
-# /quiz/... paths because those are the only app-wide routes intentionally
-# reachable while a compulsory quiz latch is active.
+# The /quiz/... paths stay exempt from kids-controls gating so the voluntary
+# quiz page is always reachable; the periodic latch itself no longer blocks or
+# redirects any surface (it is a nudge).
 @quiz_bp.route('/api/feed-quiz/')
 @quiz_bp.route('/quiz/api/feed-quiz/')
 @limiter.limit('45 per minute')

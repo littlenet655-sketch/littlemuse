@@ -9,32 +9,37 @@ export type ChildRoute =
   | 'ChatDetails' | 'NewMessage' | 'SavedContent' | 'EditProfile' | 'Connections'
   | 'PostDetail' | 'OtherProfile' | 'ProcessingStatus' | 'SafetyCentre' | 'ReportHistory';
 
-/** Quiz gate wins: a child with a pending quiz must never reach home. */
-export function childNextRoute(quizRequired: boolean): ChildRoute {
-  if (quizRequired) return 'Quiz';
+/**
+ * Quiz no longer gates routing: the periodic latch is a NUDGE (a dismissible
+ * prompt card between reels), never a route gate. A child with a due quiz
+ * always keeps full access, so this always resolves to home.
+ */
+export function childNextRoute(_quizRequired: boolean): ChildRoute {
   return 'KidsTabs';
 }
 
 /** Map a backend gate to the screen that resolves it, if any. */
 export function screenForGate(gate: GateKind): 'Quiz' | 'OtpVerify' | null {
-  if (gate === 'quiz') return 'Quiz';
+  // The quiz latch is a nudge, not a gate: no backend gate routes to Quiz.
+  if (gate === 'quiz') return null;
   if (gate === 'parent_verification' || gate === 'email_verification') return 'OtpVerify';
   return null;
 }
 
 /**
  * Should a 428 onboarding gate from the server trigger an authoritative
- * onboarding refresh (which routes the child to Quiz)?
- * Only when the gate is NEW relative to the last known session gates, so a
- * stably gated session never re-fetches in a loop.
+ * onboarding refresh (which used to route the child to Quiz)?
+ * The periodic quiz latch is a nudge and never re-gates, so a 428 quiz
+ * refreshes nothing. Only kept for non-quiz gates (currently none re-gate).
  */
 export function shouldRefreshOnboardingForGate(
   error: unknown,
-  onboarding: OnboardingState | null | undefined,
+  _onboarding: OnboardingState | null | undefined,
 ): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.status !== 428) return false;
-  if (error.gate === 'quiz') return onboarding?.quiz_required !== true;
+  // Quiz 428s are no longer emitted by the server; even a stale one must not
+  // re-gate the child to Quiz.
   return false;
 }
 
@@ -51,9 +56,11 @@ export function resetsDisplayState(resetsRemaining: number | null): ResetsDispla
 
 /**
  * Reactive child route from authoritative gates.
- * Order: quiz -> home. Unknown/missing onboarding FAILS OPEN to the current
- * route (defect C1/C2): no quiz may block app launch or Home entry. A known
- * quiz_required=true (periodic feed latch) still routes to Quiz.
+ * The periodic quiz latch is a NUDGE, never a route gate: quiz_required only
+ * drives the dismissible prompt card between reels, so the child is never
+ * routed away from what they are doing. Unknown/missing onboarding FAILS OPEN
+ * to the current route (defect C1/C2): no quiz may block app launch or Home
+ * entry.
  */
 export function resolveChildRoute(
   onboarding: OnboardingState | null | undefined,
@@ -61,16 +68,16 @@ export function resolveChildRoute(
   current: ChildRoute = 'KidsTabs',
 ): ChildRoute {
   if (!onboarding) return current;
-  if (onboarding.quiz_required) return 'Quiz';
-  return current === 'Quiz' ? 'KidsTabs' : current;
+  return current;
 }
 
 /**
  * Offline fail-open for the gate sync (defect C1/C2 follow-up). With no
  * connectivity there is no authoritative gate, so a stale cached
  * quiz_required must not strand the child on Quiz. Returns the route to
- * reset to, or null when no reset is needed. The server re-asserts the
- * periodic latch on reconnect (heartbeat/content 403 -> refresh -> re-gate).
+ * reset to, or null when no reset is needed. The server re-signals quiz_due
+ * on reconnect (/me + impression responses) and the client shows the nudge
+ * card — the latch never re-gates routing.
  */
 export function offlineGateReset(current: ChildRoute, online: boolean): ChildRoute | null {
   if (online) return null;

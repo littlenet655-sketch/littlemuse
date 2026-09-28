@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchKidsTimeLimitStatus, sendHeartbeat } from '../../api/kidsFeed';
+import { fetchExtensionRequestStatus, fetchKidsTimeLimitStatus, requestScreenTimeExtension, sendHeartbeat } from '../../api/kidsFeed';
+import type { ExtensionRequest } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { colors, radius, spacing } from '../../ui/tokens';
 
@@ -23,6 +24,8 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [checking, setChecking] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [extRequest, setExtRequest] = useState<ExtensionRequest | null>(null);
   const isQuiet = lockType === 'quiet_hours';
 
   useEffect(() => {
@@ -37,6 +40,12 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
         }
       } catch {
         // Server is authoritative: a failed status check leaves the lock screen up.
+      }
+      try {
+        const ext = await fetchExtensionRequestStatus(session.token);
+        if (!cancelled) setExtRequest(ext.request);
+      } catch {
+        // Extension status is best-effort; the lock state is authoritative.
       }
     })();
     return () => {
@@ -70,14 +79,71 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
   }
 
   function handleAskParent() {
+    if (!session?.token) return;
+    if (extRequest?.status === 'PENDING') {
+      Alert.alert(
+        'Request Sent ⏳',
+        'Your parent has been notified. Tap "Check if Parent Added Time" once they respond.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+    if (extRequest?.status === 'APPROVED') {
+      Alert.alert(
+        'Approved! 🎉',
+        `Your parent added ${extRequest.granted_minutes ?? extRequest.requested_minutes} minutes for today.`,
+        [{ text: 'Check Status Now', onPress: () => void handleCheckForTime() }, { text: 'OK' }],
+      );
+      return;
+    }
     Alert.alert(
       'Ask Your Parent 👨‍👩‍👧',
-      'Your parent can reset your daily screen time or add bonus minutes instantly from their Parent Controls dashboard.',
+      'How many extra minutes do you want to ask for? Your parent decides from their Screen Time dashboard.',
       [
-        { text: 'Check Status Now', onPress: () => void handleCheckForTime() },
-        { text: 'Got It', style: 'cancel' },
+        ...[15, 30, 60].map((mins) => ({
+          text: `${mins} minutes`,
+          onPress: () => void sendExtensionRequest(mins),
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
       ],
     );
+  }
+
+  async function sendExtensionRequest(minutes: number) {
+    if (!session?.token || sending) return;
+    setSending(true);
+    try {
+      const res = await requestScreenTimeExtension(session.token, minutes);
+      setExtRequest(res.request);
+      Alert.alert(
+        'Request Sent! 📩',
+        `Your parent was notified about your request for ${minutes} more minutes.`,
+        [{ text: 'OK' }],
+      );
+    } catch (err: any) {
+      if (err?.code === 'extension_request_pending' || err?.status === 409) {
+        Alert.alert('Already Sent ⏳', 'You already have a request waiting for your parent.');
+        try {
+          const ext = await fetchExtensionRequestStatus(session.token);
+          setExtRequest(ext.request);
+        } catch {
+          // keep current state
+        }
+      } else {
+        Alert.alert('Could Not Send', 'Please check your connection and try again.');
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function extensionStatusLine(): string | null {
+    if (isQuiet || !extRequest) return null;
+    if (extRequest.status === 'PENDING') return '⏳ Waiting for your parent to respond…';
+    if (extRequest.status === 'APPROVED')
+      return `✅ Approved: +${extRequest.granted_minutes ?? extRequest.requested_minutes} minutes today`;
+    if (extRequest.status === 'REJECTED') return 'Your parent said not right now. You can ask again tomorrow.';
+    return null;
   }
 
   return (
@@ -143,13 +209,25 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
                 pressed && styles.btnPressed,
               ]}
               onPress={handleAskParent}
+              disabled={sending}
               accessibilityRole="button"
               accessibilityLabel="Ask parent for more time"
             >
-              <Feather name="heart" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryBtnText}>Ask Parent for More Time</Text>
+              {sending ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Feather name="heart" size={18} color="#FFFFFF" />
+                  <Text style={styles.primaryBtnText}>
+                    {extRequest?.status === 'PENDING' ? 'Request Sent — Waiting for Parent' : 'Ask Parent for More Time'}
+                  </Text>
+                </>
+              )}
             </Pressable>
           )}
+          {!isQuiet && extensionStatusLine() ? (
+            <Text style={styles.extensionStatusText}>{extensionStatusLine()}</Text>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [styles.secondaryBtn, pressed && styles.btnPressed]}
@@ -400,6 +478,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  extensionStatusText: {
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
   },
   secondaryBtn: {
     width: '100%',

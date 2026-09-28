@@ -5,7 +5,6 @@ from decorators import child_required
 from child.service import *
 from services.social import visible_posts,active_stories,story_visible_to,parent_notify,visible_profile_posts,can_interact,_age_group,post_visible_to
 from services.usage import lock_state,heartbeat,minutes_today,start_session,close_session
-from quiz.service import quiz_due
 from database.connection import execute,fetch_one,fetch_all
 from safety.moderation_service import evaluate,record
 from services.audit import log
@@ -18,7 +17,8 @@ def _guard():
     if session.get('usage_session_key'): heartbeat(session['usage_session_key'])
     locked,remaining=lock_state(session['user_id'])
     if locked:return render_template('time_limit_reached.html'),403
-    if quiz_due(session['user_id']) and request.path not in ['/quiz/start/','/quiz/submit/','/logout/']:return redirect('/quiz/start/')
+    # The periodic quiz latch is a nudge, never a redirect lock: pages render
+    # normally and the client shows a dismissible prompt card when due.
     return None
 
 def _public_profile_text(form):

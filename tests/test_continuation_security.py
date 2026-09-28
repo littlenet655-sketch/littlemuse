@@ -46,16 +46,21 @@ def test_parent_liveness_page_and_js_are_removed_no_bypass_possible():
     assert 'drawFallbackSelfie' not in routes
     assert 'manualCaptureBtn' not in routes
 
-def test_doom_scroll_quiz_is_compulsory_and_non_skippable():
+def test_doom_scroll_quiz_is_a_non_blocking_nudge():
+    # The periodic latch is a nudge, never a session lock: a due quiz shows a
+    # dismissible prompt card between reels; a child who ignores it keeps full
+    # access. The browser must never lock scrolling or gate on network errors.
     js = text('static/js/feed_quiz.js')
     assert 'QUIZ_INTERVAL = 4' in js
-    assert "document.documentElement.style.overflow = 'hidden'" in js
-    assert 'Mandatory Brain Break' in js
-    assert 'Answer to continue Home or Reels.' in js
-    assert 'Retry quiz' in js
-    assert 'fq-skip-btn' not in js
-    assert 'Skip for now' not in js
-    assert '_unlockScroll()' in js
+    assert "document.documentElement.style.overflow = 'hidden'" not in js
+    assert 'Mandatory Brain Break' not in js
+    assert 'Answer to continue Home or Reels.' not in js
+    assert 'Retry quiz' not in js
+    assert '_lockScroll' not in js
+    assert '_unlockScroll()' not in js
+    assert 'Not now' in js
+    assert 'feed-quiz-nudge' in js
+    assert 'nothing is blocked' in js
 
 def test_text_hard_blocks_cover_adult_grooming_and_severe_abuse():
     service = text('safety/text_service.py')

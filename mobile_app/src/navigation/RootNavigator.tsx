@@ -80,8 +80,9 @@ function AuthNavigator() {
 
 /**
  * Keeps the visible child screen pinned to the authoritative gate state.
- * Runs on mount (fixes any initial-route mismatch) and on every gate change,
- * so enrollment/quiz completion transitions without manual navigation.
+ * Runs on mount (fixes any initial-route mismatch) and on every gate change.
+ * The periodic quiz latch is a NUDGE, never a route gate, so this never
+ * routes to Quiz: the child always stays where they are.
  */
 function ChildGateSync() {
   const navigation = useNavigation<NavigationProp<ChildStackParamList>>();
@@ -99,7 +100,8 @@ function ChildGateSync() {
           // Offline: no authoritative gate exists. A stale cached
           // quiz_required must not strand the child on Quiz (defect C1/C2
           // follow-up) — fail open to Home. Anywhere else, leave the child
-          // alone; the server re-gates on reconnect.
+          // alone; the server re-signals quiz_due on reconnect and the
+          // client shows the prompt card.
           const fallback = offlineGateReset(current, online);
           if (fallback) {
             navigation.reset({

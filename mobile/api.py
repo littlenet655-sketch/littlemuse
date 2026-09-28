@@ -328,11 +328,12 @@ def _require_mobile(*roles):
     return decorator
 
 def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
-    """Authoritative gate state: only the periodic feed quiz latch gates Kids Mode.
+    """Nudge-signal state: the periodic feed quiz latch never gates Kids Mode.
 
-    The mandatory onboarding quiz was removed (defect C1/C2); needs_onboarding_quiz()
-    no longer contributes here. It remains in use for non-gating purposes
-    (quiz-page defaults, discoverability in services/social.py).
+    quiz_required=True means a periodic quiz is due; the client renders a
+    dismissible prompt card between reels. No endpoint refuses on it.
+    The mandatory onboarding quiz was removed (defect C1/C2);
+    needs_onboarding_quiz() no longer contributes here.
     """
     if quiz_state is None:
         quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
@@ -360,10 +361,12 @@ def _child_gate(feature: str | None = None):
             gate="screen_time",
             remaining=remaining,
             self_resets_used=used_resets,
-            self_resets_remaining=max(0, 2 - used_resets),
+            self_resets_remaining=max(0, 1 - used_resets),
         ), 423
-    if feed_quiz_state(uid).get("required"):
-        return jsonify(error="quiz_required", gate="quiz"), 428
+    # The periodic quiz latch is a NUDGE, never a content block: endpoints must
+    # not 428 on feed_quiz_state()['required']. The signal is surfaced to the
+    # client via _onboarding_state()['quiz_required'] and the impression
+    # response so the app can render a dismissible prompt card between reels.
     key = (g.mobile_claims or {}).get("usage_session_key")
     if key:
         try:
@@ -3767,7 +3770,7 @@ def register_mobile_api(bp):
             server_time=datetime.now(timezone.utc).isoformat(),
             locked=locked,
             self_resets_used=used_resets,
-            self_resets_remaining=max(0, 2 - used_resets),
+            self_resets_remaining=max(0, 1 - used_resets),
         )
 
     @bp.route("/api/mobile/v1/kids/time-limit/status")
@@ -3785,7 +3788,7 @@ def register_mobile_api(bp):
             strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
             remaining_minutes=remaining,
             resets_used=used,
-            resets_remaining=max(0, 2 - used),
+            resets_remaining=max(0, 1 - used),
         )
 
     @bp.route("/api/mobile/v1/kids/time-limit/reset", methods=["POST"])
@@ -3798,10 +3801,10 @@ def register_mobile_api(bp):
             return jsonify(error="quiet_hours_active", message="Cannot reset screen time during quiet hours bedtime."), 403
 
         used = _kid_self_resets_today(uid)
-        if used >= 2:
+        if used >= 1:
             return jsonify(
                 error="self_resets_exhausted",
-                message="You have used all 2 daily resets for today. Please ask your parent to add more time.",
+                message="You have already used your 1 daily self-reset today. Ask your parent for more time.",
                 resets_used=used,
                 resets_remaining=0,
             ), 403
@@ -3813,16 +3816,16 @@ def register_mobile_api(bp):
         execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE", (uid,))
 
         new_count = used + 1
-        remaining = max(0, 2 - new_count)
+        remaining = max(0, 1 - new_count)
         log(uid, "KID_SCREEN_TIME_SELF_RESET", {"reset_number": new_count, "remaining_resets": remaining})
-        notify(uid, "SCREEN_TIME_RESET", f"You used daily reset #{new_count}. You have {remaining} reset(s) left today.", "/child/dashboard/")
+        notify(uid, "SCREEN_TIME_RESET", f"You used your daily self-reset. You have {remaining} reset(s) left today.", "/child/dashboard/")
 
         # Notify parents of child self-reset
         execute(
             """INSERT INTO parent_notifications(parent_id, child_id, notification_type, notification_message, target_url)
-               SELECT parent_id, %s, 'SCREEN_TIME', 'Your child used daily screen-time reset #' || %s || ' (' || %s || ' remaining today).', '/parent/time-limit/?child_id=' || %s
+               SELECT parent_id, %s, 'SCREEN_TIME', 'Your child used their daily screen-time self-reset (' || %s || ' remaining today).', '/parent/time-limit/?child_id=' || %s
                FROM parent_child_map WHERE child_id=%s AND parent_id IS NOT NULL""",
-            (uid, str(new_count), str(remaining), str(uid), uid),
+            (uid, str(remaining), str(uid), uid),
         )
 
         return jsonify(
@@ -3832,6 +3835,204 @@ def register_mobile_api(bp):
             resets_remaining=remaining,
             minutes_today=0,
         )
+
+    # ---- Screen-time extension requests (child asks, parent decides) ----
+    # A child creates a PENDING request; a parent approves (granting a
+    # today-only bonus enforced by services/usage.py lock_state) or rejects.
+    # Decided requests are immutable; stale PENDING rows expire end of day.
+
+    def _expire_stale_extension_requests():
+        execute(
+            "UPDATE screen_time_extension_requests SET status='EXPIRED' "
+            "WHERE status='PENDING' AND created_at::date < CURRENT_DATE"
+        )
+
+    @bp.route("/api/mobile/v1/kids/time-limit/extension-request", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("10 per hour")
+    @_require_mobile("CHILD")
+    def mobile_kids_time_limit_extension_request():
+        uid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        data = _json_dict()
+        try:
+            requested = int(data.get("requested_minutes", 30))
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_minutes"), 400
+        if not 5 <= requested <= 180:
+            return jsonify(error="invalid_minutes", message="Ask for 5-180 minutes."), 400
+        pending = fetch_one(
+            "SELECT request_id FROM screen_time_extension_requests "
+            "WHERE child_id=%s AND status='PENDING'",
+            (uid,),
+        )
+        if pending:
+            return jsonify(
+                error="extension_request_pending",
+                message="You already have a request waiting for your parent.",
+                request_id=pending["request_id"],
+            ), 409
+        row = fetch_one(
+            "INSERT INTO screen_time_extension_requests(child_id, requested_minutes) "
+            "VALUES(%s, %s) RETURNING request_id, requested_minutes, status, created_at",
+            (uid, requested),
+        )
+        child_name = (g.mobile_user.get("full_name") or "Your child").strip() or "Your child"
+        parent_notify(
+            uid,
+            "SCREEN_TIME_EXTENSION_REQUEST",
+            f"{child_name} asked for {requested} more minutes of screen time today.",
+            f"/parent/time-limit/?child_id={uid}",
+        )
+        return jsonify(
+            ok=True,
+            message="Request sent to your parent.",
+            request={"request_id": row["request_id"], "requested_minutes": row["requested_minutes"],
+                     "status": row["status"], "created_at": str(row["created_at"])},
+        )
+
+    @bp.route("/api/mobile/v1/kids/time-limit/extension-request", methods=["GET"])
+    @_require_mobile("CHILD")
+    def mobile_kids_time_limit_extension_request_status():
+        uid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        row = fetch_one(
+            "SELECT request_id, requested_minutes, status, granted_minutes, created_at, decided_at "
+            "FROM screen_time_extension_requests WHERE child_id=%s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (uid,),
+        )
+        if not row:
+            return jsonify(ok=True, request=None)
+        return jsonify(
+            ok=True,
+            request={
+                "request_id": row["request_id"],
+                "requested_minutes": row["requested_minutes"],
+                "status": row["status"],
+                "granted_minutes": row.get("granted_minutes"),
+                "created_at": str(row["created_at"]),
+                "decided_at": str(row["decided_at"]) if row.get("decided_at") else None,
+            },
+        )
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests", methods=["GET"])
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_requests():
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        rows = fetch_all(
+            """SELECT r.request_id, r.child_id, u.full_name AS child_name,
+                      r.requested_minutes, r.status, r.created_at
+               FROM screen_time_extension_requests r
+               JOIN users u ON u.user_id = r.child_id
+               WHERE r.status='PENDING'
+                 AND EXISTS (
+                   SELECT 1 FROM parent_child_map m
+                   JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE'
+                   WHERE m.child_id=r.child_id AND m.approved=TRUE
+                     AND m.approval_status='APPROVED'
+                     AND (m.parent_id=%s OR m.verified_parent_id=%s)
+                 )
+               ORDER BY r.created_at ASC""",
+            (pid, pid, pid),
+        ) or []
+        return jsonify(
+            ok=True,
+            requests=[
+                {
+                    "request_id": r["request_id"],
+                    "child_id": r["child_id"],
+                    "child_name": r.get("child_name") or "Your child",
+                    "requested_minutes": r["requested_minutes"],
+                    "status": r["status"],
+                    "created_at": str(r["created_at"]),
+                }
+                for r in rows
+            ],
+        )
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests/<int:req_id>/approve", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_request_approve(req_id):
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        req = fetch_one(
+            "SELECT request_id, child_id, requested_minutes FROM screen_time_extension_requests "
+            "WHERE request_id=%s AND status='PENDING'",
+            (req_id,),
+        )
+        if not req or not owns(pid, req["child_id"]):
+            return jsonify(error="request_not_found"), 404
+        data = _json_dict()
+        try:
+            granted = int(data.get("granted_minutes", req["requested_minutes"]))
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_minutes"), 400
+        if not 1 <= granted <= 720:
+            return jsonify(error="invalid_minutes", message="Grant 1-720 minutes."), 400
+        # Decided requests are immutable: only a PENDING row can transition.
+        moved = execute_count(
+            "UPDATE screen_time_extension_requests "
+            "SET status='APPROVED', decided_at=NOW(), decided_by=%s, granted_minutes=%s "
+            "WHERE request_id=%s AND status='PENDING'",
+            (pid, granted, req_id),
+        )
+        if not moved:
+            return jsonify(error="request_already_decided"), 409
+        # Server-enforced grant: today-only bonus read by lock_state() at
+        # check time. Stale (non-today) bonuses are zeroed, never stacked.
+        execute(
+            """INSERT INTO child_time_limits(child_id, daily_limit_minutes, strict_mode, bonus_minutes, bonus_date)
+               VALUES(%s, 60, TRUE, %s, CURRENT_DATE)
+               ON CONFLICT(child_id) DO UPDATE SET
+                 bonus_minutes = CASE
+                   WHEN child_time_limits.bonus_date = CURRENT_DATE
+                   THEN child_time_limits.bonus_minutes ELSE 0 END + EXCLUDED.bonus_minutes,
+                 bonus_date = CURRENT_DATE,
+                 updated_at = NOW()""",
+            (req["child_id"], granted),
+        )
+        execute(
+            "DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN "
+            "('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE",
+            (req["child_id"],),
+        )
+        log(req["child_id"], "SCREEN_TIME_EXTENSION_APPROVED",
+            {"parent_id": pid, "request_id": req_id, "granted_minutes": granted})
+        notify(req["child_id"], "SCREEN_TIME_EXTENSION_APPROVED",
+               f"Your parent added {granted} minutes of screen time for today!",
+               "/child/dashboard/", pid)
+        return jsonify(ok=True, message=f"Granted {granted} minutes for today.", granted_minutes=granted)
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests/<int:req_id>/reject", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_request_reject(req_id):
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        req = fetch_one(
+            "SELECT request_id, child_id FROM screen_time_extension_requests "
+            "WHERE request_id=%s AND status='PENDING'",
+            (req_id,),
+        )
+        if not req or not owns(pid, req["child_id"]):
+            return jsonify(error="request_not_found"), 404
+        moved = execute_count(
+            "UPDATE screen_time_extension_requests "
+            "SET status='REJECTED', decided_at=NOW(), decided_by=%s "
+            "WHERE request_id=%s AND status='PENDING'",
+            (pid, req_id),
+        )
+        if not moved:
+            return jsonify(error="request_already_decided"), 409
+        log(req["child_id"], "SCREEN_TIME_EXTENSION_REJECTED",
+            {"parent_id": pid, "request_id": req_id})
+        notify(req["child_id"], "SCREEN_TIME_EXTENSION_REJECTED",
+               "Your parent reviewed your extra-time request and said not right now.",
+               "/child/dashboard/", pid)
+        return jsonify(ok=True, message="Request rejected.")
 
     @bp.route("/api/mobile/v2/kids/feed")
     @_require_mobile("CHILD")
@@ -4306,10 +4507,6 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             replay_count = 0
 
-        state = feed_quiz_state(uid)
-        if state.get("required"):
-            return jsonify(error="quiz_required", gate="quiz", quiz_required=True), 428
-
         ok = record_feed_impression(
             uid, session_id, source_type, source_id, surface,
             watched_ms=watched_ms, completed=completed, liked=liked, saved=saved,
@@ -4324,16 +4521,17 @@ def register_mobile_api(bp):
         else:
             view_res = feed_quiz_state(uid)
 
+        # Nudge, not a lock: the impression is accepted and content keeps
+        # flowing; quiz_required=True tells the client to render the
+        # dismissible prompt card between reels.
         if view_res.get("required"):
             return jsonify(
                 ok=True,
                 quiz_required=True,
-                gate="quiz",
                 posts_seen=view_res.get("posts_seen", 5),
                 quiz_interval=view_res.get("interval", 5),
                 next_quiz_threshold=view_res.get("next_quiz_threshold", 5),
-                error="quiz_required",
-            ), 428
+            )
 
         return jsonify(
             ok=True,

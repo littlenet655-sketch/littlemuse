@@ -28,7 +28,9 @@ def _age_group_uncached(viewer_id):
 def child_surface_open(viewer_id, feature=None):
     """Fail closed for child-facing HTTP/media surfaces.
 
-    Quiet-hours, screen-time and mandatory-quiz state are request-time controls.
+    Quiet-hours and screen-time are request-time controls. The periodic quiz
+    latch is a NUDGE, never a surface block: it must not close feeds, stories,
+    messaging, or media signing (defect: periodic latch must not lock content).
     Background policy/unit evaluation has no browser session to lock and continues
     to use the canonical content/friend/category SQL rules instead.
 
@@ -57,8 +59,6 @@ def _child_surface_open_uncached(viewer_id, feature=None):
         from services.usage import lock_state
         locked,_=lock_state(viewer_id)
         if locked:return False
-        from quiz.service import quiz_due
-        if quiz_due(viewer_id):return False
     except Exception:
         return False
     return True

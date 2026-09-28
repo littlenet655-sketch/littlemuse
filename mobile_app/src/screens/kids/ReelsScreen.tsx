@@ -32,7 +32,13 @@ import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
-import { QuizBreakCard } from '../../components/QuizBreakCard';
+import { QuizPromptCard } from '../../components/QuizPromptCard';
+import {
+  isQuizPromptRow,
+  shouldShowQuizPrompt,
+  withQuizPromptRow,
+  type QuizPromptRow,
+} from '../../kids/quizPrompt';
 
 type ReelFollowStatus = 'Follow' | 'Requested' | 'Following';
 
@@ -359,8 +365,19 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
+  // Server quiz nudge: a due quiz shows a dismissible prompt card between
+  // reels — it never locks scrolling or pauses playback.
+  const [quizDue, setQuizDue] = useState(false);
+  /** Dismissed prompt cards never re-nag until a NEW quiz-due signal arrives. */
+  const [quizPromptDismissed, setQuizPromptDismissed] = useState(false);
   const feed = useFeed('reels', 8);
-  const displayItems = feed.items;
+  // Non-blocking quiz nudge: one dismissible prompt card between reels when
+  // the server signals quiz_due. A child who ignores it keeps full access.
+  const showQuizPrompt = shouldShowQuizPrompt(quizDue, quizPromptDismissed);
+  const displayItems: Array<FeedItem | QuizPromptRow> = useMemo(
+    () => withQuizPromptRow(feed.items, showQuizPrompt),
+    [feed.items, showQuizPrompt],
+  );
   const loadMoreRef = useRef(feed.loadMore);
   loadMoreRef.current = feed.loadMore;
   const foreground = useIsForeground();
@@ -404,10 +421,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       });
     }
   }, [session, followStates, followBusyIds]);
-  const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem>>(null);
+  const flatListRef = useRef<FlatList<FeedItem | QuizPromptRow>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -415,14 +431,22 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
 
-  // Server latch persistence: if the server says a compulsory quiz is required,
-  // lock scrolling and pause playback immediately (e.g. after app restart, tab change).
+  // Server nudge signal: a due quiz shows a dismissible prompt card between
+  // reels — it never locks scrolling or pauses playback.
+  const prevQuizDueRef = useRef(quizDue);
   useEffect(() => {
     if (session?.user?.quiz_required) {
-      setQuizLocked(true);
-      setPaused(true);
+      setQuizDue(true);
+    } else {
+      setQuizDue(false);
+      setQuizPromptDismissed(false);
     }
   }, [session?.user?.quiz_required]);
+  useEffect(() => {
+    // A fresh quiz-due signal re-arms the card after a dismissal.
+    if (quizDue && !prevQuizDueRef.current) setQuizPromptDismissed(false);
+    prevQuizDueRef.current = quizDue;
+  }, [quizDue]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {
@@ -437,7 +461,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem }> }) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem | QuizPromptRow }> }) => {
     const firstRow = viewableItems.find((row) => typeof row.index === 'number');
     const first = firstRow?.index;
     if (typeof first === 'number') {
@@ -467,14 +491,15 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     try {
       const result = await recordImpressionBatch(session.token, events);
       if (result.quiz_required) {
-        setQuizLocked(true);
-        setPaused(true);
+        // Nudge only: show the prompt card, keep scrolling and playback alive.
+        setQuizDue(true);
         await refreshMe();
       }
     } catch (error) {
       if (error instanceof ApiError && error.code === 'quiz_required') {
-        setQuizLocked(true);
-        setPaused(true);
+        // Defensive: the server no longer 428s on quiz_due, but an old
+        // backend still only raises the nudge signal.
+        setQuizDue(true);
         await refreshMe();
       }
       // Impression telemetry itself remains non-blocking.
@@ -623,15 +648,24 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizPromptRow; index: number }) => {
+    if (isQuizPromptRow(item)) {
+      return (
+        <QuizPromptCard
+          height={REEL_HEIGHT}
+          onTakeQuiz={() => nav.navigate('Quiz', {})}
+          onDismiss={() => setQuizPromptDismissed(true)}
+        />
+      );
+    }
     return (
     <ReelCell
       item={item}
       index={index}
       activeIndex={activeIndex}
-      active={!quizLocked && shouldPlayReel(index, activeIndex, foreground && focused)}
-      nearby={!quizLocked && shouldLoadReel(index, activeIndex)}
-      paused={paused || quizLocked}
+      active={shouldPlayReel(index, activeIndex, foreground && focused)}
+      nearby={shouldLoadReel(index, activeIndex)}
+      paused={paused}
       token={session?.token}
       reelHeight={REEL_HEIGHT}
       windowWidth={windowWidth}
@@ -647,7 +681,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
+  }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same report action the old Alert menu ran — now invoked from the action sheet.
    * Awaits the submission: the success confirmation must only show when the
@@ -784,13 +818,12 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem>
+      <FlatList<FeedItem | QuizPromptRow>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => `reel:${feedKey(it)}`}
+        keyExtractor={(it) => (isQuizPromptRow(it) ? 'quiz-prompt' : `reel:${feedKey(it)}`)}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!quizLocked}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -810,23 +843,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         renderItem={renderReelItem}
       />
 
-      {/* Full-screen non-skippable brain break lock if server has latch active */}
-      {quizLocked ? (
-        <View style={[StyleSheet.absoluteFill, styles.lockedOverlay]}>
-          <QuizBreakCard
-            token={session?.token}
-            fullscreen
-            completed={false}
-            onCompleted={async () => {
-              setQuizLocked(false);
-              setPaused(false);
-              if (session?.token) {
-                await refreshMe();
-              }
-            }}
-          />
-        </View>
-      ) : null}
 
       {/* Instagram-style bottom action sheet — same actions as the old Alert menu */}
       {sheetItem ? (
@@ -1196,12 +1212,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.brand,
-  },
-  lockedOverlay: {
-    backgroundColor: '#000000',
-    zIndex: 9999,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   followPillActive: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)',

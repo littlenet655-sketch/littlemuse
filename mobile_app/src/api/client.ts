@@ -50,6 +50,10 @@ export const routes = {
   quizAnswer: (quizId: number) => `/api/mobile/v1/kids/quiz/${quizId}/answer`,
   kidsTimeLimitStatus: '/api/mobile/v1/kids/time-limit/status',
   kidsTimeLimitReset: '/api/mobile/v1/kids/time-limit/reset',
+  kidsExtensionRequest: '/api/mobile/v1/kids/time-limit/extension-request',
+  parentExtensionRequests: '/api/mobile/v1/parent/screen-time/extension-requests',
+  parentExtensionRequestAction: (requestId: number, action: 'approve' | 'reject') =>
+    `/api/mobile/v1/parent/screen-time/extension-requests/${requestId}/${action}`,
   parentCreateChild: '/api/mobile/v1/parent/children',
   parentDashboard: '/api/mobile/v1/parent/dashboard',
   parentControls: (childId: number) => `/api/mobile/v1/parent/controls/${childId}`,
