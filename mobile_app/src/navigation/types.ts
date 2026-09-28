@@ -29,6 +29,8 @@ export type ChildStackParamList = {
   PostDetail: { postId: number; openShare?: boolean };
   SafetyCentre: undefined;
   ReportHistory: undefined;
+  MyControls: undefined;
+  MyActivity: undefined;
   OtherProfile: { targetId: number };
   ProcessingStatus: { postId: number };
 };

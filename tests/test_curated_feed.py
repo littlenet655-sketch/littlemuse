@@ -351,7 +351,8 @@ def test_refill_session_excludes_immediately_previous_session(monkeypatch):
         normalize_social_item(_dummy_social_row(2)),
         normalize_social_item(_dummy_social_row(4)),
     ])
-    monkeypatch.setattr(cf, "get_recent_impression_keys", lambda *a, **k: set())
+    monkeypatch.setattr(cf, "_served_window_keys", lambda *a, **k: set())
+    monkeypatch.setattr(cf, "_last_served_map", lambda *a, **k: {})
 
     import services.recommendation as rec
     monkeypatch.setattr(rec, "rank_candidates", lambda cid, rows: rows)
@@ -466,3 +467,172 @@ def test_continuous_feed_refill_traverses_over_100_unique_items_and_terminates(m
     assert page["has_more"] is False
     assert page["can_refill"] is False
     assert page["exhaustion_reason"] == "NO_ELIGIBLE_CONTENT"
+
+
+def _install_fake_session_store(monkeypatch):
+    """Fake the session persistence layer with an in-memory store.
+
+    Returns (cf_module, store). The store records sessions in creation order
+    with a fake tick so 'least-recently-served' ordering is deterministic.
+    """
+    import services.curated_feed as cf
+
+    store = {"sessions": [], "tick": 0}
+
+    def fake_session_keys(child_id, surface, session_id):
+        if not session_id:
+            return set()
+        for s in store["sessions"]:
+            if s["id"] == session_id:
+                return {(it["source_type"], int(it["source_id"])) for it in s["items"]}
+        return set()
+
+    def fake_window_keys(child_id, surface, hours=24):
+        keys = set()
+        for s in store["sessions"]:
+            keys |= {(it["source_type"], int(it["source_id"])) for it in s["items"]}
+        return keys
+
+    def fake_last_served(child_id, surface, hours=24):
+        out = {}
+        for s in store["sessions"]:
+            for it in s["items"]:
+                out[(it["source_type"], int(it["source_id"]))] = s["tick"]
+        return out
+
+    def fake_execute(sql, params=(), returning=False):
+        if returning:
+            sid = f"sess-{len(store['sessions'])}"
+            store["sessions"].append({"id": sid, "items": [], "tick": store["tick"]})
+            store["tick"] += 1
+            return {"session_id": sid}
+        raise AssertionError("unexpected non-returning execute in test")
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    def fake_execute_values(cur, sql, records):
+        for sid, pos, stype, src_id in records:
+            for s in store["sessions"]:
+                if s["id"] == sid:
+                    s["items"].append({"source_type": stype, "source_id": src_id})
+
+    monkeypatch.setattr(cf, "_session_source_keys", fake_session_keys)
+    monkeypatch.setattr(cf, "_served_window_keys", fake_window_keys)
+    monkeypatch.setattr(cf, "_last_served_map", fake_last_served)
+    monkeypatch.setattr(cf, "execute", fake_execute)
+    monkeypatch.setattr(cf, "get_db_connection", lambda: _Conn())
+    monkeypatch.setattr("psycopg2.extras.execute_values", fake_execute_values)
+
+    import services.recommendation as rec
+    monkeypatch.setattr(rec, "rank_candidates", lambda cid, rows: rows)
+    monkeypatch.setattr(rec, "apply_diversity_and_balance", lambda rows, max_consecutive=2: rows)
+    return cf, store
+
+
+def test_small_catalog_never_repeats_deterministic_order_back_to_back(monkeypatch):
+    """The reported defect: a 5-reel catalog re-served the identical order.
+
+    Session 1 (fresh) serves reels 1-5. Session 2 (fresh, same window) has no
+    unseen content, so it must take the rotation fallback — least-recently-
+    served first with the deterministic daily offset — never the same order.
+    """
+    import datetime
+
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 6)]
+    for idx, r in enumerate(reels):
+        r["editorial_weight"] = 5 - idx  # deterministic base order 1..5
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    sess1, items1 = cf.get_or_create_feed_session(1, "REELS")
+    order1 = [int(r["source_id"]) for r in items1]
+    assert order1 == [1, 2, 3, 4, 5]
+
+    sess2, items2 = cf.get_or_create_feed_session(1, "REELS")
+    order2 = [int(r["source_id"]) for r in items2]
+    assert sess2 != sess1
+    assert sorted(order2) == [1, 2, 3, 4, 5]
+    # Rotation fallback: base recency order [1..5] rotated by the daily offset.
+    expected_offset = (1 + datetime.date.today().toordinal()) % 5
+    expected = [1, 2, 3, 4, 5][expected_offset:] + [1, 2, 3, 4, 5][:expected_offset]
+    assert order2 == expected
+
+
+def test_rotation_serves_least_recently_served_first(monkeypatch):
+    """When the catalog is exhausted, order is recency-sorted then rotated.
+
+    The stale reels (tick 0) sort before the fresh one (tick 5); the daily
+    rotation offset then spins that base order so consecutive windows never
+    restart identically.
+    """
+    import datetime
+
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 4)]
+    for r in reels:
+        r["editorial_weight"] = 1.0
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    # Reel 3 was served most recently (tick 5); reels 1-2 are stale (tick 0).
+    store["sessions"] = [
+        {"id": "old-a", "items": [
+            {"source_type": "CURATED", "source_id": 1},
+            {"source_type": "CURATED", "source_id": 2},
+        ], "tick": 0},
+        {"id": "old-b", "items": [
+            {"source_type": "CURATED", "source_id": 3},
+        ], "tick": 5},
+    ]
+    # Exhaust the window so the rotation path triggers.
+    monkeypatch.setattr(cf, "_served_window_keys", lambda *a, **k: {("CURATED", 1), ("CURATED", 2), ("CURATED", 3)})
+
+    _, items = cf.get_or_create_feed_session(9, "REELS")
+    order = [int(r["source_id"]) for r in items]
+    assert sorted(order) == [1, 2, 3]
+    base = [1, 2, 3]  # recency-sorted: stale first
+    offset = (9 + datetime.date.today().toordinal()) % 3
+    assert order == base[offset:] + base[:offset]
+
+
+def test_rotation_offset_is_deterministic_per_child_and_day(monkeypatch):
+    import services.curated_feed as cf
+
+    assert cf._rotation_offset(7, 5) == cf._rotation_offset(7, 5)
+    assert cf._rotation_offset(7, 0) == 0
+    # Different children land on different offsets for the same catalog size
+    # (probabilistically; the space is 5 wide so a collision is possible but
+    # the construction must at least depend on child_id).
+    offsets = {cf._rotation_offset(cid, 5) for cid in range(1, 6)}
+    assert len(offsets) > 1
+
+
+def test_refill_probe_is_false_when_window_exhausted(monkeypatch):
+    """can_refill must not advertise rotation repeats as new content."""
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 4)]
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    sess, _ = cf.get_or_create_feed_session(3, "REELS")
+    # Everything served inside the window: no *new* content for a refill.
+    assert cf._has_refill_candidates(3, "REELS", sess, "for_you") is False

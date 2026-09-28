@@ -3791,6 +3791,74 @@ def register_mobile_api(bp):
             resets_remaining=max(0, 1 - used),
         )
 
+    @bp.route("/api/mobile/v1/kids/my-controls")
+    @_require_mobile("CHILD")
+    def mobile_kids_my_controls():
+        """Read-only view of the requesting child's own safety controls.
+
+        Strictly self-scoped: every value is derived from the session uid.
+        No parent account info, no sibling data, no moderation internals.
+        Everything shown stays parent-managed and server-enforced; this
+        endpoint only surfaces what already applies to the child.
+        """
+        uid = int(g.mobile_user["user_id"])
+        controls = controls_for_child(uid)
+        quiet = quiet_hours_state(uid)
+        safety_row = fetch_one("SELECT safety_level FROM parent_safety_settings WHERE child_id=%s", (uid,))
+        limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
+        return jsonify(
+            ok=True,
+            safety_level=(safety_row["safety_level"] if safety_row else "STRICT"),
+            daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
+            strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
+            quiet_hours={
+                "enabled": bool(controls.get("quiet_hours_enabled")),
+                "active": bool(quiet.get("active")),
+                "start": str(quiet.get("start") or controls.get("quiet_start") or "21:00"),
+                "end": str(quiet.get("end") or controls.get("quiet_end") or "07:00"),
+            },
+            features={
+                "reels": bool(feature_allowed(uid, "reels")),
+                "stories": bool(feature_allowed(uid, "stories")),
+                "messaging": bool(feature_allowed(uid, "messaging")),
+                "posting": bool(feature_allowed(uid, "posting")),
+                "discover": bool(feature_allowed(uid, "discover")),
+                "comments": bool(feature_allowed(uid, "comments")),
+            },
+            educational_only_feed=bool(controls.get("educational_only_feed")),
+        )
+
+    @bp.route("/api/mobile/v1/kids/my-activity")
+    @_require_mobile("CHILD")
+    def mobile_kids_my_activity():
+        """Read-only view of the requesting child's own recent activity.
+
+        Strictly self-scoped (session uid only): own like/save snapshot,
+        own quiz attempts. The child already sees all of this content
+        in-app; this just aggregates it in one place.
+        """
+        uid = int(g.mobile_user["user_id"])
+        liked_saved = _clean(_liked_saved_snapshot(uid, limit=30))
+        quiz_7d = fetch_one(
+            "SELECT COUNT(*) attempted, COUNT(*) FILTER (WHERE is_correct) correct "
+            "FROM child_quiz_attempts WHERE child_id=%s AND attempted_at>=NOW()-INTERVAL '7 days'",
+            (uid,),
+        ) or {"attempted": 0, "correct": 0}
+        recent = fetch_all(
+            "SELECT quiz_id, is_correct, attempted_at FROM child_quiz_attempts "
+            "WHERE child_id=%s ORDER BY attempted_at DESC LIMIT 10",
+            (uid,),
+        ) or []
+        return jsonify(
+            ok=True,
+            liked_saved=liked_saved,
+            quiz_7d={
+                "attempted": int(quiz_7d.get("attempted") or 0),
+                "correct": int(quiz_7d.get("correct") or 0),
+            },
+            recent_quizzes=_clean(recent),
+        )
+
     @bp.route("/api/mobile/v1/kids/time-limit/reset", methods=["POST"])
     @csrf.exempt
     @_require_mobile("CHILD")

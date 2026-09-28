@@ -13,6 +13,8 @@ export const kidsKeys = {
   comments: (id: number) => ['kids', 'comments', id],
   saved: ['kids', 'saved'],
   timeLimit: ['kids', 'time-limit', 'status'],
+  myControls: ['kids', 'my-controls'],
+  myActivity: ['kids', 'my-activity'],
   connections: ['kids', 'connections'],
   notifications: ['kids', 'notifications'],
   conversations: ['kids', 'conversations'],

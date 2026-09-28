@@ -293,6 +293,22 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             >
               <Text style={styles.greyBtnText}>Saved</Text>
             </Pressable>
+            {/* Read-only self visibility: the child's own controls and
+                activity. Nothing here can be changed. */}
+            <Pressable
+              style={styles.greyBtn}
+              onPress={() => nav.navigate('MyControls', {})}
+              accessibilityLabel="My Controls"
+            >
+              <Text style={styles.greyBtnText}>My Controls</Text>
+            </Pressable>
+            <Pressable
+              style={styles.greyBtn}
+              onPress={() => nav.navigate('MyActivity', {})}
+              accessibilityLabel="My Activity"
+            >
+              <Text style={styles.greyBtnText}>My Activity</Text>
+            </Pressable>
             <Pressable
               style={[styles.greyBtn, styles.logOutBtn]}
               onPress={() => void signOut()}

@@ -51,6 +51,8 @@ export const routes = {
   kidsTimeLimitStatus: '/api/mobile/v1/kids/time-limit/status',
   kidsTimeLimitReset: '/api/mobile/v1/kids/time-limit/reset',
   kidsExtensionRequest: '/api/mobile/v1/kids/time-limit/extension-request',
+  kidsMyControls: '/api/mobile/v1/kids/my-controls',
+  kidsMyActivity: '/api/mobile/v1/kids/my-activity',
   parentExtensionRequests: '/api/mobile/v1/parent/screen-time/extension-requests',
   parentExtensionRequestAction: (requestId: number, action: 'approve' | 'reject') =>
     `/api/mobile/v1/parent/screen-time/extension-requests/${requestId}/${action}`,

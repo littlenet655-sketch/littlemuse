@@ -280,3 +280,55 @@ export function recordImpressionBatch(
   );
 }
 
+
+/** Read-only "My Controls" payload for the signed-in child (own data only). */
+export interface KidFeatureFlags {
+  reels: boolean;
+  stories: boolean;
+  messaging: boolean;
+  posting: boolean;
+  discover: boolean;
+  comments: boolean;
+}
+
+export interface KidMyControls {
+  ok: boolean;
+  safety_level: string;
+  daily_limit_minutes: number;
+  strict_mode: boolean;
+  quiet_hours: { enabled: boolean; active: boolean; start: string; end: string };
+  features: KidFeatureFlags;
+  educational_only_feed: boolean;
+}
+
+export function fetchMyControls(token: string): Promise<KidMyControls> {
+  return get<KidMyControls>(routes.kidsMyControls, token);
+}
+
+/** Read-only "My Activity" payload for the signed-in child (own data only). */
+export interface KidActivityItem {
+  log_id: number;
+  activity_type: string;
+  action: 'liked' | 'saved';
+  target_type?: string;
+  target_id?: number;
+  label?: string | null;
+  created_at?: string;
+}
+
+export interface KidQuizAttempt {
+  quiz_id: number;
+  is_correct: boolean;
+  attempted_at?: string;
+}
+
+export interface KidMyActivity {
+  ok: boolean;
+  liked_saved: KidActivityItem[];
+  quiz_7d: { attempted: number; correct: number };
+  recent_quizzes: KidQuizAttempt[];
+}
+
+export function fetchMyActivity(token: string): Promise<KidMyActivity> {
+  return get<KidMyActivity>(routes.kidsMyActivity, token);
+}

@@ -403,6 +403,60 @@ def _session_source_keys(child_id: int, surface: str, session_id: str | None) ->
     return {(str(r["source_type"]).upper(), int(r["source_id"])) for r in rows or []}
 
 
+#: Serving window (hours) for the no-repeat guarantee. Items placed into any
+#: of the child's sessions on a surface inside this window are excluded from
+#: new sessions/refills, so a small catalog cannot repeat its deterministic
+#: order back-to-back.
+SERVED_EXCLUSION_HOURS = 24
+
+
+def _served_window_keys(child_id: int, surface: str, hours: int = SERVED_EXCLUSION_HOURS) -> set[tuple[str, int]]:
+    """Every item already placed into this child's sessions on this surface within the window.
+
+    Server-authoritative: placement in feed_session_items means the item was
+    served, whether or not the client ever reported an impression. This is
+    what stops a small catalog from repeating the same deterministic order on
+    every fresh session or refill.
+    """
+    rows = fetch_all(
+        """SELECT fsi.source_type, fsi.source_id
+           FROM feed_session_items fsi
+           JOIN feed_sessions fs ON fs.session_id = fsi.session_id
+           WHERE fs.child_id = %s AND fs.surface = %s
+             AND fs.created_at >= NOW() - (%s || ' hours')::INTERVAL""",
+        (child_id, str(surface).upper(), str(hours)),
+    )
+    return {(str(r["source_type"]).upper(), int(r["source_id"])) for r in rows or []}
+
+
+def _last_served_map(
+    child_id: int, surface: str, hours: int = SERVED_EXCLUSION_HOURS
+) -> dict[tuple[str, int], Any]:
+    """Most recent session-placement time per item, for least-recent-first rotation."""
+    rows = fetch_all(
+        """SELECT fsi.source_type, fsi.source_id, MAX(fs.created_at) AS last_served
+           FROM feed_session_items fsi
+           JOIN feed_sessions fs ON fs.session_id = fsi.session_id
+           WHERE fs.child_id = %s AND fs.surface = %s
+             AND fs.created_at >= NOW() - (%s || ' hours')::INTERVAL
+           GROUP BY fsi.source_type, fsi.source_id""",
+        (child_id, str(surface).upper(), str(hours)),
+    )
+    out: dict[tuple[str, int], Any] = {}
+    for r in rows or []:
+        out[(str(r["source_type"]).upper(), int(r["source_id"]))] = r["last_served"]
+    return out
+
+
+def _rotation_offset(child_id: int, n: int) -> int:
+    """Deterministic daily rotation so an exhausted catalog never restarts at the same item."""
+    if n <= 0:
+        return 0
+    import datetime
+
+    return (int(child_id) + datetime.date.today().toordinal()) % n
+
+
 def _filter_feed_mode(items: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     mode_clean = str(mode or "for_you").strip().lower()
     if mode_clean == "friends":
@@ -414,9 +468,15 @@ def _filter_feed_mode(items: list[dict[str, Any]], mode: str) -> list[dict[str, 
 
 
 def _has_refill_candidates(child_id: int, surface: str, session_id: str, mode: str) -> bool:
-    """Probe for eligible content outside the exhausted session."""
+    """Probe for eligible content outside the exhausted session.
+
+    Uses the same serving-window exclusion as session creation: only content
+    not served inside the window counts as refillable. Rotation repeats of an
+    exhausted catalog are intentionally NOT advertised as new content.
+    """
     surface_clean = str(surface).upper()
     excluded = _session_source_keys(child_id, surface_clean, session_id)
+    excluded |= _served_window_keys(child_id, surface_clean)
     curated = [
         item for item in fetch_curated_candidates(child_id, surface_clean, limit=180)
         if (item["source_type"], int(item["source_id"])) not in excluded
@@ -460,29 +520,51 @@ def get_or_create_feed_session(
     # Create new session. Refill sessions probe a wider catalog so the first
     # 60 candidates cannot hide additional eligible content.
     excluded = _session_source_keys(child_id, surface_clean, exclude_session_id)
+    # Widen the exclusion to everything served to this child on this surface
+    # inside the serving window: a fresh session (or a second refill) must not
+    # re-serve the same deterministic order from a small catalog.
+    excluded |= _served_window_keys(child_id, surface_clean)
+
+    def _ckey(item: dict[str, Any]) -> tuple[str, int]:
+        return (item["source_type"], int(item["source_id"]))
+
     candidate_limit = 180 if excluded else 60
-    curated = [
-        item for item in fetch_curated_candidates(child_id, surface_clean, limit=candidate_limit)
-        if (item["source_type"], int(item["source_id"])) not in excluded
-    ]
-    social = [
-        item for item in fetch_social_candidates(child_id, surface_clean, limit=candidate_limit)
-        if (item["source_type"], int(item["source_id"])) not in excluded
-    ]
+    all_curated = fetch_curated_candidates(child_id, surface_clean, limit=candidate_limit)
+    all_social = fetch_social_candidates(child_id, surface_clean, limit=candidate_limit)
+    # Unseen-first: only content not served inside the window is "new".
+    unseen_curated = [c for c in all_curated if _ckey(c) not in excluded]
+    unseen_social = [s for s in all_social if _ckey(s) not in excluded]
 
-    # Filter recently shown impressions
-    recent = get_recent_impression_keys(child_id, surface_clean, hours=2)
-    curated_filtered = [c for c in curated if (c["source_type"], c["source_id"]) not in recent]
-    social_filtered = [s for s in social if (s["source_type"], s["source_id"]) not in recent]
-
-    # Fallback to full pool if filtered pool is too small
-    active_curated = curated_filtered if len(curated_filtered) >= 5 else curated
-    active_social = social_filtered if len(social_filtered) >= 3 else social
-
-    combined = merge_candidates(active_social, active_curated)
     from services.recommendation import rank_candidates, apply_diversity_and_balance
-    ranked = rank_candidates(child_id, combined)
-    diversified = apply_diversity_and_balance(ranked, max_consecutive=2)
+
+    if unseen_curated or unseen_social:
+        combined = merge_candidates(unseen_social, unseen_curated)
+        ranked = rank_candidates(child_id, combined)
+        diversified = apply_diversity_and_balance(ranked, max_consecutive=2)
+    else:
+        # Catalog exhausted inside the serving window (e.g. a 5-reel catalog
+        # the child already watched): rotation fallback. Serve the eligible
+        # pool least-recently-served first with a deterministic daily offset,
+        # instead of repeating the same deterministic order. Safety filtering
+        # is unchanged — this only reorders already-eligible candidates.
+        last_served = _last_served_map(child_id, surface_clean)
+        pool = merge_candidates(all_social, all_curated)
+
+        def _recency(item: dict[str, Any]) -> tuple:
+            served = last_served.get(_ckey(item))
+            # Never-served sorts before served; then oldest first; then
+            # editorial weight as a stable, quality-aware tiebreak.
+            return (
+                served is not None,
+                served,
+                -(item.get("editorial_weight") or 0),
+                int(item["source_id"]),
+            )
+
+        ordered = sorted(pool, key=_recency)
+        offset = _rotation_offset(child_id, len(ordered))
+        rotated = ordered[offset:] + ordered[:offset]
+        diversified = apply_category_diversity(rotated, max_consecutive=2)
 
     # Deduplicate within session
     seen_keys: set[tuple[str, int]] = set()
