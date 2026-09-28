@@ -484,6 +484,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   }
 
   const isVideo = kind === 'reel';
+  const allowVideoForPost = kind === 'post';
   const pickedIsVideo = (media?.mimeType ?? '').startsWith('video/');
 
   return (
@@ -597,6 +598,34 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   <Text style={styles.pickOptionTitle}>Take Photo</Text>
                   <Text style={styles.pickOptionSub}>Snap with camera</Text>
                 </Pressable>
+                {allowVideoForPost && (
+                  <>
+                    <Pressable
+                      style={styles.pickOption}
+                      accessibilityRole="button"
+                      accessibilityLabel="Choose a video from your gallery"
+                      onPress={() => void choose(() => pickGalleryMedia('video'))}
+                    >
+                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                        <Feather name="film" size={24} color={colors.ink} />
+                      </View>
+                      <Text style={styles.pickOptionTitle}>Gallery Video</Text>
+                      <Text style={styles.pickOptionSub}>Choose from files</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.pickOption}
+                      accessibilityRole="button"
+                      accessibilityLabel="Record a video with the camera"
+                      onPress={() => void choose(() => capturePostMedia('video'))}
+                    >
+                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                        <Feather name="video" size={24} color={colors.ink} />
+                      </View>
+                      <Text style={styles.pickOptionTitle}>Camera Video</Text>
+                      <Text style={styles.pickOptionSub}>Record right now</Text>
+                    </Pressable>
+                  </>
+                )}
               </>
             )}
           </View>

@@ -817,7 +817,7 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
         <View style={styles.summaryProfileCard}>
           <View style={styles.summaryProfileTopRow}>
             <View style={styles.avatarWrapper}>
-              <Avatar uri={child.avatar_url} size={56} />
+              <Avatar uri={child.avatar_url} name={child.full_name} size={56} />
               <View
                 style={[
                   styles.presenceIndicatorLarge,
