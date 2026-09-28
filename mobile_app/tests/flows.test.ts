@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { childNextRoute, resolveChildRoute, screenForGate } from '../src/navigation/gates';
-import { quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision';
+import { childNextRoute, offlineGateReset, resolveChildRoute, screenForGate } from '../src/navigation/gates';
+import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision';
+import { ApiError } from '../src/api/errors';
 import { validateResetInput } from '../src/auth/resetValidation';
 import { captureLivePhotoCore, CameraBlockedError, CameraCancelledError, CameraPermissionError } from '../src/camera/capture';
 
@@ -144,5 +145,33 @@ describe('camera permission UX states', () => {
       }),
       (err: unknown) => err instanceof Error && !(err instanceof CameraCancelledError),
     );
+  });
+});
+
+describe('offline quiz fail-open (defect C1/C2 follow-up)', () => {
+  it('resets a stranded Quiz screen to KidsTabs when offline', () => {
+    assert.equal(offlineGateReset('Quiz', false), 'KidsTabs');
+  });
+
+  it('leaves every other route alone when offline', () => {
+    for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat', 'ProfileTab'] as const) {
+      assert.equal(offlineGateReset(route, false), null);
+    }
+  });
+
+  it('never resets while online — the online gate sync stays authoritative', () => {
+    assert.equal(offlineGateReset('Quiz', true), null);
+    assert.equal(offlineGateReset('KidsTabs', true), null);
+  });
+
+  it('detects proven-unreachable servers vs server refusals', () => {
+    assert.equal(isConnectivityFailure(new ApiError(0, 'network_unreachable', 'no route')), true);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_timeout', 'timed out')), true);
+    assert.equal(isConnectivityFailure(new ApiError(500, 'server_error', 'oops')), false);
+    assert.equal(isConnectivityFailure(new ApiError(403, 'disabled_by_parent', 'no')), false);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_cancelled', 'cancel')), false);
+    assert.equal(isConnectivityFailure(new Error('boom')), false);
+    assert.equal(isConnectivityFailure(null), false);
+    assert.equal(isConnectivityFailure(undefined), false);
   });
 });

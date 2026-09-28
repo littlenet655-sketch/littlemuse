@@ -21,7 +21,9 @@ def dashboard():
         k['minutes_today']=minutes_today(cid)
         k['limit']=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,))
         k['safety']=fetch_one('SELECT safety_level FROM parent_safety_settings WHERE child_id=%s',(cid,)) or {'safety_level':'STRICT'}
-        k['open_reviews']=(fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE child_id=%s AND decision='REVIEW' AND status='OPEN'",(cid,)) or {'n':0})['n']
+        # Badge must agree with the safety queue (same approved-mapping filter),
+        # matching the mobile dashboard open_reviews filter.
+        k['open_reviews']=(fetch_one("SELECT COUNT(*) n FROM moderation_events e WHERE e.child_id=%s AND e.decision='REVIEW' AND e.status='OPEN' AND EXISTS (SELECT 1 FROM parent_child_map m JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE' WHERE m.child_id=e.child_id AND m.approved=TRUE AND m.approval_status='APPROVED' AND (m.parent_id=%s OR m.verified_parent_id=%s))",(cid,session['user_id'],session['user_id'],session['user_id'])) or {'n':0})['n']
         k['controls']=controls_for_child(cid)
         k['presence']=online_state(cid)
         k['behavior']=behavior_summary(cid)

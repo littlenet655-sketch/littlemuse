@@ -64,3 +64,15 @@ export function resolveChildRoute(
   if (onboarding.quiz_required) return 'Quiz';
   return current === 'Quiz' ? 'KidsTabs' : current;
 }
+
+/**
+ * Offline fail-open for the gate sync (defect C1/C2 follow-up). With no
+ * connectivity there is no authoritative gate, so a stale cached
+ * quiz_required must not strand the child on Quiz. Returns the route to
+ * reset to, or null when no reset is needed. The server re-asserts the
+ * periodic latch on reconnect (heartbeat/content 403 -> refresh -> re-gate).
+ */
+export function offlineGateReset(current: ChildRoute, online: boolean): ChildRoute | null {
+  if (online) return null;
+  return current === 'Quiz' ? 'KidsTabs' : null;
+}

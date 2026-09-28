@@ -1,3 +1,4 @@
+import { ApiError } from '../api/errors';
 import type { OnboardingState } from '../api/auth';
 
 /**
@@ -16,4 +17,16 @@ export function quizLoadStatus(itemCount: number): QuizLoadStatus {
 export function shouldProceedAfterRefresh(onboarding: OnboardingState | null | undefined): boolean {
   if (!onboarding) return false;
   return !onboarding.quiz_required;
+}
+
+/**
+ * True when a quiz fetch failed because the device could not reach the
+ * server at all (offline / timed out), as opposed to the server refusing.
+ * Only a proven-unreachable server may fail the quiz gate open (defect
+ * C1/C2 follow-up): a 4xx/5xx keeps the child gated with Retry, and the
+ * periodic latch stays server-enforced.
+ */
+export function isConnectivityFailure(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 0) return false;
+  return error.code === 'network_unreachable' || error.code === 'request_timeout';
 }

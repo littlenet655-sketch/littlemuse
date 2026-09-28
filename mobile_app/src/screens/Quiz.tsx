@@ -5,10 +5,11 @@ import { answerQuiz, fetchQuiz } from '../api/auth';
 import type { QuizItem } from '../api/auth';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthProvider';
+import { useIsOnline } from '../query/client';
 import { clearPendingDestination, loadPendingDestination, savePendingDestination } from '../auth/session';
 import { secureStoreBackend } from '../auth/storage';
 import type { ChildScreenProps, ChildStackParamList } from '../navigation/types';
-import { quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
+import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
 import { Button, Card, GateNotice, LoadingState, Notice, Screen } from '../ui/components';
 import { colors, radius, spacing, type } from '../ui/tokens';
 
@@ -57,6 +58,7 @@ function resolveQuizDestination(stored: string | null): keyof ChildStackParamLis
  */
 export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   const { session, refreshMe } = useAuth();
+  const online = useIsOnline();
   const params = (route.params ?? {}) as QuizScreenParams;
   const [items, setItems] = useState<QuizItem[]>([]);
   const [reason, setReason] = useState('');
@@ -232,6 +234,11 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   }
 
   if (error && items.length === 0) {
+    // The quiz could not load AND the server is proven unreachable: the
+    // cached gate cannot be authoritative, so offer the way out instead of
+    // stranding the child (defect C1/C2 follow-up). A server refusal (4xx/5xx)
+    // or a reachable network keeps the child gated with Retry only.
+    const canFailOpen = !online && isConnectivityFailure(error);
     return (
       <Screen>
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -244,6 +251,16 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <Card>
             <GateNotice error={error} />
             <Button label="Retry" onPress={() => void load()} />
+            {canFailOpen ? (
+              <>
+                <View style={{ height: 10 }} />
+                <Button
+                  label="Continue to Home 🏠"
+                  variant="secondary"
+                  onPress={() => navigation.reset({ index: 0, routes: [{ name: 'KidsTabs' }] })}
+                />
+              </>
+            ) : null}
           </Card>
         </ScrollView>
       </Screen>

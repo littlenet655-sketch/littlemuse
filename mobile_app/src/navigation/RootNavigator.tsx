@@ -47,7 +47,9 @@ import { LoginScreen, WelcomeScreen } from '../screens/WelcomeLogin';
 import { BrandHeader, Button, LoadingState, Notice, Screen } from '../ui/components';
 import { ParentModeGate } from '../components/ParentModeGate';
 import { useScreenTimeHeartbeat } from '../kids/useScreenTimeHeartbeat';
-import { resolveChildRoute } from './gates';
+import { offlineGateReset, resolveChildRoute } from './gates';
+import type { ChildRoute } from './gates';
+import { useIsOnline } from '../query/client';
 import type { AdminStackParamList, AuthStackParamList, ChildStackParamList, ParentStackParamList } from './types';
 import { colors } from '../ui/tokens';
 
@@ -84,14 +86,29 @@ function AuthNavigator() {
 function ChildGateSync() {
   const navigation = useNavigation<NavigationProp<ChildStackParamList>>();
   const { session } = useAuth();
+  const online = useIsOnline();
 
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
         const state = navigation.getState();
         const index = state?.index ?? 0;
-        const current = state?.routes[index]?.name as keyof ChildStackParamList | undefined;
+        const current = state?.routes[index]?.name as ChildRoute | undefined;
         if (!current) return;
+        if (!online) {
+          // Offline: no authoritative gate exists. A stale cached
+          // quiz_required must not strand the child on Quiz (defect C1/C2
+          // follow-up) — fail open to Home. Anywhere else, leave the child
+          // alone; the server re-gates on reconnect.
+          const fallback = offlineGateReset(current, online);
+          if (fallback) {
+            navigation.reset({
+              index: 0,
+              routes: [{ name: fallback } as never],
+            });
+          }
+          return;
+        }
         const target = resolveChildRoute(session?.onboarding, session?.user.quiz_required ?? false, current);
         if (current === target) return;
         navigation.reset({
@@ -104,7 +121,7 @@ function ChildGateSync() {
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [navigation, session?.onboarding, session?.user.quiz_required]);
+  }, [navigation, session?.onboarding, session?.user.quiz_required, online]);
 
   return null;
 }
