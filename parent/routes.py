@@ -256,10 +256,33 @@ def review(event_id):
                 cur.execute('SELECT 1 FROM followers WHERE approved=TRUE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(a,b,b,a));connected=cur.fetchone()
                 if blocked or not connected:effective='BLOCK'
         status='ALLOWED' if effective=='APPROVE' else 'BLOCKED'
-        if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:cur.execute('UPDATE posts SET moderation_status=%s,is_safe=%s WHERE post_id=%s',(status,effective=='APPROVE',e['content_id']))
+        sanitize_failed=False
+        if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:
+            # Mirror the mobile review path: approving a post must sanitize and
+            # promote its media out of quarantine (metadata stripped, published
+            # namespace) — not merely flip the status on the quarantine bytes.
+            post_id=int(e['content_id'])
+            cur.execute('SELECT post_id,child_id,media_type,is_reel,is_story,source_media_path FROM posts WHERE post_id=%s FOR UPDATE',(post_id,))
+            p_row=cur.fetchone()
+            if p_row and effective=='APPROVE' and p_row.get('source_media_path'):
+                from services.media_processor import sanitize_and_promote_media
+                kind='reel' if p_row.get('is_reel') else ('story' if p_row.get('is_story') else 'post')
+                try:
+                    pub_media,pub_poster=sanitize_and_promote_media(post_id,int(p_row['child_id']),p_row['source_media_path'],kind,p_row.get('media_type') or 'IMAGE')
+                    cur.execute("UPDATE posts SET media_path=%s,poster_path=%s,moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(pub_media,pub_poster,post_id))
+                except Exception as exc:
+                    # Fail closed: never publish unsanitized media.
+                    sanitize_failed=True;effective='BLOCK';status='BLOCKED'
+                    cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='FAILED',is_safe=FALSE,processing_completed_at=NOW(),processing_error=%s WHERE post_id=%s",(f'sanitization_failed: {exc}',post_id))
+            elif p_row and effective=='APPROVE':
+                cur.execute("UPDATE posts SET moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
+            elif p_row:
+                cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='BLOCKED',is_safe=FALSE,media_path=NULL,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
         elif e['content_type']=='COMMENT' and e['content_id']:cur.execute('UPDATE comments SET moderation_status=%s WHERE comment_id=%s',(status,e['content_id']))
         elif e['content_type']=='MESSAGE' and e['content_id']:cur.execute('UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s',(status,e['content_id']))
-        cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,'Connection changed; approval safely converted to block.' if effective!=requested else None))
+        review_note=None
+        if effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
+        cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,review_note))
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s",(event_id,));conn.commit()
         if e['content_type']=='MESSAGE' and e['content_id'] and effective=='APPROVE':
             msg=fetch_one('SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],))
