@@ -3868,24 +3868,50 @@ def register_mobile_api(bp):
         if quiet.get("active"):
             return jsonify(error="quiet_hours_active", message="Cannot reset screen time during quiet hours bedtime."), 403
 
-        used = _kid_self_resets_today(uid)
-        if used >= 1:
-            return jsonify(
-                error="self_resets_exhausted",
-                message="You have already used your 1 daily self-reset today. Ask your parent for more time.",
-                resets_used=used,
-                resets_remaining=0,
-            ), 403
+        # Race guard: check-then-act runs inside one transaction under a
+        # per-child advisory lock, so two concurrent requests cannot both
+        # pass the count check. The reset counter itself is the activity_logs
+        # row, so its INSERT must happen inside the locked transaction too.
+        from database.connection import get_db_connection
+        import json as _json
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842104, uid))
+                cur.execute(
+                    "SELECT COUNT(*) AS cnt FROM activity_logs WHERE child_id=%s "
+                    "AND activity_type='KID_SCREEN_TIME_SELF_RESET' AND created_at::date=CURRENT_DATE",
+                    (uid,),
+                )
+                used = int(cur.fetchone()["cnt"] or 0)
+                if used >= 1:
+                    conn.rollback()
+                    return jsonify(
+                        error="self_resets_exhausted",
+                        message="You have already used your 1 daily self-reset today. Ask your parent for more time.",
+                        resets_used=used,
+                        resets_remaining=0,
+                    ), 403
 
-        # Clear today's logged usage logs and active session durations
-        execute("DELETE FROM child_usage_logs WHERE child_id=%s AND usage_date=CURRENT_DATE", (uid,))
-        execute("DELETE FROM child_usage_sessions WHERE child_id=%s AND ended_at IS NOT NULL AND started_at::date=CURRENT_DATE", (uid,))
-        execute("UPDATE child_usage_sessions SET started_at=NOW(), last_seen_at=NOW() WHERE child_id=%s AND ended_at IS NULL", (uid,))
-        execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE", (uid,))
+                # Clear today's logged usage logs and active session durations
+                cur.execute("DELETE FROM child_usage_logs WHERE child_id=%s AND usage_date=CURRENT_DATE", (uid,))
+                cur.execute("DELETE FROM child_usage_sessions WHERE child_id=%s AND ended_at IS NOT NULL AND started_at::date=CURRENT_DATE", (uid,))
+                cur.execute("UPDATE child_usage_sessions SET started_at=NOW(), last_seen_at=NOW() WHERE child_id=%s AND ended_at IS NULL", (uid,))
+                cur.execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE", (uid,))
 
-        new_count = used + 1
-        remaining = max(0, 1 - new_count)
-        log(uid, "KID_SCREEN_TIME_SELF_RESET", {"reset_number": new_count, "remaining_resets": remaining})
+                new_count = used + 1
+                remaining = max(0, 1 - new_count)
+                cur.execute(
+                    "INSERT INTO activity_logs(child_id, activity_type, activity_data) VALUES(%s, 'KID_SCREEN_TIME_SELF_RESET', %s::jsonb)",
+                    (uid, _json.dumps({"reset_number": new_count, "remaining_resets": remaining}, default=str)),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
         notify(uid, "SCREEN_TIME_RESET", f"You used your daily self-reset. You have {remaining} reset(s) left today.", "/child/dashboard/")
 
         # Notify parents of child self-reset
@@ -3929,22 +3955,55 @@ def register_mobile_api(bp):
             return jsonify(error="invalid_minutes"), 400
         if not 5 <= requested <= 180:
             return jsonify(error="invalid_minutes", message="Ask for 5-180 minutes."), 400
-        pending = fetch_one(
-            "SELECT request_id FROM screen_time_extension_requests "
-            "WHERE child_id=%s AND status='PENDING'",
-            (uid,),
-        )
-        if pending:
-            return jsonify(
-                error="extension_request_pending",
-                message="You already have a request waiting for your parent.",
-                request_id=pending["request_id"],
-            ), 409
-        row = fetch_one(
-            "INSERT INTO screen_time_extension_requests(child_id, requested_minutes) "
-            "VALUES(%s, %s) RETURNING request_id, requested_minutes, status, created_at",
-            (uid, requested),
-        )
+        # Race guard: the check-then-insert runs inside one transaction under a
+        # per-child advisory lock, so concurrent double-submits cannot create
+        # two PENDING rows. The partial unique index
+        # idx_ster_one_pending_per_child is defense in depth: a violation is
+        # reported as 409, never a 500.
+        from database.connection import get_db_connection
+        import psycopg2.errors as _pg_errors
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842103, uid))
+                cur.execute(
+                    "SELECT request_id FROM screen_time_extension_requests "
+                    "WHERE child_id=%s AND status='PENDING'",
+                    (uid,),
+                )
+                pending = cur.fetchone()
+                if pending:
+                    conn.rollback()
+                    return jsonify(
+                        error="extension_request_pending",
+                        message="You already have a request waiting for your parent.",
+                        request_id=pending["request_id"],
+                    ), 409
+                try:
+                    cur.execute(
+                        "INSERT INTO screen_time_extension_requests(child_id, requested_minutes) "
+                        "VALUES(%s, %s) RETURNING request_id, requested_minutes, status, created_at",
+                        (uid, requested),
+                    )
+                    row = cur.fetchone()
+                except _pg_errors.UniqueViolation:
+                    conn.rollback()
+                    dup = fetch_one(
+                        "SELECT request_id FROM screen_time_extension_requests "
+                        "WHERE child_id=%s AND status='PENDING'",
+                        (uid,),
+                    )
+                    return jsonify(
+                        error="extension_request_pending",
+                        message="You already have a request waiting for your parent.",
+                        request_id=dup["request_id"] if dup else None,
+                    ), 409
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
         child_name = (g.mobile_user.get("full_name") or "Your child").strip() or "Your child"
         parent_notify(
             uid,
