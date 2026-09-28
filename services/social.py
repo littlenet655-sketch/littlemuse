@@ -57,8 +57,8 @@ def _child_surface_open_uncached(viewer_id, feature=None):
         from services.usage import lock_state
         locked,_=lock_state(viewer_id)
         if locked:return False
-        from quiz.service import needs_onboarding_quiz,quiz_due
-        if needs_onboarding_quiz(viewer_id) or quiz_due(viewer_id):return False
+        from quiz.service import quiz_due
+        if quiz_due(viewer_id):return False
     except Exception:
         return False
     return True

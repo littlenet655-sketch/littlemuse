@@ -51,14 +51,17 @@ def incoming_follow_pending(a,b):
 def cancel_outgoing_follow(a,b):
     """Cancel a's own unapproved request to b.
 
-    Deletes only a's outgoing row plus trigger-generated handshake rows
-    (SENDER_PARENT_APPROVED/RECEIVER_PARENT_PENDING). Never deletes b's
-    genuine REQUESTED incoming request.
+    Deletes a's outgoing row in any unapproved stage (a's own request
+    lifecycle: REQUESTED or SENDER_PARENT_APPROVED) plus the
+    trigger-generated reciprocal handshake row, which the trigger only ever
+    writes as RECEIVER_PARENT_PENDING. Never deletes b's genuine incoming
+    request in any stage — a (b,a) row at SENDER_PARENT_APPROVED is b's own
+    request whose parent already approved, not a handshake row of ours.
     """
     execute("""DELETE FROM followers WHERE approved=FALSE AND (
         (child_id=%s AND following_child_id=%s)
         OR (child_id=%s AND following_child_id=%s
-            AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING'))
+            AND approval_stage='RECEIVER_PARENT_PENDING')
     )""",(a,b,b,a))
 
 def child_has_guardian(cid):

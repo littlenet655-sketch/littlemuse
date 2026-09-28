@@ -34,14 +34,30 @@ def test_follow_toggle_is_directional_not_symmetric():
 def test_follow_back_never_deletes_incoming_request():
     api = text('mobile/api.py')
     service = text('child/service.py')
-    # Cancelling only ever touches my outgoing row plus trigger-generated
-    # handshake rows; a genuine REQUESTED incoming row is never deleted.
+    # Cancelling only ever touches my outgoing row plus the trigger-generated
+    # reciprocal handshake row (which the trigger only ever writes as
+    # RECEIVER_PARENT_PENDING). A (b,a) row at SENDER_PARENT_APPROVED is the
+    # OTHER child's own half-approved request and must survive.
     assert 'def cancel_outgoing_follow(a,b):' in service
-    assert "approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')" in service
+    assert "approval_stage='RECEIVER_PARENT_PENDING'" in service
+    assert "approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')" not in service
     # Follow-back path creates my own request and reports it distinctly.
     assert 'if incoming_follow_pending(uid, child_id):' in api
     assert 'status="follow_back_pending"' in api
     assert 'status="cancelled"' in api
+
+
+def test_web_follow_route_has_directional_logic_too():
+    routes = text('child/routes.py')
+    # The web POST /follow/<child_id>/ route must carry the same directional
+    # logic as the mobile endpoint: directional cancel, guardian check, and
+    # no symmetric is_follow_pending -> unfollow_child shortcut.
+    assert 'if outgoing_follow_pending(session[' in routes
+    assert 'cancel_outgoing_follow(session[' in routes
+    assert 'if not child_has_guardian(child_id):' in routes
+    assert 'target_has_no_guardian' in routes
+    assert 'follow_back_pending' in routes
+    assert "if is_following(session['user_id'],child_id) or is_follow_pending(session['user_id'],child_id):" not in routes
 
 
 def test_parentless_target_is_rejected_not_deadlocked():

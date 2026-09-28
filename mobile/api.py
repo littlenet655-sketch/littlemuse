@@ -3600,7 +3600,11 @@ def register_mobile_api(bp):
         if action == "approve":
             changed = execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')", (child_id, target_id))
         elif action == "reject":
-            changed = execute_count("DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')", (child_id, target_id))
+            # Explicit pair cleanup: the delete trigger no longer cascades for
+            # pending rows, so remove my outgoing request plus the handshake
+            # row ((target, child) at either handshake stage). Genuine
+            # REQUESTED rows in the opposite direction are never touched.
+            changed = execute_count("DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')))", (child_id, target_id, target_id, child_id))
         else:
             return jsonify(error="invalid_action"), 400
         if not changed:
@@ -4266,12 +4270,11 @@ def register_mobile_api(bp):
                 record_signal(uid, "CURATED", source_id, "SAVE")
             return jsonify(ok=True, source_type="CURATED", source_id=source_id, saved=saved)
 
-        execute(
-            "INSERT INTO content_shares(child_id,source_type,source_id) VALUES(%s,'CURATED',%s)",
-            (uid, source_id),
-        )
-        record_signal(uid, "CURATED", source_id, "SHARE")
-        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=True)
+        # Curated reels stay inside LittleMuse: no share is performed and no
+        # share row is recorded. The route is kept so older clients calling it
+        # receive a truthful answer instead of a phantom "shared" record.
+        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=False,
+                       message="Curated reels stay inside LittleMuse")
 
     @bp.route("/api/mobile/v2/kids/impressions", methods=["POST"])
     @csrf.exempt

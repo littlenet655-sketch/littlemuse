@@ -176,15 +176,26 @@ def search_suggestions():
 def follow(child_id):
     if child_id==session['user_id']:return jsonify(status='self'),400
     if not can_discover_child(session['user_id'],child_id):return jsonify(error='child unavailable'),404
-    if is_following(session['user_id'],child_id) or is_follow_pending(session['user_id'],child_id):
-        unfollow_child(session['user_id'],child_id);return jsonify(status='removed')
+    if is_following(session['user_id'],child_id):
+        # Active friendship: unfollowing removes both directions.
+        unfollow_child(session['user_id'],child_id);return jsonify(ok=True,status='removed')
+    if outgoing_follow_pending(session['user_id'],child_id):
+        # Cancel MY request only. Never deletes their incoming request.
+        cancel_outgoing_follow(session['user_id'],child_id);return jsonify(ok=True,status='cancelled')
+    if not child_has_guardian(child_id):
+        # Nobody on the other side can ever approve: refuse now instead of
+        # creating a request that deadlocks at RECEIVER_PARENT_PENDING.
+        return jsonify(error='target_has_no_guardian',message="This user can't receive follow requests right now."),400
+    # Follow back is a fresh outgoing request of mine; their incoming
+    # request is left untouched for their parent to approve.
     follow_child(session['user_id'],child_id);record_signal(session['user_id'],'CREATOR',child_id,'FOLLOW');log(session['user_id'],'FOLLOW_REQUEST',{'target':child_id})
     parent_notify(session['user_id'],'FOLLOW_REQUEST','A new connection request needs approval','/parent/follow-requests/')
     try:
         sender=fetch_one('SELECT full_name FROM users WHERE user_id=%s',(session['user_id'],));s_name=(sender or {}).get('full_name') or 'A LittleNet friend'
         notify(child_id,'FOLLOW_REQUEST',f"{s_name} sent you a parent-mediated friend request.",'/notifications/',session['user_id'])
     except Exception:pass
-    return jsonify(status='pending')
+    if incoming_follow_pending(session['user_id'],child_id):return jsonify(ok=True,status='follow_back_pending')
+    return jsonify(ok=True,status='pending')
 
 @child_bp.route('/block/<int:user_id>/',methods=['POST'])
 @child_required
