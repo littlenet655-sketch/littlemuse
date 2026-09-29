@@ -3,7 +3,7 @@ import { Alert, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
 import { fetchOtherProfile } from '../../api/kidsProfiles';
-import { blockUser, fetchConnectionRequests, muteUser, submitReport, toggleFollow, type PostDetail } from '../../api/kidsSocial';
+import { blockUser, fetchConnectionRequests, muteUser, toggleFollow, type PostDetail } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { canMessageRelationship } from '../../kids/social';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -366,13 +366,6 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           </Pressable>
           <Pressable style={[styles.smallGreyBtn, busy && styles.btnDisabled]} disabled={busy} onPress={() => void onBlockToggle()}>
             <Text style={styles.smallGreyBtnText}>Block</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.smallGreyBtn, busy && styles.btnDisabled]}
-            disabled={busy}
-            onPress={() => void act((t) => submitReport(t, 'USER', targetId, 'Unsafe behavior'), 'Report sent for safety review.')}
-          >
-            <Text style={[styles.smallGreyBtnText, styles.reportText]}>Report</Text>
           </Pressable>
         </View>
       </View>
