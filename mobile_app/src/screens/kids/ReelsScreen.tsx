@@ -365,15 +365,12 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
-  // Server quiz nudge: a due quiz shows a dismissible prompt card between
-  // reels — it never locks scrolling or pauses playback.
+  // Server-authoritative compulsory Reel quiz. A due quiz is presented between
+  // Reels and the child must answer it correctly before continuing.
   const [quizDue, setQuizDue] = useState(false);
-  /** Dismissed prompt cards never re-nag until a NEW quiz-due signal arrives. */
-  const [quizPromptDismissed, setQuizPromptDismissed] = useState(false);
+  const quizNavigationRef = useRef(false);
   const feed = useFeed('reels', 8);
-  // Non-blocking quiz nudge: one dismissible prompt card between reels when
-  // the server signals quiz_due. A child who ignores it keeps full access.
-  const showQuizPrompt = shouldShowQuizPrompt(quizDue, quizPromptDismissed);
+  const showQuizPrompt = shouldShowQuizPrompt(quizDue, false);
   const displayItems: Array<FeedItem | QuizPromptRow> = useMemo(
     () => withQuizPromptRow(feed.items, showQuizPrompt),
     [feed.items, showQuizPrompt],
@@ -431,22 +428,24 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
 
-  // Server nudge signal: a due quiz shows a dismissible prompt card between
-  // reels — it never locks scrolling or pauses playback.
-  const prevQuizDueRef = useRef(quizDue);
+  // Keep local state synchronized with the server latch. When a Reel quiz becomes
+  // due, move straight into the Quiz screen; this prevents swiping past the
+  // inline prompt while still making the quiz appear as a Reel interruption.
   useEffect(() => {
     if (session?.user?.quiz_required) {
       setQuizDue(true);
     } else {
       setQuizDue(false);
-      setQuizPromptDismissed(false);
+      quizNavigationRef.current = false;
     }
   }, [session?.user?.quiz_required]);
+
   useEffect(() => {
-    // A fresh quiz-due signal re-arms the card after a dismissal.
-    if (quizDue && !prevQuizDueRef.current) setQuizPromptDismissed(false);
-    prevQuizDueRef.current = quizDue;
-  }, [quizDue]);
+    if (!quizDue || quizNavigationRef.current) return;
+    quizNavigationRef.current = true;
+    setPaused(true);
+    nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true });
+  }, [quizDue, nav]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {
@@ -491,14 +490,14 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     try {
       const result = await recordImpressionBatch(session.token, events);
       if (result.quiz_required) {
-        // Nudge only: show the prompt card, keep scrolling and playback alive.
+        // Compulsory interruption: latch locally; the effect above opens Quiz.
         setQuizDue(true);
         await refreshMe();
       }
     } catch (error) {
       if (error instanceof ApiError && error.code === 'quiz_required') {
-        // Defensive: the server no longer 428s on quiz_due, but an old
-        // backend still only raises the nudge signal.
+        // Defensive compatibility with an older backend that still signals
+        // the quiz as an API gate.
         setQuizDue(true);
         await refreshMe();
       }
@@ -653,8 +652,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       return (
         <QuizPromptCard
           height={REEL_HEIGHT}
-          onTakeQuiz={() => nav.navigate('Quiz', {})}
-          onDismiss={() => setQuizPromptDismissed(true)}
+          onTakeQuiz={() => nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true })}
         />
       );
     }
