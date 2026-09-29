@@ -48,6 +48,7 @@ import { QuizScreen } from '../screens/Quiz';
 import { LoginScreen, WelcomeScreen } from '../screens/WelcomeLogin';
 import { BrandHeader, Button, LoadingState, Notice, Screen } from '../ui/components';
 import { ParentModeGate } from '../components/ParentModeGate';
+import { DemoBoostNotice } from '../components/DemoBoostNotice';
 import { useScreenTimeHeartbeat } from '../kids/useScreenTimeHeartbeat';
 import { offlineGateReset, resolveChildRoute } from './gates';
 import type { ChildRoute } from './gates';
@@ -226,8 +227,8 @@ function AdminNavigator() {
 
 /**
  * Role-aware cold-start routing: unauthenticated -> AuthStack, CHILD ->
- * ChildStack (reactively forced to quiz only while a gate is active),
- * PARENT -> ParentStack, ADMIN -> AdminStack.
+ * ChildStack, PARENT -> ParentStack, ADMIN -> AdminStack. Startup never forces
+ * a quiz; compulsory quizzes are Reel interruptions only.
  */
 export function RootNavigator() {
   const { status, session } = useAuth();
@@ -248,27 +249,22 @@ export function RootNavigator() {
     );
   }
 
+  let signedInNavigator: React.ReactNode;
   if (session.user.role === 'PARENT') {
-    return (
-      <NavigationContainer>
-        <ParentModeGate>
-          <ParentNavigator />
-        </ParentModeGate>
-      </NavigationContainer>
+    signedInNavigator = (
+      <ParentModeGate>
+        <ParentNavigator />
+      </ParentModeGate>
     );
-  }
-
-  if (session.user.role === 'ADMIN') {
-    return (
-      <NavigationContainer>
-        <AdminNavigator />
-      </NavigationContainer>
-    );
+  } else if (session.user.role === 'ADMIN') {
+    signedInNavigator = <AdminNavigator />;
+  } else {
+    signedInNavigator = <ChildNavigator />;
   }
 
   return (
-    <NavigationContainer>
-      <ChildNavigator />
-    </NavigationContainer>
+    <>
+      <NavigationContainer>{signedInNavigator}</NavigationContainer>
+      <DemoBoostNotice />
+    </>
   );
-}
