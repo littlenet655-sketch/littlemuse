@@ -13,9 +13,7 @@ import {
   fetchConnectionRequests,
   fetchConnections,
   fetchMutedUsers,
-  fetchReports,
   muteUser,
-  submitReport,
   toggleFollow,
   toggleLike,
   toggleSave,
@@ -97,7 +95,7 @@ describe('follow / unfollow contract', () => {
   });
 });
 
-describe('block / mute / report contract', () => {
+describe('block / mute contract', () => {
   it('blocks with an explicit action body and reads the authoritative flag', async () => {
     stubFetch();
     nextPayload = { ok: true, blocked: true };
@@ -131,20 +129,6 @@ describe('block / mute / report contract', () => {
     assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/muted-users');
   });
 
-  it('submits reports with target type, id and reason', async () => {
-    stubFetch();
-    nextPayload = { ok: true };
-    await submitReport('tok', 'POST', 42, 'Unsafe or unkind');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/report');
-    assert.deepEqual(bodyJson(), { target_type: 'POST', target_id: 42, reason: 'Unsafe or unkind', details: '' });
-  });
-
-  it('reads the report history', async () => {
-    stubFetch();
-    nextPayload = { ok: true, reports: [] };
-    await fetchReports('tok');
-    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/reports');
-  });
 });
 
 describe('like / save / comment contract', () => {

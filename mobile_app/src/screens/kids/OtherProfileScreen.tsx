@@ -534,9 +534,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.ink,
   },
-  reportText: {
-    color: colors.danger,
-  },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: colors.surface,

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
 import { setUnauthorizedHandler } from '../src/api/client';
-import { blockUser, fetchPostDetail, muteUser, submitReport, toggleFollow } from '../src/api/kidsSocial';
+import { blockUser, fetchPostDetail, muteUser, toggleFollow } from '../src/api/kidsSocial';
 import { fetchOtherProfile } from '../src/api/kidsProfiles';
 import { fetchChat, markNotificationsRead, sendChatText, sharePostToChat } from '../src/api/kidsChat';
 import { completeUpload, fetchProcessingStatus, redriveProcessing, requestUploadSession } from '../src/api/kidsUpload';
@@ -23,7 +23,7 @@ function stub() {
 }
 
 describe('agentC relationships/upload/chat/notifications', () => {
-  it('follow/mute/block/report plus relationship state', async () => {
+  it('follow/mute/block plus relationship state', async () => {
     stub();
     setUnauthorizedHandler(null);
     nextStatus = 200;
@@ -36,9 +36,6 @@ describe('agentC relationships/upload/chat/notifications', () => {
     nextPayload = { ok: true, blocked: true };
     await blockUser('tok', 9, 'block');
     assert.ok(seen[2]?.url.endsWith('/api/mobile/v1/kids/block/9'));
-    nextPayload = { ok: true };
-    await submitReport('tok', 'USER', 9, 'Unsafe behavior');
-    assert.ok(seen[3]?.url.endsWith('/api/mobile/v1/kids/report'));
     nextPayload = { ok: true, profile: {}, counts: {}, posts: [], relationship: { connected: false, pending: true, can_message: false } };
     const p = await fetchOtherProfile('tok', 9);
     assert.equal(p.relationship?.pending, true);
