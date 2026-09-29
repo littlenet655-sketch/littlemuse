@@ -18,4 +18,9 @@ if ! command -v dbmate >/dev/null 2>&1; then
 fi
 dbmate --no-dump-schema --migrations-dir "${DBMATE_MIGRATIONS_DIR:-db/migrations}" up
 
+# Deterministic local quiz fallback. The seeder is idempotent (unique
+# question+age-group constraint / ON CONFLICT DO NOTHING), so every deploy
+# repairs a missing or partially seeded bank without duplicating rows.
+python tools/seed_quizzes.py
+
 exec gunicorn app:app --bind "0.0.0.0:${PORT:-8080}" --workers 1 --threads 4 --timeout 240 --graceful-timeout 45 --access-logfile - --error-logfile -
