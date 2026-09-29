@@ -124,8 +124,6 @@ export const routes = {
   mute: (targetId: number) => `/api/mobile/v1/kids/mute/${targetId}`,
   blockedUsers: '/api/mobile/v1/kids/blocked-users',
   mutedUsers: '/api/mobile/v1/kids/muted-users',
-  report: '/api/mobile/v1/kids/report',
-  reports: '/api/mobile/v1/kids/reports',
   notifications: '/api/mobile/v1/kids/notifications',
   notificationsRead: '/api/mobile/v1/kids/notifications/read',
   conversations: '/api/mobile/v1/kids/messages',
