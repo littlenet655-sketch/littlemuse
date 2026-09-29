@@ -37,7 +37,11 @@ def test_reel_impression_returns_due_signal_without_global_428():
     api = text("mobile/api.py")
     assert 'quiz_required=True' in api
     assert 'gate="quiz"' not in api
-    assert 'error="quiz_required"' not in api
+    # Server-side enforcement (2026-09-29): reels/playback endpoints ARE the
+    # final authority and return error="quiz_required" (428) when the latch is
+    # active. The impression endpoint still signals without 428; enforcement
+    # is scoped to reels surfaces, never a global app gate.
+    assert 'error="quiz_required"' in api
 
 
 def test_server_cadence_is_random_two_to_five_and_persisted():

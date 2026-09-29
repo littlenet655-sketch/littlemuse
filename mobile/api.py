@@ -1479,6 +1479,11 @@ def register_mobile_api(bp):
             page = max(1, int(request.args.get("page", 1)))
         except (TypeError, ValueError):
             page = 1
+        # Server-side quiz latch enforcement: backend is the final authority.
+        # When the compulsory quiz latch is active, serve no reels — the client
+        # must present the quiz. Prevents bypass by ignoring the quiz_required signal.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=True, page=page, reels=[], quiz_required=True)
         rows = visible_posts(uid, True, 10, (page - 1) * 10)
         return jsonify(ok=True, page=page, reels=[_post_json(p, uid) for p in rows])
 
@@ -4398,6 +4403,11 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: backend is the final authority.
+        # When the compulsory quiz latch is active, serve no reels — the client
+        # must present the quiz. Prevents bypass by ignoring the quiz_required signal.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=True, items=[], quiz_required=True, message="quiz_required")
         try:
             cursor = max(0, int(request.args.get("cursor", 0)))
         except (TypeError, ValueError):
@@ -4465,6 +4475,9 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: block playback while latch active.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=False, error="quiz_required"), 428
         from services.curated_feed import authorize_curated_media
         try:
             playback = authorize_curated_media(uid, content_id)
@@ -4488,6 +4501,9 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: block playback while latch active.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=False, error="quiz_required"), 428
         from services.video_delivery import resolve_video_playback
         playback = resolve_video_playback(post_id, viewer_id=uid, viewer_role="CHILD")
         if not playback.get("playback_url"):
