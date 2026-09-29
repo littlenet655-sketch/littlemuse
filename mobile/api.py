@@ -3076,16 +3076,20 @@ def register_mobile_api(bp):
     def mobile_quiz():
         uid = int(g.mobile_user["user_id"])
         state = feed_quiz_state(uid)
-        if state.get("required"):
+        practice_mode = str(request.args.get("mode") or "").lower() == "practice"
+        if state.get("required") and not practice_mode:
             row = required_feed_quiz(uid)
             rows = [row] if row else []
             reason = "feed_break"
         else:
             limit_arg = request.args.get("limit", type=int)
-            default_limit = 2 if needs_onboarding_quiz(uid) else 5
+            default_limit = 5
             n = limit_arg if (limit_arg and 1 <= limit_arg <= 20) else default_limit
-            rows = quizzes(uid, n)
-            reason = "onboarding" if needs_onboarding_quiz(uid) else "practice"
+            rows = quizzes(uid, min(20, n + (1 if state.get("quiz_id") else 0)))
+            if practice_mode and state.get("quiz_id"):
+                rows = [r for r in rows if int(r.get("quiz_id") or 0) != int(state["quiz_id"])]
+            rows = rows[:n]
+            reason = "practice"
 
         if not rows:
             return jsonify(error="quiz_bank_unavailable"), 503
@@ -3103,7 +3107,7 @@ def register_mobile_api(bp):
         return jsonify(
             ok=True,
             reason=reason,
-            required=bool((state.get("required") or needs_onboarding_quiz(uid)) and len(payload) > 0),
+            required=bool(state.get("required") and not practice_mode and len(payload) > 0),
             quiz_interval=int(state.get("interval", 5)),
             next_quiz_threshold=int(state.get("next_quiz_threshold", 5)),
             quizzes=_clean(payload),
@@ -3114,7 +3118,9 @@ def register_mobile_api(bp):
     @_require_mobile("CHILD")
     def mobile_quiz_answer(quiz_id):
         uid = int(g.mobile_user["user_id"])
-        answer = str((_json_dict()).get("answer") or "").strip()
+        answer_data = _json_dict()
+        answer = str(answer_data.get("answer") or "").strip()
+        practice_mode = str(answer_data.get("mode") or "").lower() == "practice"
         if not answer:
             return jsonify(error="answer_required"), 400
 
@@ -3129,7 +3135,7 @@ def register_mobile_api(bp):
         # A compulsory Reel quiz unlocks only after a correct answer.
         # Wrong answers are recorded and the correct answer is returned for UI
         # feedback, but the server-side latch remains active.
-        if correct and state.get("required") and state.get("quiz_id") == quiz_id:
+        if (not practice_mode) and correct and state.get("required") and state.get("quiz_id") == quiz_id:
             complete_required_feed_quiz(uid, quiz_id)
         after_state = feed_quiz_state(uid)
         return jsonify(
