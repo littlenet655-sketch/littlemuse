@@ -29,6 +29,8 @@ export interface ParentChild {
   full_name: string;
   age: number | null;
   account_status: string;
+  parent_paused?: boolean;
+  demo_unlimited?: boolean;
   avatar_url?: string | null;
   minutes_today: number;
   limit: TimeLimit | null;
@@ -256,6 +258,18 @@ export function resetChildPassword(token: string, childId: number, newPassword: 
 /** Parent unlinks a child: mapping deleted and child account deactivated server-side. */
 export function unlinkChild(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
   return apiRequest(routes.parentChild(childId), { method: 'DELETE' }, token);
+}
+
+export function setChildAccess(token: string, childId: number, action: 'PAUSE' | 'RESUME'): Promise<{ ok: boolean; parent_paused: boolean; action: string }> {
+  return apiRequest(routes.parentChildAccess(childId), { method: 'POST', body: JSON.stringify({ action }) }, token);
+}
+
+export function restartChildSessions(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
+  return apiRequest(routes.parentChildRestart(childId), { method: 'POST' }, token);
+}
+
+export function resetChildSettings(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
+  return apiRequest(routes.parentChildResetSettings(childId), { method: 'POST' }, token);
 }
 
 export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; signups_today: number } }> {
