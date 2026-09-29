@@ -21,9 +21,12 @@ import {
   markParentNotificationsRead,
   resetChildPassword,
   resetChildScreenTime,
+  resetChildSettings,
+  restartChildSessions,
   resolveAdminReview,
   resolveFollowRequest,
   resolveParentReview,
+  setChildAccess,
   unlinkChild,
   updateAdminUserStatus,
   updateParentControls,
@@ -194,6 +197,27 @@ describe('parent dashboard and controls contracts', () => {
     assert.match(result.message, /password updated/i);
   });
 
+  it('pauses, resumes, restarts and resets a child through distinct parent actions', async () => {
+    stubFetch();
+    nextStatus = 200;
+
+    nextPayload = { ok: true, parent_paused: true, action: 'PAUSE' };
+    await setChildAccess('parent-tok', 7, 'PAUSE');
+    assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/child/7/access');
+    assert.equal(method(), 'POST');
+    assert.deepEqual(bodyJson(), { action: 'PAUSE' });
+
+    nextPayload = { ok: true, message: 'Child sessions restarted. Sign in again on the child device.' };
+    await restartChildSessions('parent-tok', 7);
+    assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/child/7/restart');
+    assert.equal(method(1), 'POST');
+
+    nextPayload = { ok: true, message: 'Child settings restored to defaults.' };
+    await resetChildSettings('parent-tok', 7);
+    assert.equal(seen[2]?.url, 'https://backend.test.invalid/api/mobile/v1/parent/child/7/reset-settings');
+    assert.equal(method(2), 'POST');
+  });
+
   it('unlinks the child with a DELETE on the parent child resource', async () => {
     stubFetch();
     nextStatus = 200;
@@ -210,11 +234,11 @@ describe('admin client contracts', () => {
     stubFetch();
     setUnauthorizedHandler(null);
     nextStatus = 200;
-    nextPayload = { ok: true, counts: { users: 10, children: 6, parents: 4, open_reviews: 2 } };
+    nextPayload = { ok: true, counts: { users: 10, children: 6, parents: 4, signups_today: 2 } };
     const dash = await fetchAdminDashboard('admin-tok');
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/admin/dashboard');
     assert.equal(authz(), 'Bearer admin-tok');
-    assert.equal(dash.counts.open_reviews, 2);
+    assert.equal(dash.counts.signups_today, 2);
 
     nextPayload = { ok: true, events: [] };
     await fetchAdminReviews('admin-tok');
