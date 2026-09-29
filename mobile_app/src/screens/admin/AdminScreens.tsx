@@ -10,6 +10,7 @@ import {
   fetchAdminReviews,
   fetchAdminUsers,
   resolveAdminReview,
+  updateAdminDemoUnlimited,
   updateAdminUserStatus,
 } from '../../api/parentAdmin';
 import {
@@ -233,6 +234,16 @@ export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
       ]);
     },
   });
+  const demoMutation = useMutation({
+    mutationFn: ({ userId, enabled }: { userId: number; enabled: boolean }) =>
+      updateAdminDemoUnlimited(session?.token ?? '', userId, enabled),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
   const users = query.data?.users ?? [];
   /** Only ACTIVE/SUSPENDED are togglable from mobile. Activating a pending or
       deactivated account could bypass its verification flow, so those stay read-only. */
@@ -251,25 +262,39 @@ export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
     );
   }
 
-  function accountAction(user: { user_id: number; full_name?: string; role: string; account_status: string }) {
+  function accountAction(user: { user_id: number; full_name?: string; role: string; account_status: string; demo_unlimited?: boolean }) {
     if (user.role === 'ADMIN') return <Notice tone="info" message="Admin accounts cannot be changed from mobile lookup." />;
     if (user.account_status === 'DEACTIVATED') {
       return <Notice tone="info" message="This account is deleted/deactivated." />;
     }
+    const busy = mutation.isPending || deleteMutation.isPending || demoMutation.isPending;
     return (
       <>
+        {user.role === 'CHILD' ? (
+          <>
+            {user.demo_unlimited ? (
+              <Notice tone="ok" message="Unlimited demo account: screen-time and quiet-hour locks are bypassed. Safety rules still apply." />
+            ) : null}
+            <Button
+              label={user.demo_unlimited ? 'Disable unlimited demo' : 'Enable unlimited demo'}
+              variant="secondary"
+              disabled={busy}
+              onPress={() => demoMutation.mutate({ userId: user.user_id, enabled: !user.demo_unlimited })}
+            />
+          </>
+        ) : null}
         {user.account_status === 'ACTIVE' ? (
           <Button
             label="Pause account"
             variant="secondary"
-            disabled={mutation.isPending || deleteMutation.isPending}
+            disabled={busy}
             onPress={() => mutation.mutate({ userId: user.user_id, status: 'SUSPENDED' })}
           />
         ) : user.account_status === 'SUSPENDED' ? (
           <Button
             label="Resume account"
             variant="secondary"
-            disabled={mutation.isPending || deleteMutation.isPending}
+            disabled={busy}
             onPress={() => mutation.mutate({ userId: user.user_id, status: 'ACTIVE' })}
           />
         ) : (
@@ -279,14 +304,14 @@ export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
           <Button
             label="Delete account"
             variant="secondary"
-            disabled={mutation.isPending || deleteMutation.isPending}
+            disabled={busy}
             onPress={() => confirmDelete(user)}
           />
         ) : null}
       </>
     );
   }
-  const header = <><BrandHeader title="User lookup" subtitle="Search by name, username or email. Passwords, tokens and biometric data are never returned." /><Card><Field label="Search accounts" value={input} onChangeText={setInput} autoCapitalize="none" autoCorrect={false} /><Button label="Search" onPress={() => setQueryText(input.trim())} /></Card>{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}</>;
+  const header = <><BrandHeader title="User lookup" subtitle="Search accounts and mark a child as unlimited only for intentional demo/testing use." /><Card><Field label="Search accounts" value={input} onChangeText={setInput} autoCapitalize="none" autoCorrect={false} /><Button label="Search" onPress={() => setQueryText(input.trim())} /></Card>{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}{deleteMutation.error ? <Notice message={errorText(deleteMutation.error)} /> : null}{demoMutation.error ? <Notice message={errorText(demoMutation.error)} /> : null}</>;
   return <Screen><FlatList keyboardShouldPersistTaps="handled" data={users} keyExtractor={(user) => String(user.user_id)} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />} ListHeaderComponent={header} ListEmptyComponent={query.isPending ? <LoadingState message="Loading accounts…" /> : query.isError ? <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} /> : <EmptyState title="No accounts found" body="Try a different name, username or email." />} renderItem={({ item: user }) => <Card><View style={styles.rowBetween}><CategoryBadge label={user.role} /><Text style={[styles.status, user.account_status !== 'ACTIVE' && styles.statusAlert]}>{user.account_status}</Text></View><Text style={styles.title}>{user.full_name}</Text><Text style={styles.muted}>@{user.username} · {user.email}</Text>{accountAction(user)}</Card>} /></Screen>;
 }
 
