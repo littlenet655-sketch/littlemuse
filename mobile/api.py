@@ -76,6 +76,7 @@ from services.controls import (
     effective_categories,
     feature_allowed,
     quiet_hours_state,
+    reset_controls_to_defaults,
     save_controls,
 )
 from services.curated_feed import (
@@ -98,7 +99,7 @@ from services.social import (
 )
 from child.search_routes import search_visible_posts, visible_hashtags
 from services.audit import log
-from services.usage import close_session, heartbeat, lock_state, minutes_today, online_state, start_session
+from services.usage import close_session, heartbeat, lock_state, minutes_today, online_state, restart_child_sessions, start_session
 
 _AUTH_SALT = "littlenet-native-auth-v1"
 _PENDING_PARENT_SALT = "littlenet-native-parent-pending-v1"
@@ -308,7 +309,7 @@ def _require_mobile(*roles):
             if _mobile_token_revoked(token):
                 return jsonify(error="token_revoked"), 401
             user = fetch_one(
-                "SELECT user_id,username,full_name,email,role,age,account_status,session_version FROM users WHERE user_id=%s",
+                "SELECT user_id,username,full_name,email,role,age,account_status,session_version,parent_paused,demo_unlimited FROM users WHERE user_id=%s",
                 (int(claims.get("uid") or 0),),
             )
             if not user or user.get("account_status") != "ACTIVE":
@@ -348,6 +349,11 @@ def _kid_self_resets_today(child_id: int) -> int:
 
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
+    # Demo/testing children may bypass only parent timing locks. Moderation,
+    # relationship checks and feature permissions still execute normally.
+    demo_unlimited = bool(g.mobile_user.get("demo_unlimited"))
+    if bool(g.mobile_user.get("parent_paused")) and not demo_unlimited:
+        return jsonify(error="parent_paused", gate="parent_pause"), 423
     if feature and not feature_allowed(uid, feature):
         return jsonify(error="disabled_by_parent", feature=feature), 403
     quiet = quiet_hours_state(uid)
@@ -363,10 +369,8 @@ def _child_gate(feature: str | None = None):
             self_resets_used=used_resets,
             self_resets_remaining=max(0, 1 - used_resets),
         ), 423
-    # The periodic quiz latch is a NUDGE, never a content block: endpoints must
-    # not 428 on feed_quiz_state()['required']. The signal is surfaced to the
-    # client via _onboarding_state()['quiz_required'] and the impression
-    # response so the app can render a dismissible prompt card between reels.
+    # The periodic Reel quiz is not a global app gate. Reels consumes the
+    # quiz_required signal and performs the compulsory interruption there.
     key = (g.mobile_claims or {}).get("usage_session_key")
     if key:
         try:
@@ -3363,7 +3367,7 @@ def register_mobile_api(bp):
             if "unique constraint" in err_msg or "duplicate key" in err_msg or "uniqueviolation" in err_msg:
                 return jsonify(error="This username is already taken. Please choose another."), 400
             return jsonify(error="child_creation_failed", message="Unable to create child account. Please verify details and try again."), 400
-        return jsonify(ok=True, child_id=child_id, next_steps=["age_quiz"]), 201
+        return jsonify(ok=True, child_id=child_id, next_steps=["kids_mode"]), 201
 
     @bp.route("/api/mobile/v1/parent/controls/<int:child_id>", methods=["GET", "PUT"])
     @csrf.exempt
@@ -3431,6 +3435,64 @@ def register_mobile_api(bp):
             time_limit=_clean(limit_row) if limit_row else None,
             categories=SAFE_CATEGORIES,
         )
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/access", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_access(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        action = str((_json_dict()).get("action") or "").upper()
+        if action not in {"PAUSE", "RESUME"}:
+            return jsonify(error="invalid_action"), 400
+        paused = action == "PAUSE"
+        execute(
+            "UPDATE users SET parent_paused=%s WHERE user_id=%s AND role='CHILD'",
+            (paused, child_id),
+        )
+        log(child_id, f"PARENT_{action}", {"parent_id": pid})
+        notify(
+            child_id,
+            "PARENT_ACCESS",
+            "Your parent paused LittleNet." if paused else "Your parent resumed LittleNet.",
+            "/child/dashboard/",
+            pid,
+        )
+        return jsonify(ok=True, parent_paused=paused, action=action)
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/restart", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_restart(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        restart_child_sessions(child_id)
+        log(child_id, "PARENT_RESTART_SESSIONS", {"parent_id": pid})
+        return jsonify(ok=True, message="Child sessions restarted. Sign in again on the child device.")
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/reset-settings", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_reset_settings(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        reset_controls_to_defaults(child_id)
+        execute(
+            """INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode,bonus_minutes,bonus_date)
+               VALUES(%s,60,TRUE,0,NULL)
+               ON CONFLICT(child_id) DO UPDATE SET
+                 daily_limit_minutes=60,strict_mode=TRUE,bonus_minutes=0,bonus_date=NULL,updated_at=NOW()""",
+            (child_id,),
+        )
+        execute("DELETE FROM parent_quiz_settings WHERE child_id=%s", (child_id,))
+        execute("DELETE FROM screen_time_extension_requests WHERE child_id=%s", (child_id,))
+        execute("UPDATE users SET parent_paused=FALSE WHERE user_id=%s AND role='CHILD'", (child_id,))
+        log(child_id, "PARENT_RESET_SETTINGS", {"parent_id": pid})
+        notify(child_id, "PARENT_CONTROLS", "Your parent restored LittleNet settings to defaults.", "/child/dashboard/", pid)
+        return jsonify(ok=True, message="Child settings restored to defaults.")
 
     @bp.route("/api/mobile/v1/parent/child/<int:child_id>", methods=["DELETE"])
     @csrf.exempt
