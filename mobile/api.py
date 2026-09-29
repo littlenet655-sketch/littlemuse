@@ -2088,6 +2088,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v1/kids/follow/<int:child_id>", methods=["POST"])
     @csrf.exempt
+    @limiter.limit("30 per hour")
     @_require_mobile("CHILD")
     def mobile_kids_follow(child_id):
         gate = _child_gate("discover")
@@ -3290,6 +3291,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v1/kids/report", methods=["POST"])
     @csrf.exempt
+    @limiter.limit("30 per hour")
     @_require_mobile("CHILD")
     def mobile_kids_report():
         uid = int(g.mobile_user["user_id"])
