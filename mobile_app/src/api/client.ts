@@ -81,6 +81,7 @@ export const routes = {
   adminReview: (eventId: number) => `/api/mobile/v1/admin/reviews/${eventId}`,
   adminUsers: '/api/mobile/v1/admin/users',
   adminUserStatus: (userId: number) => `/api/mobile/v1/admin/users/${userId}/status`,
+  adminDeleteUser: (userId: number) => `/api/mobile/v1/admin/users/${userId}`,
   adminAudit: '/api/mobile/v1/admin/audit',
   // v2 media pipeline (Agent C owns the posting UI; routes stay centralized here).
   feedV2: '/api/mobile/v2/kids/feed',
