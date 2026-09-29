@@ -891,6 +891,26 @@ def _resolve_parent_review(
             conn.rollback()
             return False, "forbidden"
 
+        # Terminal-block guard: a BLOCKED decision is final. If the content
+        # was blocked after this event was minted (e.g. a duplicate child
+        # report created a fresh OPEN event for already-blocked content), an
+        # APPROVE must not resurrect it — downgrade to BLOCK, mirroring the
+        # connection-changed safe conversion below.
+        content_terminally_blocked = False
+        if requested == "APPROVE" and event.get("content_id"):
+            ctype = event.get("content_type")
+            if ctype in {"IMAGE", "VIDEO", "AUDIO", "TEXT"}:
+                cur.execute("SELECT moderation_status FROM posts WHERE post_id=%s", (event["content_id"],))
+            elif ctype == "COMMENT":
+                cur.execute("SELECT moderation_status FROM comments WHERE comment_id=%s", (event["content_id"],))
+            elif ctype == "MESSAGE":
+                cur.execute("SELECT moderation_status FROM child_messages WHERE child_message_id=%s", (event["content_id"],))
+            else:
+                cur.execute("SELECT 1 WHERE FALSE")
+            srow = cur.fetchone()
+            if str((srow or {}).get("moderation_status") or "").upper() == "BLOCKED":
+                content_terminally_blocked = True
+
         status = "ALLOWED" if requested == "APPROVE" else "BLOCKED"
         # Safety: a MESSAGE approval is only effective while the sender/receiver pair is
         # still an unblocked, approved connection. If the relationship broke (or the
@@ -898,6 +918,8 @@ def _resolve_parent_review(
         # converted to a block so the message can never be delivered after the fact.
         # Mirrors the web parent review path in parent/routes.py.
         effective = requested
+        if content_terminally_blocked:
+            effective = "BLOCK"
         if event["content_type"] == "MESSAGE" and event.get("content_id") and requested == "APPROVE":
             cur.execute(
                 "SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s FOR UPDATE",
@@ -1086,7 +1108,7 @@ def _resolve_parent_review(
 
         cur.execute(
             "INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)",
-            (event_id, reviewer_id, effective, ("Connection changed; approval safely converted to block." if effective != requested else notes)),
+            (event_id, reviewer_id, effective, ("Content already blocked; approval safely converted to block." if content_terminally_blocked else ("Connection changed; approval safely converted to block." if effective != requested else notes))),
         )
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s", (event_id,))
         if is_admin:
@@ -3332,7 +3354,7 @@ def register_mobile_api(bp):
             row = fetch_one("SELECT post_id FROM comments WHERE comment_id=%s AND moderation_status='ALLOWED'", (tid,))
             valid = bool(row and post_visible_to(uid, row["post_id"]))
         elif kind == "MESSAGE":
-            valid = bool(fetch_one("SELECT 1 FROM child_messages WHERE child_message_id=%s AND (sender_child_id=%s OR receiver_child_id=%s)", (tid, uid, uid)))
+            valid = bool(fetch_one("SELECT 1 FROM child_messages WHERE child_message_id=%s AND moderation_status<>'BLOCKED' AND (sender_child_id=%s OR receiver_child_id=%s)", (tid, uid, uid)))
 
         if not valid:
             return jsonify(error="target_unavailable"), 404

@@ -301,7 +301,11 @@ def accept_follow_request(requester_id):
 @child_bp.route('/child/follow-requests/<int:requester_id>/decline/',methods=['POST'])
 @child_required
 def decline_follow_request(requester_id):
-    execute('DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(requester_id,session['user_id'],session['user_id'],requester_id));return redirect('/notifications/')
+    # Decline removes only the INCOMING request (requester -> me). Deleting
+    # both directions also destroyed the child's own outgoing handshake row
+    # (e.g. at SENDER_PARENT_APPROVED); the mobile cancel path is already
+    # direction-precise.
+    execute('DELETE FROM followers WHERE approved=FALSE AND child_id=%s AND following_child_id=%s',(requester_id,session['user_id']));return redirect('/notifications/')
 
 @child_bp.route('/notifications/read/',methods=['POST'])
 @child_required

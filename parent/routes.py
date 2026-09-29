@@ -247,7 +247,19 @@ def review(event_id):
         cur=conn.cursor();cur.execute("SELECT * FROM moderation_events WHERE event_id=%s AND decision='REVIEW' AND status='OPEN' FOR UPDATE",(event_id,));e=cur.fetchone()
         if not e or not owns(session['user_id'],e['child_id']):conn.rollback();return jsonify(error='not found'),404
         effective=requested
-        if e['content_type']=='MESSAGE' and e['content_id'] and requested=='APPROVE':
+        terminally_blocked=False
+        if requested=='APPROVE' and e['content_id']:
+            # Terminal-block guard (mirrors the mobile review path): a BLOCKED
+            # decision is final — never resurrect already-blocked content via
+            # a duplicate review event.
+            ctype=e['content_type']
+            if ctype in {'IMAGE','VIDEO','AUDIO','TEXT'}:cur.execute('SELECT moderation_status FROM posts WHERE post_id=%s',(e['content_id'],))
+            elif ctype=='COMMENT':cur.execute('SELECT moderation_status FROM comments WHERE comment_id=%s',(e['content_id'],))
+            elif ctype=='MESSAGE':cur.execute('SELECT moderation_status FROM child_messages WHERE child_message_id=%s',(e['content_id'],))
+            else:cur.execute('SELECT 1 WHERE FALSE')
+            srow=cur.fetchone()
+            if str((srow or {}).get('moderation_status') or '').upper()=='BLOCKED':terminally_blocked=True;effective='BLOCK'
+        if e['content_type']=='MESSAGE' and e['content_id'] and requested=='APPROVE' and not terminally_blocked:
             cur.execute('SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],));m=cur.fetchone()
             if not m:effective='BLOCK'
             else:
@@ -290,7 +302,8 @@ def review(event_id):
         elif e['content_type']=='COMMENT' and e['content_id']:cur.execute('UPDATE comments SET moderation_status=%s WHERE comment_id=%s',(status,e['content_id']))
         elif e['content_type']=='MESSAGE' and e['content_id']:cur.execute('UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s',(status,e['content_id']))
         review_note=None
-        if effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
+        if terminally_blocked:review_note='Content already blocked; approval safely converted to block.'
+        elif effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
         cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,review_note))
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s",(event_id,));conn.commit()
         # Post-commit storage/visibility work mirrors the mobile review path.

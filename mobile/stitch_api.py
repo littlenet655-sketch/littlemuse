@@ -64,14 +64,14 @@ def _validate_report_target(viewer_id: int, target_type: str, target_id: int):
         ctype = 'VIDEO' if row.get('media_type') == 'VIDEO' else ('IMAGE' if row.get('media_type') == 'IMAGE' else 'TEXT')
         return {'owner_id': int(row['child_id']), 'content_type': ctype, 'content_id': target_id}
     if target_type == 'COMMENT':
-        row = fetch_one('SELECT comment_id,post_id,child_id FROM comments WHERE comment_id=%s', (target_id,))
+        row = fetch_one("SELECT comment_id,post_id,child_id FROM comments WHERE comment_id=%s AND moderation_status<>'BLOCKED'", (target_id,))
         if not row or not post_visible_to(viewer_id, int(row['post_id'])):
             return None
         return {'owner_id': int(row['child_id']), 'content_type': 'COMMENT', 'content_id': target_id}
     if target_type == 'MESSAGE':
         row = fetch_one(
             """SELECT child_message_id,sender_child_id,receiver_child_id
-               FROM child_messages WHERE child_message_id=%s""",
+               FROM child_messages WHERE child_message_id=%s AND moderation_status<>'BLOCKED'""",
             (target_id,),
         )
         if not row or viewer_id not in {int(row['sender_child_id']), int(row['receiver_child_id'])}:
