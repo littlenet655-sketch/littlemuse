@@ -441,11 +441,24 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [session?.user?.quiz_required]);
 
   useEffect(() => {
-    if (!quizDue || quizNavigationRef.current) return;
+    if (!quizDue) {
+      quizNavigationRef.current = false;
+      return;
+    }
+    if (!focused) {
+      // The tab lost focus while the latch is active (the child is on the
+      // Quiz screen or another tab): re-arm the handoff so regaining focus
+      // with the latch still active hands straight back to the Quiz screen.
+      // Backing out of the compulsory Quiz is not a dismiss path inside Reels.
+      // Other tabs/Home stay reachable: this is not a global app gate.
+      quizNavigationRef.current = false;
+      return;
+    }
+    if (quizNavigationRef.current) return;
     quizNavigationRef.current = true;
     setPaused(true);
     nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true });
-  }, [quizDue, nav]);
+  }, [quizDue, focused, nav]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {

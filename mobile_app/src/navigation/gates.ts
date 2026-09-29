@@ -10,9 +10,11 @@ export type ChildRoute =
   | 'PostDetail' | 'OtherProfile' | 'ProcessingStatus';
 
 /**
- * Quiz no longer gates routing: the periodic latch is a NUDGE (a dismissible
- * prompt card between reels), never a route gate. A child with a due quiz
- * always keeps full access, so this always resolves to home.
+ * Quiz never gates routing at the navigator level: the compulsory Reel quiz is
+ * enforced inside the Reels flow itself (pause + hand off to the Quiz screen,
+ * no dismiss path while the server latch is active), not by redirecting the
+ * child away from wherever they are. A child with a due quiz always keeps
+ * full access to Home and other tabs, so this always resolves to home.
  */
 export function childNextRoute(_quizRequired: boolean): ChildRoute {
   return 'KidsTabs';
@@ -20,7 +22,9 @@ export function childNextRoute(_quizRequired: boolean): ChildRoute {
 
 /** Map a backend gate to the screen that resolves it, if any. */
 export function screenForGate(gate: GateKind): 'Quiz' | 'OtpVerify' | null {
-  // The quiz latch is a nudge, not a gate: no backend gate routes to Quiz.
+  // The compulsory Reel quiz is enforced inside the Reels flow (pause + Quiz
+  // screen hand-off), never as a navigator-level gate: no backend gate routes
+  // to Quiz from here.
   if (gate === 'quiz') return null;
   if (gate === 'parent_verification' || gate === 'email_verification') return 'OtpVerify';
   return null;
@@ -29,8 +33,9 @@ export function screenForGate(gate: GateKind): 'Quiz' | 'OtpVerify' | null {
 /**
  * Should a 428 onboarding gate from the server trigger an authoritative
  * onboarding refresh (which used to route the child to Quiz)?
- * The periodic quiz latch is a nudge and never re-gates, so a 428 quiz
- * refreshes nothing. Only kept for non-quiz gates (currently none re-gate).
+ * The compulsory Reel quiz is enforced inside the Reels flow, never by
+ * navigator redirects, so a 428 quiz refreshes nothing. Only kept for
+ * non-quiz gates (currently none re-gate).
  */
 export function shouldRefreshOnboardingForGate(
   error: unknown,
@@ -56,11 +61,12 @@ export function resetsDisplayState(resetsRemaining: number | null): ResetsDispla
 
 /**
  * Reactive child route from authoritative gates.
- * The periodic quiz latch is a NUDGE, never a route gate: quiz_required only
- * drives the dismissible prompt card between reels, so the child is never
- * routed away from what they are doing. Unknown/missing onboarding FAILS OPEN
- * to the current route (defect C1/C2): no quiz may block app launch or Home
- * entry.
+ * The compulsory Reel quiz is enforced inside the Reels flow (pause + Quiz
+ * screen hand-off with no dismiss path), never by redirecting the child away
+ * from what they are doing: quiz_required only drives the Reels handoff, so
+ * the child is never routed away from other surfaces. Unknown/missing
+ * onboarding FAILS OPEN to the current route (defect C1/C2): no quiz may
+ * block app launch or Home entry.
  */
 export function resolveChildRoute(
   onboarding: OnboardingState | null | undefined,
@@ -76,8 +82,8 @@ export function resolveChildRoute(
  * connectivity there is no authoritative gate, so a stale cached
  * quiz_required must not strand the child on Quiz. Returns the route to
  * reset to, or null when no reset is needed. The server re-signals quiz_due
- * on reconnect (/me + impression responses) and the client shows the nudge
- * card — the latch never re-gates routing.
+ * on reconnect (/me + impression responses) and the Reels flow hands off to
+ * the compulsory Quiz again — the latch never re-gates other routing.
  */
 export function offlineGateReset(current: ChildRoute, online: boolean): ChildRoute | null {
   if (online) return null;

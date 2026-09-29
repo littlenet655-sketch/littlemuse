@@ -57,9 +57,26 @@ def submit():
         if not q_required or int(q_required['quiz_id'])!=posted:return ('Invalid required quiz state',409)
     q=fetch_one('SELECT * FROM quizzes WHERE quiz_id=%s',(expected,));ans=request.form.get('answer','');correct=bool(q and ans==q['correct_answer'])
     execute('INSERT INTO child_quiz_attempts(child_id,quiz_id,selected_answer,is_correct) VALUES(%s,%s,%s,%s)',(session['user_id'],expected,ans,correct))
+    if state['required'] and not correct:
+        # Compulsory Reel quiz: a wrong answer keeps the server latch active.
+        # The child stays on the same question, sees the correct answer, and
+        # must retry before Reels unlock.
+        return render_template('quiz_card.html',quiz=q,question_number=idx+1,total_questions=len(ids),
+                               was_wrong=True,correct_answer=q['correct_answer'],selected_answer=ans)
     session['quiz_score']=session.get('quiz_score',0)+(1 if correct else 0);idx+=1;session['quiz_index']=idx
     if idx>=len(ids):
-        score=session['quiz_score'];total=len(ids);session.pop('quiz_ids',None);session.pop('quiz_index',None);session.pop('quiz_score',None);reset(session['user_id'])
+        score=session['quiz_score'];total=len(ids);session.pop('quiz_ids',None);session.pop('quiz_index',None);session.pop('quiz_score',None)
+        end_state=feed_quiz_state(session['user_id'])
+        if state['required'] and end_state['required']:
+            # This session was the compulsory Reel quiz and its question was
+            # answered correctly (wrong answers return early above): clear the
+            # exact server assignment.
+            complete_required_feed_quiz(session['user_id'],expected)
+        elif not end_state['required']:
+            reset(session['user_id'])
+        # If a latch appeared mid-session that this voluntary session did not
+        # satisfy, it is left untouched: Learn practice never clears a
+        # compulsory Reel latch.
         return render_template('quiz_result.html',score=score,total=total)
     return render_template('quiz_card.html',quiz=fetch_one('SELECT * FROM quizzes WHERE quiz_id=%s',(ids[idx],)),question_number=idx+1,total_questions=len(ids))
 
@@ -81,8 +98,18 @@ def settings():
 def report():
     kids=children(session['user_id']);cid=int(request.args.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
-    rows=fetch_all('SELECT a.*,q.question FROM child_quiz_attempts a JOIN quizzes q ON q.quiz_id=a.quiz_id WHERE a.child_id=%s ORDER BY attempted_at DESC',(cid,))
-    return render_template('parent_quiz_report.html',attempts=rows)
+    rows=fetch_all('SELECT a.*,q.question,q.category FROM child_quiz_attempts a JOIN quizzes q ON q.quiz_id=a.quiz_id WHERE a.child_id=%s ORDER BY attempted_at DESC',(cid,))
+    total=len(rows);correct=sum(1 for r in rows if r.get('is_correct'));wrong=total-correct
+    by_category={}
+    for r in rows:
+        cat=r.get('category') or 'General'
+        s=by_category.setdefault(cat,{'attempts':0,'correct':0})
+        s['attempts']+=1
+        if r.get('is_correct'):s['correct']+=1
+    summary={'total':total,'correct':correct,'wrong':wrong,
+             'accuracy':round(100.0*correct/total,1) if total else 0.0,
+             'by_category':sorted(by_category.items())}
+    return render_template('parent_quiz_report.html',attempts=rows,summary=summary)
 
 @quiz_bp.route('/quiz/save-settings/',methods=['POST'])
 @parent_required
@@ -123,8 +150,8 @@ def api_feed_quiz_status():
 
 # Keep the original paths as compatibility aliases, but the browser uses the
 # The /quiz/... paths stay exempt from kids-controls gating so the voluntary
-# quiz page is always reachable; the periodic latch itself no longer blocks or
-# redirects any surface (it is a nudge).
+# quiz page is always reachable; the compulsory Reel latch is enforced by the
+# Reels client handoff (pause + Quiz screen, no dismiss), never by redirects.
 @quiz_bp.route('/api/feed-quiz/')
 @quiz_bp.route('/quiz/api/feed-quiz/')
 @limiter.limit('45 per minute')
@@ -160,8 +187,12 @@ def api_feed_quiz_answer():
     correct_answer = res[1]
     xp = res[2]
     explanation = res[3] if len(res) > 3 else ""
-    if not complete_required_feed_quiz(session['user_id'],quiz_id):
-        return jsonify(error='quiz_completion_conflict'),409
+    # A compulsory Reel latch clears ONLY on a correct answer. A wrong answer
+    # is recorded (so the parent sees the attempt) but the latch stays active
+    # and the child must retry the same question.
+    if is_correct:
+        if not complete_required_feed_quiz(session['user_id'],quiz_id):
+            return jsonify(error='quiz_completion_conflict'),409
 
     # Streak is a reward/UI detail, not a safety gate, so session storage is fine.
     streak = session.get('quiz_streak', 0)

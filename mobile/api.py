@@ -4744,9 +4744,9 @@ def register_mobile_api(bp):
         else:
             view_res = feed_quiz_state(uid)
 
-        # Nudge, not a lock: the impression is accepted and content keeps
-        # flowing; quiz_required=True tells the client to render the
-        # dismissible prompt card between reels.
+        # The impression is accepted and content keeps flowing; quiz_required=True
+        # tells the client to pause Reels and hand off to the compulsory Quiz
+        # screen (no dismiss path while the server latch is active).
         if view_res.get("required"):
             return jsonify(
                 ok=True,

@@ -83,8 +83,9 @@ function AuthNavigator() {
 /**
  * Keeps the visible child screen pinned to the authoritative gate state.
  * Runs on mount (fixes any initial-route mismatch) and on every gate change.
- * The periodic quiz latch is a NUDGE, never a route gate, so this never
- * routes to Quiz: the child always stays where they are.
+ * The compulsory Reel quiz is enforced inside the Reels flow itself (pause +
+ * hand off to the Quiz screen, no dismiss path while the server latch is
+ * active), so this never routes to Quiz: the child always stays where they are.
  */
 function ChildGateSync() {
   const navigation = useNavigation<NavigationProp<ChildStackParamList>>();
