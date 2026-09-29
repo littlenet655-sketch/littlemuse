@@ -141,6 +141,16 @@ def effective_daily_limit(child_id):
     return int(lim['daily_limit_minutes'])+bonus
 
 
+def restart_child_sessions(child_id):
+    """End active usage sessions and revoke existing child auth sessions."""
+    _finalize_open(child_id)
+    execute(
+        "UPDATE users SET session_version=COALESCE(session_version,1)+1 WHERE user_id=%s AND role='CHILD'",
+        (child_id,),
+    )
+    return True
+
+
 def online_state(child_id, stale_seconds=90):
     row=fetch_one("""SELECT last_seen_at,ended_at,
         (ended_at IS NULL AND last_seen_at>=NOW()-(%s * INTERVAL '1 second')) AS online
