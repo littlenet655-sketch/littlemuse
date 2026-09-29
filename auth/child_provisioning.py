@@ -1,8 +1,8 @@
-"""Verified-parent child provisioning for the locked LittleNet onboarding flow.
+"""Verified-parent child provisioning for LittleNet.
 
-Sequence: verified ACTIVE parent -> validated child age -> child account ->
-mandatory age-matched onboarding quiz. The quiz gate is enforced by
-auth/api.py before the child can reach normal Kids Mode screens.
+Sequence: verified ACTIVE parent -> validated child age -> child account.
+Kids Mode opens directly after login; age-matched quizzes are delivered later
+inside Learn/Reels and never as a startup gate.
 """
 import uuid
 
@@ -41,8 +41,8 @@ def create_child_for_verified_parent(parent_id, form):
         age = int(form.get('age'))
     except (TypeError, ValueError):
         raise ValueError('Enter the child age.')
-    if not 6 <= age <= 16:
-        raise ValueError('Child age must be between 6 and 16.')
+    if not 6 <= age <= 17:
+        raise ValueError('Child age must be between 6 and 17.')
 
     password = form.get('password') or ''
     if len(password) < 8:
