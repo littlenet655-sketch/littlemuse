@@ -182,6 +182,9 @@ def extend(admin_id: int, minutes: int) -> dict:
     minutes = int(minutes)
     if minutes not in EXTEND_MINUTES:
         raise ValueError("invalid_demo_boost_extension")
+    current = status()
+    if not current.get("active"):
+        raise ValueError("demo_boost_not_active")
     row = fetch_one(
         """UPDATE demo_boost_state
            SET activated_by=%s,
