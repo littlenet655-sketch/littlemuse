@@ -126,13 +126,60 @@ def register_mobile_admin_api(bp):
         q = str(request.args.get('q') or '').strip()
         pattern = f'%{q}%'
         rows = fetch_all(
-            """SELECT user_id,username,full_name,email,role,age,account_status,created_at
+            """SELECT user_id,username,full_name,email,role,age,account_status,demo_unlimited,created_at
                FROM users
                WHERE (%s='' OR full_name ILIKE %s OR username ILIKE %s OR email ILIKE %s)
                ORDER BY created_at DESC LIMIT 100""",
             (q, pattern, pattern, pattern),
         )
         return jsonify(ok=True, users=_clean(rows))
+
+    @bp.route('/api/mobile/v1/admin/users/<int:target_user_id>/demo-unlimited', methods=['POST'])
+    @csrf.exempt
+    @limiter.limit('30 per minute')
+    @_require_mobile('ADMIN')
+    def mobile_admin_demo_unlimited(target_user_id):
+        data = _json_dict()
+        enabled = data.get('enabled')
+        if not isinstance(enabled, bool):
+            return jsonify(error='enabled_boolean_required'), 400
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT role,account_status,demo_unlimited FROM users WHERE user_id=%s FOR UPDATE",
+                (target_user_id,),
+            )
+            target = cur.fetchone()
+            if not target:
+                conn.rollback()
+                return jsonify(error='user_not_found'), 404
+            if target['role'] != 'CHILD':
+                conn.rollback()
+                return jsonify(error='demo_unlimited_child_only'), 400
+            if target['account_status'] == 'DEACTIVATED':
+                conn.rollback()
+                return jsonify(error='account_inactive'), 400
+            cur.execute(
+                "UPDATE users SET demo_unlimited=%s WHERE user_id=%s",
+                (enabled, target_user_id),
+            )
+            cur.execute(
+                """INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,details)
+                   VALUES(%s,'DEMO_UNLIMITED','USER',%s,%s::jsonb)""",
+                (
+                    g.mobile_user['user_id'],
+                    target_user_id,
+                    json.dumps({'enabled': enabled, 'previous': bool(target.get('demo_unlimited'))}),
+                ),
+            )
+            conn.commit()
+            return jsonify(ok=True, user_id=target_user_id, demo_unlimited=enabled)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     @bp.route('/api/mobile/v1/admin/users/<int:target_user_id>/status', methods=['POST'])
     @csrf.exempt
