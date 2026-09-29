@@ -49,6 +49,38 @@ def healthz():
     return jsonify({"ok": True, "service": "littlenet-ai", "moderation": ["TEXT", "IMAGE", "VIDEO"]})
 
 
+@app.get("/warmup")
+def warmup():
+    """Load the moderation stack for a short, intentional demo window."""
+    if not authorized():
+        return deny()
+    path = None
+    try:
+        from PIL import Image
+
+        # Text warms the trained text pipeline; one tiny neutral image warms the
+        # image/video frame models without consuming user media or bypassing any
+        # moderation policy.
+        text_signals = check_text("LittleNet classroom demo warmup")
+        fd, path = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd)
+        Image.new("RGB", (32, 32), (127, 127, 127)).save(path, format="JPEG")
+        image_signals = check_image(path, ocr=False)
+        return jsonify({
+            "ok": True,
+            "text_ready": bool(text_signals),
+            "image_ready": bool(image_signals),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}), 503
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 def _sanitize(val):
     if isinstance(val, dict): return {k: _sanitize(v) for k, v in val.items()}
     if isinstance(val, (list, tuple)): return [_sanitize(v) for v in val]
