@@ -145,7 +145,13 @@ function ChildNavigator() {
   if (activeLock) {
     return (
       <ScreenTimeLockedScreen
-        lockType={activeLock === 'quiet_hours' ? 'quiet_hours' : 'screen_time'}
+        lockType={
+          activeLock === 'quiet_hours'
+            ? 'quiet_hours'
+            : activeLock === 'parent_pause'
+              ? 'parent_pause'
+              : 'screen_time'
+        }
         onUnlock={() => setActiveLock(null)}
         onSignOut={() => void signOut()}
       />
