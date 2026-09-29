@@ -549,6 +549,8 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
         "email": user.get("email"),
         "role": user.get("role"),
         "age": user.get("age"),
+        "parent_paused": bool(user.get("parent_paused")) if user.get("role") == "CHILD" else False,
+        "demo_unlimited": bool(user.get("demo_unlimited")) if user.get("role") == "CHILD" else False,
         "profile": profile,
         "quiz_required": quiz_required,
         "posts_seen": posts_seen,
