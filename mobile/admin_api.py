@@ -187,6 +187,48 @@ def register_mobile_admin_api(bp):
         finally:
             conn.close()
 
+    @bp.route('/api/mobile/v1/admin/users/<int:target_user_id>', methods=['DELETE'])
+    @csrf.exempt
+    @limiter.limit('20 per minute')
+    @_require_mobile('ADMIN')
+    def mobile_admin_delete_user(target_user_id):
+        if int(target_user_id) == int(g.mobile_user['user_id']):
+            return jsonify(error='cannot_delete_self'), 400
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT role,account_status FROM users WHERE user_id=%s AND role<>'ADMIN' FOR UPDATE",
+                (target_user_id,),
+            )
+            target = cur.fetchone()
+            if not target:
+                conn.rollback()
+                return jsonify(error='user_not_found'), 404
+            cur.execute(
+                """UPDATE users
+                   SET account_status='DEACTIVATED',
+                       session_version=COALESCE(session_version,1)+1
+                   WHERE user_id=%s""",
+                (target_user_id,),
+            )
+            cur.execute(
+                """INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,details)
+                   VALUES(%s,'USER_DEACTIVATE','USER',%s,%s::jsonb)""",
+                (
+                    g.mobile_user['user_id'],
+                    target_user_id,
+                    json.dumps({'from': target['account_status'], 'role': target['role']}),
+                ),
+            )
+            conn.commit()
+            return jsonify(ok=True, user_id=target_user_id, status='DEACTIVATED')
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     @bp.route('/api/mobile/v1/admin/audit')
     @_require_mobile('ADMIN')
     def mobile_admin_audit():
