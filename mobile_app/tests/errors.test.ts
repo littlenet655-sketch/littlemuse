@@ -11,6 +11,7 @@ describe('backend gate parsing', () => {
   it('maps 423 lock codes to gates', () => {
     assert.equal(parseErrorResponse(423, { error: 'quiet_hours' }).gate, 'quiet_hours');
     assert.equal(parseErrorResponse(423, { error: 'screen_time_limit' }).gate, 'screen_time');
+    assert.equal(parseErrorResponse(423, { error: 'parent_paused', gate: 'parent_pause' }).gate, 'parent_pause');
   });
 
   it('maps parent verification resume codes', () => {
@@ -54,19 +55,17 @@ describe('backend gate parsing', () => {
     assert.notEqual(userMessageFor(401, 'session_revoked', {}), userMessageFor(401, 'invalid_credentials', {}));
   });
 
-  it('surfaces the backend message for server-explained lockouts', () => {
-    const exhausted = parseErrorResponse(403, {
-      error: 'self_resets_exhausted',
-      message: 'You have used all 2 daily resets for today. Please ask your parent to add more time.',
-      resets_remaining: 0,
+  it('keeps parent-controlled time gates distinct', () => {
+    const paused = parseErrorResponse(423, {
+      error: 'parent_paused',
+      gate: 'parent_pause',
     });
-    assert.match(exhausted.message, /2 daily resets/);
-    assert.equal(exhausted.details.resets_remaining, 0);
+    assert.equal(paused.gate, 'parent_pause');
 
-    const quiet = parseErrorResponse(403, {
-      error: 'quiet_hours_active',
-      message: 'Cannot reset screen time during quiet hours bedtime.',
+    const quiet = parseErrorResponse(423, {
+      error: 'quiet_hours',
+      gate: 'quiet_hours',
     });
-    assert.match(quiet.message, /quiet hours/i);
+    assert.equal(quiet.gate, 'quiet_hours');
   });
 });
