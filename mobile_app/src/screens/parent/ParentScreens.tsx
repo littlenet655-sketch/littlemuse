@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
 import { Feather } from '@expo/vector-icons';
 import {
+  clearChildEverything,
   decideExtensionRequest,
   extendChildScreenTime,
   fetchFollowRequests,
@@ -805,6 +806,41 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
     }
   }
 
+  function confirmClearEverything() {
+    Alert.alert(
+      'Clear Everything?',
+      'This permanently deletes ALL of this child’s activity: posts, reels, stories, comments, likes, saves, follows, blocks, chats, quiz history, watch history, notifications and screen-time data. Settings return to defaults.\n\nKept: the child username, password and your family link. Safety and security records are retained.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Everything',
+          style: 'destructive',
+          onPress: () => void doClearEverything(),
+        },
+      ],
+    );
+  }
+
+  async function doClearEverything() {
+    // Sensitive action: require a fresh parent device authentication.
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await clearChildEverything(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await Promise.all([
+        refreshFamily(),
+        client.invalidateQueries({ queryKey: parentKeys.controls(childId) }),
+      ]);
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
   function confirmUnlink() {
     Alert.alert(
       'Delete Child Account?',
@@ -1050,6 +1086,22 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
             <View style={styles.flex}>
               <Text style={styles.menuTitle}>Reset Settings</Text>
               <Text style={styles.muted}>Restore controls, quiet hours, quiz pacing and time limit defaults</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmClearEverything}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#FEF2F2' }]}>
+              <Feather name="trash-2" size={20} color="#DC2626" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Clear Everything</Text>
+              <Text style={styles.muted}>Delete all child activity and restore defaults. Login and family link are kept</Text>
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />
           </Pressable>

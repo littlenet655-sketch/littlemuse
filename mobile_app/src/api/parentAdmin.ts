@@ -272,6 +272,11 @@ export function resetChildSettings(token: string, childId: number): Promise<{ ok
   return apiRequest(routes.parentChildResetSettings(childId), { method: 'POST' }, token);
 }
 
+/** Parent clears all of a child's activity and restores defaults. Login and family link are kept server-side. */
+export function clearChildEverything(token: string, childId: number): Promise<{ ok: boolean; message: string; cleared?: Record<string, number> }> {
+  return apiRequest(routes.parentChildClearEverything(childId), { method: 'POST' }, token);
+}
+
 export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; signups_today: number } }> {
   return apiRequest(routes.adminDashboard, {}, token);
 }

@@ -74,6 +74,7 @@ export const routes = {
   parentChildAccess: (childId: number) => `/api/mobile/v1/parent/child/${childId}/access`,
   parentChildRestart: (childId: number) => `/api/mobile/v1/parent/child/${childId}/restart`,
   parentChildResetSettings: (childId: number) => `/api/mobile/v1/parent/child/${childId}/reset-settings`,
+  parentChildClearEverything: (childId: number) => `/api/mobile/v1/parent/child/${childId}/clear-everything`,
   demoBoostStatus: '/api/mobile/v1/demo-boost/status',
   adminDemoBoostStart: '/api/mobile/v1/admin/demo-boost/start',
   adminDemoBoostExtend: '/api/mobile/v1/admin/demo-boost/extend',

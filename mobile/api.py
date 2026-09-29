@@ -3490,6 +3490,36 @@ def register_mobile_api(bp):
         notify(child_id, "PARENT_CONTROLS", "Your parent restored LittleNet settings to defaults.", "/child/dashboard/", pid)
         return jsonify(ok=True, message="Child settings restored to defaults.")
 
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/clear-everything", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("10 per hour")
+    @_require_mobile("PARENT")
+    def mobile_parent_child_clear_everything(child_id):
+        # Destructive: wipes the child's posts/reels/stories, social graph,
+        # chats, quiz/activity history and resets settings to defaults, while
+        # keeping the login identity and the parent-child link. R2 media is
+        # queued for durable deletion via media_delete_outbox (never stranded).
+        # Server-authoritative: parent role + owns() gate; the mobile UI must
+        # explain the scope and require fresh parent device auth first.
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        from services.account_reset import clear_everything_for_child
+        try:
+            summary = clear_everything_for_child(child_id, pid)
+        except ValueError as exc:
+            return jsonify(error=str(exc) or "clear_everything_failed"), 400
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Clear-everything failed for child %s", child_id)
+            return jsonify(error="clear_everything_failed"), 500
+        log(child_id, "PARENT_CLEAR_EVERYTHING", {"parent_id": pid, "summary": summary})
+        return jsonify(
+            ok=True,
+            message="Cleared all activity for this child. Login and family link are unchanged.",
+            cleared=summary,
+        )
+
     @bp.route("/api/mobile/v1/parent/child/<int:child_id>", methods=["DELETE"])
     @csrf.exempt
     @_require_mobile("PARENT")
