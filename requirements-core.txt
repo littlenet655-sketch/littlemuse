@@ -13,6 +13,9 @@ pypdf==6.16.1
 gunicorn==23.0.0
 
 requests==2.33.0
+# Admin Demo Boost uses Modal's stable runtime autoscaler API. The deployed
+# web/AWS backend authenticates with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
+modal>=1.1,<2
 boto3==1.40.17
 PyJWT[crypto]==2.13.0
 
