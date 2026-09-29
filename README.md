@@ -63,10 +63,14 @@ Do not put database, R2, mail, AI or queue secrets in the mobile environment.
 python -m venv venv
 # Windows: venv\Scripts\activate
 # Linux/macOS: source venv/bin/activate
-pip install -r requirements-core.txt
+pip install -r requirements-core.txt -r requirements-text.txt
 python tools/init_db.py
 python app.py
 ```
+
+> Parent onboarding runs text moderation on the child profile, so
+> `requirements-text.txt` is required — without it, child account creation
+> fails closed and returns a 400.
 
 Use `.env.example` as the backend configuration reference.
 
