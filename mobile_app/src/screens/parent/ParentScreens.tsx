@@ -17,8 +17,11 @@ import {
   markParentNotificationsRead,
   resetChildPassword,
   resetChildScreenTime,
+  resetChildSettings,
+  restartChildSessions,
   resolveFollowRequest,
   resolveParentReview,
+  setChildAccess,
   unlinkChild,
   updateParentControls,
   updateTimeLimit,
@@ -722,13 +725,93 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
     }
   }
 
-  function confirmUnlink() {
+  async function runAccessAction(action: 'PAUSE' | 'RESUME') {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      await setChildAccess(session?.token ?? '', childId, action);
+      setAccountDone(action === 'PAUSE' ? 'LittleNet paused for this child.' : 'LittleNet resumed for this child.');
+      await refreshFamily();
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmRestart() {
     Alert.alert(
-      'Unlink Child Account?',
-      `This removes ${child?.full_name ?? 'your child'} from your family oversight and deactivates their Kids Mode account. You can contact support to restore it.`,
+      'Restart Child Session?',
+      'This signs the child out on all devices and closes the current usage session. Their account and content stay intact.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Unlink Account', style: 'destructive', onPress: () => void doUnlink() },
+        {
+          text: 'Restart',
+          onPress: () => void doRestart(),
+        },
+      ],
+    );
+  }
+
+  async function doRestart() {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await restartChildSessions(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await refreshFamily();
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmResetSettings() {
+    Alert.alert(
+      'Reset Child Settings?',
+      'This restores feature permissions, quiet hours, quiz pacing and the daily screen-time limit to LittleNet defaults. Content is not deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset Settings',
+          style: 'destructive',
+          onPress: () => void doResetSettings(),
+        },
+      ],
+    );
+  }
+
+  async function doResetSettings() {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await resetChildSettings(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await Promise.all([
+        refreshFamily(),
+        client.invalidateQueries({ queryKey: parentKeys.controls(childId) }),
+      ]);
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmUnlink() {
+    Alert.alert(
+      'Delete Child Account?',
+      `This deactivates ${child?.full_name ?? 'your child'} and removes the family link. This does not silently erase retained safety/audit records.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete Account', style: 'destructive', onPress: () => void doUnlink() },
       ],
     );
   }
@@ -788,7 +871,9 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Text style={styles.childHandleText}>@{child.username}</Text>
               <View style={styles.summaryStatusRow}>
                 <View style={[styles.statusDot, isOnline ? styles.onlineDot : styles.offlineDot]} />
-                <Text style={styles.summaryStatusText}>{isOnline ? 'Active on LittleNet' : 'Offline'}</Text>
+                <Text style={styles.summaryStatusText}>
+                  {child.parent_paused ? 'Paused by parent' : isOnline ? 'Active on LittleNet' : 'Offline'}
+                </Text>
               </View>
             </View>
           </View>
@@ -913,6 +998,62 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
         {/* Child Account Management */}
         <Text style={styles.sectionHeaderLabelStandalone}>CHILD ACCOUNT</Text>
         <View style={styles.actionTilesGroup}>
+          {child.demo_unlimited ? (
+            <View style={styles.accountNoticeWrap}>
+              <Notice tone="info" message="Unlimited demo mode is enabled by Admin. Time and quiet-hour locks are bypassed; safety checks still apply." />
+            </View>
+          ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            disabled={accountBusy || child.demo_unlimited}
+            onPress={() => void runAccessAction(child.parent_paused ? 'RESUME' : 'PAUSE')}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: child.parent_paused ? '#ECFDF5' : '#FFF7ED' }]}>
+              <Feather name={child.parent_paused ? 'play' : 'pause'} size={20} color={child.parent_paused ? '#059669' : '#EA580C'} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>{child.parent_paused ? 'Resume LittleNet' : 'Pause LittleNet'}</Text>
+              <Text style={styles.muted}>
+                {child.demo_unlimited ? 'Disabled while Admin unlimited demo mode is active' : child.parent_paused ? 'Restore child access immediately' : 'Temporarily stop Kids Mode until you resume it'}
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmRestart}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#F0F9FF' }]}>
+              <Feather name="refresh-cw" size={20} color="#0284C7" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Restart Child Session</Text>
+              <Text style={styles.muted}>Sign out all child devices and require a clean login</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmResetSettings}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#F5F3FF' }]}>
+              <Feather name="rotate-ccw" size={20} color="#7C3AED" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Reset Settings</Text>
+              <Text style={styles.muted}>Restore controls, quiet hours, quiz pacing and time limit defaults</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
           <Pressable
             accessibilityRole="button"
             style={styles.actionTileRow}
@@ -966,8 +1107,8 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Feather name="user-x" size={20} color="#DC2626" />
             </View>
             <View style={styles.flex}>
-              <Text style={[styles.menuTitle, styles.dangerText]}>Unlink Child Account</Text>
-              <Text style={styles.muted}>Remove from your family and deactivate Kids Mode</Text>
+              <Text style={[styles.menuTitle, styles.dangerText]}>Delete Child Account</Text>
+              <Text style={styles.muted}>Deactivate Kids Mode and remove this child from your family</Text>
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />
           </Pressable>
