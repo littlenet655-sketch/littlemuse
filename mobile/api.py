@@ -3722,6 +3722,61 @@ def register_mobile_api(bp):
             liked_saved=_clean(_liked_saved_snapshot(child_id)),
         )
 
+    @bp.route("/api/mobile/v1/demo-boost/status")
+    @_require_mobile("CHILD", "PARENT", "ADMIN")
+    def mobile_demo_boost_status():
+        from services.demo_boost import status as demo_boost_status
+        try:
+            return jsonify(ok=True, demo_boost=_clean(demo_boost_status()))
+        except Exception:
+            # Demo Boost is an optional acceleration layer; an unavailable
+            # control plane must never break normal LittleNet screens.
+            return jsonify(ok=True, demo_boost={"active": False, "status": "OFF", "remaining_seconds": 0})
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/start", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_start():
+        from services.demo_boost import activate
+        data = _json_dict()
+        try:
+            minutes = int(data.get("minutes"))
+            result = activate(int(g.mobile_user["user_id"]), minutes)
+        except (TypeError, ValueError) as exc:
+            return jsonify(error=str(exc) or "invalid_demo_boost_minutes"), 400
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        return jsonify(ok=True, demo_boost=_clean(result))
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/extend", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_extend():
+        from services.demo_boost import extend
+        data = _json_dict()
+        try:
+            minutes = int(data.get("minutes"))
+            result = extend(int(g.mobile_user["user_id"]), minutes)
+        except (TypeError, ValueError) as exc:
+            return jsonify(error=str(exc) or "invalid_demo_boost_extension"), 400
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        return jsonify(ok=True, demo_boost=_clean(result))
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/stop", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_stop():
+        from services.demo_boost import stop
+        try:
+            result = stop()
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        return jsonify(ok=True, demo_boost=_clean(result))
+
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")
     def mobile_admin_dashboard():
@@ -3729,7 +3784,7 @@ def register_mobile_api(bp):
             "users": (fetch_one("SELECT COUNT(*) n FROM users", ()) or {"n": 0})["n"],
             "children": (fetch_one("SELECT COUNT(*) n FROM users WHERE role='CHILD'", ()) or {"n": 0})["n"],
             "parents": (fetch_one("SELECT COUNT(*) n FROM users WHERE role='PARENT'", ()) or {"n": 0})["n"],
-            "open_reviews": (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE decision='REVIEW' AND status='OPEN'", ()) or {"n": 0})["n"],
+            "signups_today": (fetch_one("SELECT COUNT(*) n FROM users WHERE created_at::date=CURRENT_DATE", ()) or {"n": 0})["n"],
         }
         return jsonify(ok=True, counts=_clean(counts_row))
 
