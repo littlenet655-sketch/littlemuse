@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../auth/AuthProvider';
@@ -83,9 +83,11 @@ function AuthNavigator() {
  */
 function ChildGateSync() {
   const navigation = useNavigation<NavigationProp<ChildStackParamList>>();
+  const focused = useIsFocused();
   const { session } = useAuth();
 
   useEffect(() => {
+    if (!focused) return;
     const timer = setTimeout(() => {
       try {
         const state = navigation.getState();
@@ -104,7 +106,7 @@ function ChildGateSync() {
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [navigation, session?.onboarding, session?.user.quiz_required]);
+  }, [focused, navigation, session?.onboarding, session?.user.quiz_required]);
 
   return null;
 }

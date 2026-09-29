@@ -32,3 +32,11 @@ test('meaningful Reel impression is flushed immediately, not in fixed batches of
   assert.match(reels, /void flushBatch\(\);/);
   assert.doesNotMatch(reels, /impressionBatchRef\.current\.length >= 5/);
 });
+
+test('Reels stay locked until an authoritative quiz refresh clears the server latch', () => {
+  const reels = text('src/screens/kids/ReelsScreen.tsx');
+  assert.match(reels, /const refreshed = await refreshMe\(\);/);
+  assert.match(reels, /const stillRequired = refreshed\.user\.quiz_required \|\| refreshed\.onboarding\?\.quiz_required/);
+  assert.match(reels, /setQuizLocked\(Boolean\(stillRequired\)\)/);
+  assert.doesNotMatch(reels, /setQuizLocked\(false\);\s*setPaused\(false\);\s*if \(session\?\.token\)/);
+});

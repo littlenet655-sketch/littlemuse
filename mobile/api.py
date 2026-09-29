@@ -4243,10 +4243,24 @@ def register_mobile_api(bp):
         if not events:
             return jsonify(ok=True, processed=0, recorded=0)
 
+        # Keep batch telemetry behind the same authoritative quiz latch as the
+        # single-event endpoint. In particular, a batched Feed request must not
+        # continue recording after a required brain break has been set.
+        initial_quiz_state = feed_quiz_state(uid)
+        if initial_quiz_state.get("required"):
+            return jsonify(
+                error="quiz_required",
+                gate="quiz",
+                quiz_required=True,
+                posts_seen=initial_quiz_state.get("posts_seen", 0),
+                quiz_interval=initial_quiz_state.get("interval", 5),
+                next_quiz_threshold=initial_quiz_state.get("next_quiz_threshold", 5),
+            ), 428
+
         processed = 0
         recorded = 0
         quiz_required = False
-        posts_seen = int(feed_quiz_state(uid).get("posts_seen") or 0)
+        posts_seen = int(initial_quiz_state.get("posts_seen") or 0)
         from services.curated_feed import record_feed_impression
         for ev in events:
             if not isinstance(ev, dict):
