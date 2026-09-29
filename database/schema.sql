@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
  dob DATE,
  account_status VARCHAR(30) NOT NULL DEFAULT 'PENDING_APPROVAL' CHECK (account_status IN ('PENDING_APPROVAL','ACTIVE','REJECTED','SUSPENDED','DEACTIVATED')),
  session_version INTEGER NOT NULL DEFAULT 1,
+ demo_unlimited BOOLEAN NOT NULL DEFAULT FALSE,
+ parent_paused BOOLEAN NOT NULL DEFAULT FALSE,
  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS parent_child_map (
@@ -395,6 +397,22 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_logs(created_at DESC);
+
+-- Demo Boost singleton state (dbmate: 20260929000000_demo_boost.sql).
+CREATE TABLE IF NOT EXISTS demo_boost_state (
+    state_id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (state_id = 1),
+    status VARCHAR(16) NOT NULL DEFAULT 'OFF'
+        CHECK (status IN ('OFF','WARMING','READY')),
+    activated_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    started_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    last_error TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO demo_boost_state(state_id, status)
+VALUES (1, 'OFF')
+ON CONFLICT (state_id) DO NOTHING;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_quizzes_question_age_unique ON quizzes(question,age_group);
 

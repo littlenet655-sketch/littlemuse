@@ -45,6 +45,31 @@
         {% endif %}
       </div>
     </section>
+    {# Non-blocking periodic quiz nudge: a dismissible card between reels. #}
+    {% if loop.index == 2 and quiz_due %}
+    <section class="reel quiz-prompt-card" id="quiz-prompt-card" aria-label="Brain break quiz prompt">
+      <div class="quiz-prompt-inner">
+        <button type="button" class="quiz-prompt-dismiss" aria-label="Dismiss quiz prompt" onclick="dismissQuizPrompt()">✕</button>
+        <div class="quiz-prompt-badge">🧠 Brain Break</div>
+        <h2>Time for a quick brain break!</h2>
+        <p>A short quiz is ready for you. Your clips keep playing — no rush.</p>
+        <a class="btn primary" href="/quiz/start/">Take the quiz</a>
+      </div>
+    </section>
+    <script>
+      function dismissQuizPrompt() {
+        var card = document.getElementById('quiz-prompt-card');
+        if (card) card.remove();
+        try { sessionStorage.setItem('quizPromptDismissed', '1'); } catch (e) {}
+      }
+      try {
+        if (sessionStorage.getItem('quizPromptDismissed') === '1') {
+          var card = document.getElementById('quiz-prompt-card');
+          if (card) card.remove();
+        }
+      } catch (e) {}
+    </script>
+    {% endif %}
     {% else %}
     <div class="empty-reels">
       <div>{{ ico.icon('clips', 48) }}</div>

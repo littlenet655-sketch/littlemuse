@@ -3,7 +3,7 @@ import { Alert, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { Feather } from '@expo/vector-icons';
 import { ApiError } from '../../api/client';
 import { fetchOtherProfile } from '../../api/kidsProfiles';
-import { blockUser, fetchConnectionRequests, muteUser, submitReport, toggleFollow, type PostDetail } from '../../api/kidsSocial';
+import { blockUser, fetchConnectionRequests, muteUser, toggleFollow, type PostDetail } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { canMessageRelationship } from '../../kids/social';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -34,6 +34,12 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   // They sent us a follow request that is still awaiting approval (server
   // state). Drives the Instagram-style "Follow Back" button state.
   const [incomingRequest, setIncomingRequest] = useState(false);
+  // Directional: OUR unapproved request to them. rel.pending from the profile
+  // endpoint is symmetric, so it cannot distinguish our request from theirs.
+  const [outgoingPending, setOutgoingPending] = useState(false);
+  // Whether the directional requests fetch completed; when it fails we fall
+  // back to the symmetric rel.pending signal (server now handles it safely).
+  const [reqsLoaded, setReqsLoaded] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState('');
@@ -63,6 +69,8 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
     // Reset per-profile state first so a stale "Follow Back" from the
     // previously viewed profile never flashes while the refetch lands.
     setIncomingRequest(false);
+    setOutgoingPending(false);
+    setReqsLoaded(false);
     try {
       const res = await fetchOtherProfile(session.token, targetId);
       setProfile(res.profile);
@@ -78,8 +86,12 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
     try {
       const reqs = await fetchConnectionRequests(session.token);
       setIncomingRequest((reqs.incoming ?? []).some((r) => r.requester_id === targetId));
+      setOutgoingPending((reqs.outgoing ?? []).some((r) => r.target_id === targetId));
+      setReqsLoaded(true);
     } catch {
       setIncomingRequest(false);
+      setOutgoingPending(false);
+      setReqsLoaded(false);
     }
   }
 
@@ -144,8 +156,15 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   // Instagram-style follow states: Follow / Requested / Following / Follow Back.
   // "Follow Back" shows when they sent us a request but we have not connected
   // yet. Every follow still needs parent approval server-side.
+  // NOTE: rel.pending is symmetric server-side, so "requested" is driven by
+  // our own directional outgoing request; otherwise an incoming request would
+  // wrongly read as "Requested" and tapping it could cancel THEIR request.
   const followState: 'following' | 'requested' | 'followBack' | 'none' =
-    rel.connected ? 'following' : rel.pending ? 'requested' : incomingRequest ? 'followBack' : 'none';
+    rel.connected ? 'following'
+    : outgoingPending ? 'requested'
+    : incomingRequest ? 'followBack'
+    : !reqsLoaded && rel.pending ? 'requested'
+    : 'none';
   const followLabel =
     followState === 'following' ? 'Following'
     : followState === 'requested' ? 'Requested'
@@ -154,15 +173,23 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   const followIsPrimary = followState === 'none' || followState === 'followBack';
   const displayName = String(profile?.full_name ?? 'this account');
 
+  // Server truth for what the toggle actually did; the toast must match it.
+  const FOLLOW_STATUS_COPY: Record<string, string> = {
+    pending: 'Request sent! A parent needs to approve it.',
+    follow_back_pending: 'Request sent! Both parents need to approve.',
+    cancelled: 'Follow request cancelled.',
+    removed: 'Unfollowed.',
+  };
+
   async function onFollowPress() {
     if (!session || busy) return;
     const doToggle = async (done: string) => {
       setBusy(true);
       setInfo('');
       try {
-        await toggleFollow(session.token, targetId);
+        const res = (await toggleFollow(session.token, targetId)) as { ok: boolean; status?: string };
         await invalidateSocialCaches();
-        setInfo(done);
+        setInfo((res.status && FOLLOW_STATUS_COPY[res.status]) || done);
         await load();
       } catch (err) {
         setError(err);
@@ -274,7 +301,7 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           <Text style={styles.rel}>
             {rel.connected
               ? 'Friends'
-              : rel.pending
+              : outgoingPending || (!reqsLoaded && rel.pending)
                 ? 'Friend request sent — needs parent approval'
                 : incomingRequest
                   ? 'They sent you a friend request — follow back to connect'
@@ -339,13 +366,6 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
           </Pressable>
           <Pressable style={[styles.smallGreyBtn, busy && styles.btnDisabled]} disabled={busy} onPress={() => void onBlockToggle()}>
             <Text style={styles.smallGreyBtnText}>Block</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.smallGreyBtn, busy && styles.btnDisabled]}
-            disabled={busy}
-            onPress={() => void act((t) => submitReport(t, 'USER', targetId, 'Unsafe behavior'), 'Report sent for safety review.')}
-          >
-            <Text style={[styles.smallGreyBtnText, styles.reportText]}>Report</Text>
           </Pressable>
         </View>
       </View>
@@ -513,9 +533,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.ink,
-  },
-  reportText: {
-    color: colors.danger,
   },
   tabBar: {
     flexDirection: 'row',

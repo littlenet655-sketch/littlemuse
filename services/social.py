@@ -28,7 +28,9 @@ def _age_group_uncached(viewer_id):
 def child_surface_open(viewer_id, feature=None):
     """Fail closed for child-facing HTTP/media surfaces.
 
-    Quiet-hours, screen-time and mandatory-quiz state are request-time controls.
+    Quiet-hours and screen-time are request-time controls. The periodic quiz
+    latch is a NUDGE, never a surface block: it must not close feeds, stories,
+    messaging, or media signing (defect: periodic latch must not lock content).
     Background policy/unit evaluation has no browser session to lock and continues
     to use the canonical content/friend/category SQL rules instead.
 
@@ -57,8 +59,6 @@ def _child_surface_open_uncached(viewer_id, feature=None):
         from services.usage import lock_state
         locked,_=lock_state(viewer_id)
         if locked:return False
-        from quiz.service import needs_onboarding_quiz,quiz_due
-        if needs_onboarding_quiz(viewer_id) or quiz_due(viewer_id):return False
     except Exception:
         return False
     return True
@@ -85,6 +85,12 @@ def _can_interact_uncached(a,b):
 
 
 def visible_posts(viewer_id, reels=False, limit=20, offset=0):
+    """Public safe Feed/Reels for child accounts.
+
+    Approved content is visible app-wide, while viewer age/category controls,
+    blocks and mutes still apply. A child's own REVIEW item remains visible only
+    to that child so processing/review status can be shown without publishing it.
+    """
     controls=controls_for_child(viewer_id)
     if reels and not controls.get('allow_reels',True):return []
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
@@ -95,10 +101,11 @@ def visible_posts(viewer_id, reels=False, limit=20, offset=0):
       FROM posts p JOIN users u ON u.user_id=p.child_id
       LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
       LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
-      WHERE ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE) OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_story=FALSE AND p.is_reel=%s
+      WHERE p.is_story=FALSE AND p.is_reel=%s
+        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE)
+             OR (p.child_id=%s AND p.moderation_status='REVIEW'))
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-        AND (p.child_id=%s OR p.child_id IN (SELECT following_child_id FROM followers WHERE child_id=%s AND approved=TRUE AND approval_stage='ACTIVE'))
         AND p.child_id NOT IN (
           SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
           UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
@@ -106,19 +113,17 @@ def visible_posts(viewer_id, reels=False, limit=20, offset=0):
       ORDER BY CASE WHEN p.content_category IN (
           SELECT skill_name FROM child_skills WHERE child_id=%s AND approved=TRUE
           UNION SELECT interest_name FROM child_interests WHERE child_id=%s AND approved=TRUE
-          UNION SELECT ambition_name FROM child_ambitions WHERE child_id=%s AND approved=TRUE) THEN 0 ELSE 1 END, p.created_at DESC
+          UNION SELECT ambition_name FROM child_ambitions WHERE child_id=%s AND approved=TRUE) THEN 0 ELSE 1 END,
+          p.created_at DESC
       LIMIT %s OFFSET %s''',
-      (viewer_id,reels,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id,limit,offset))
-
+      (reels,viewer_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,
+       viewer_id,viewer_id,viewer_id,limit,offset))
 
 def discoverable_posts(viewer_id, reels=False, limit=30, offset=0):
+    """Discover uses the same public-safe content pool as Feed/Reels."""
     controls = controls_for_child(viewer_id)
     feature = 'allow_reels' if reels else 'allow_discover'
     if not controls.get(feature, True):
-        return []
-    from child.service import discoverable_child_ids
-    allowed_child_ids = discoverable_child_ids(viewer_id)
-    if not allowed_child_ids:
         return []
     cats = effective_categories(viewer_id)
     age_group = _age_group(viewer_id)
@@ -129,20 +134,20 @@ def discoverable_posts(viewer_id, reels=False, limit=30, offset=0):
       FROM posts p JOIN users u ON u.user_id=p.child_id
       LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
       LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
-      WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=%s
+      WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE
+        AND p.is_story=FALSE AND p.is_reel=%s
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-         AND p.child_id = ANY(%s::int[])
         AND p.child_id NOT IN (
           SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
           UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
           UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)
       ORDER BY p.created_at DESC
       LIMIT %s OFFSET %s''',
-       (reels, cats, age_group, age_group, allowed_child_ids, viewer_id, viewer_id, viewer_id, limit, offset))
-
+      (reels,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,limit,offset))
 
 def active_stories(viewer_id):
+    """Return public, approved Stories from the last 24 hours."""
     controls=controls_for_child(viewer_id)
     if not controls.get('allow_stories',True):return []
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
@@ -154,17 +159,13 @@ def active_stories(viewer_id):
           AND p.created_at>NOW()-INTERVAL '24 hours'
           AND p.content_category = ANY(%s)
           AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-          AND (p.child_id=%s OR p.child_id IN (
-              SELECT following_child_id FROM followers WHERE child_id=%s AND approved=TRUE AND approval_stage='ACTIVE'
-          ))
           AND p.child_id NOT IN (
               SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
               UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
               UNION SELECT muted_id FROM muted_users WHERE muter_id=%s
           )
         ORDER BY CASE WHEN p.child_id=%s THEN 0 ELSE 1 END, p.child_id, p.created_at ASC''',
-        (viewer_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id))
-
+        (viewer_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,viewer_id))
 
 def story_visible_to(viewer_id,post_id):
     if not child_surface_open(viewer_id,'stories'):return None
@@ -174,11 +175,11 @@ def story_visible_to(viewer_id,post_id):
         WHERE p.post_id=%s AND p.is_story=TRUE AND p.is_safe=TRUE AND p.moderation_status='ALLOWED'
           AND p.created_at>NOW()-INTERVAL '24 hours' AND p.content_category = ANY(%s)
           AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-          AND (p.child_id=%s OR EXISTS(SELECT 1 FROM followers f WHERE f.child_id=%s AND f.following_child_id=p.child_id AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
-          AND NOT EXISTS(SELECT 1 FROM blocked_users b WHERE (b.blocker_id=%s AND b.blocked_id=p.child_id) OR (b.blocker_id=p.child_id AND b.blocked_id=%s))
+          AND NOT EXISTS(SELECT 1 FROM blocked_users b WHERE
+              (b.blocker_id=%s AND b.blocked_id=p.child_id) OR
+              (b.blocker_id=p.child_id AND b.blocked_id=%s))
           AND NOT EXISTS(SELECT 1 FROM muted_users m WHERE m.muter_id=%s AND m.muted_id=p.child_id)''',
-        (post_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id))
-
+        (post_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id))
 
 def notify(user_id,kind,message,url=None,actor=None):
     if str(kind).upper()=='FOLLOW_REQUEST':return None
@@ -210,18 +211,21 @@ def parent_notify(child_id,kind,message,url=None):
 def post_visible_to(viewer_id,post_id):
     if not child_surface_open(viewer_id):return None
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
-    post=fetch_one("""SELECT p.* FROM posts p WHERE p.post_id=%s AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE
-      AND p.content_category = ANY(%s) AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-      AND (p.child_id=%s OR EXISTS(SELECT 1 FROM followers f WHERE f.child_id=%s AND f.following_child_id=p.child_id AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
-      AND p.child_id NOT IN (
-        SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
-        UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
-        UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)""",(post_id,viewer_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id,viewer_id,viewer_id))
+    post=fetch_one("""SELECT p.* FROM posts p
+      WHERE p.post_id=%s
+        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE)
+             OR (p.child_id=%s AND p.moderation_status='REVIEW'))
+        AND p.content_category = ANY(%s)
+        AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
+        AND p.child_id NOT IN (
+          SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
+          UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
+          UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)""",
+      (post_id,viewer_id,cats,age_group,age_group,viewer_id,viewer_id,viewer_id))
     if not post:return None
     if post.get('is_reel') and not feature_allowed(viewer_id,'reels'):return None
     if post.get('is_story') and not feature_allowed(viewer_id,'stories'):return None
     return post
-
 
 def visible_profile_posts(viewer_id,target_id,limit=60):
     if viewer_id == target_id:

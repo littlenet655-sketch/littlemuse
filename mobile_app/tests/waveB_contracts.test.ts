@@ -186,7 +186,10 @@ describe('Task 12: Child-Safe Explore Learn More Contracts', () => {
     assert.match(content, /LittleNet checks posts and Reels before they can appear so you can explore safely\./);
     assert.match(content, /Parent Controls/);
     assert.match(content, /Private & Protected/);
-    assert.match(content, /Friendly Reporting/);
+    // Reporting was intentionally removed from the product; the modal must
+    // point kids at Block/Mute instead of promising a report flow.
+    assert.match(content, /Block & Mute/);
+    assert.match(content, /you can block or mute them right away/);
     assert.match(content, /Safe Recommendations/);
 
     // Got it button closes modal

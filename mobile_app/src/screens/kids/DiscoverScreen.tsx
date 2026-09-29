@@ -188,10 +188,15 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     resetToTop();
   }, [kind, resetToTop]);
 
-  // When search term materially changes: reset to top
+  // When search term materially changes: reset to top. When a brand-new
+  // search starts (empty -> non-empty), jump to the People tab so username
+  // matches are visible immediately instead of the posts grid.
   const prevDebouncedRef = useRef(debounced);
   useEffect(() => {
     if (prevDebouncedRef.current !== debounced) {
+      if (!prevDebouncedRef.current.trim() && debounced.trim()) {
+        setKind('People');
+      }
       prevDebouncedRef.current = debounced;
       resetToTop();
     }
@@ -624,9 +629,9 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                   <Feather name="flag" size={18} color="#D97706" />
                 </View>
                 <View style={styles.explainerTextWrap}>
-                  <Text style={styles.explainerHeading}>Friendly Reporting</Text>
+                  <Text style={styles.explainerHeading}>Block & Mute</Text>
                   <Text style={styles.explainerBody}>
-                    You can report something that makes you uncomfortable, and our team will review it.
+                    If someone bothers you, you can block or mute them right away. No permission needed.
                   </Text>
                 </View>
               </View>

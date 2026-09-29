@@ -5,7 +5,6 @@ from decorators import child_required
 from child.service import *
 from services.social import visible_posts,active_stories,story_visible_to,parent_notify,visible_profile_posts,can_interact,_age_group,post_visible_to
 from services.usage import lock_state,heartbeat,minutes_today,start_session,close_session
-from quiz.service import quiz_due
 from database.connection import execute,fetch_one,fetch_all
 from safety.moderation_service import evaluate,record
 from services.audit import log
@@ -18,7 +17,8 @@ def _guard():
     if session.get('usage_session_key'): heartbeat(session['usage_session_key'])
     locked,remaining=lock_state(session['user_id'])
     if locked:return render_template('time_limit_reached.html'),403
-    if quiz_due(session['user_id']) and request.path not in ['/quiz/start/','/quiz/submit/','/logout/']:return redirect('/quiz/start/')
+    # The periodic quiz latch is a nudge, never a redirect lock: pages render
+    # normally and the client shows a dismissible prompt card when due.
     return None
 
 def _public_profile_text(form):
@@ -176,15 +176,26 @@ def search_suggestions():
 def follow(child_id):
     if child_id==session['user_id']:return jsonify(status='self'),400
     if not can_discover_child(session['user_id'],child_id):return jsonify(error='child unavailable'),404
-    if is_following(session['user_id'],child_id) or is_follow_pending(session['user_id'],child_id):
-        unfollow_child(session['user_id'],child_id);return jsonify(status='removed')
+    if is_following(session['user_id'],child_id):
+        # Active friendship: unfollowing removes both directions.
+        unfollow_child(session['user_id'],child_id);return jsonify(ok=True,status='removed')
+    if outgoing_follow_pending(session['user_id'],child_id):
+        # Cancel MY request only. Never deletes their incoming request.
+        cancel_outgoing_follow(session['user_id'],child_id);return jsonify(ok=True,status='cancelled')
+    if not child_has_guardian(child_id):
+        # Nobody on the other side can ever approve: refuse now instead of
+        # creating a request that deadlocks at RECEIVER_PARENT_PENDING.
+        return jsonify(error='target_has_no_guardian',message="This user can't receive follow requests right now."),400
+    # Follow back is a fresh outgoing request of mine; their incoming
+    # request is left untouched for their parent to approve.
     follow_child(session['user_id'],child_id);record_signal(session['user_id'],'CREATOR',child_id,'FOLLOW');log(session['user_id'],'FOLLOW_REQUEST',{'target':child_id})
     parent_notify(session['user_id'],'FOLLOW_REQUEST','A new connection request needs approval','/parent/follow-requests/')
     try:
         sender=fetch_one('SELECT full_name FROM users WHERE user_id=%s',(session['user_id'],));s_name=(sender or {}).get('full_name') or 'A LittleNet friend'
         notify(child_id,'FOLLOW_REQUEST',f"{s_name} sent you a parent-mediated friend request.",'/notifications/',session['user_id'])
     except Exception:pass
-    return jsonify(status='pending')
+    if incoming_follow_pending(session['user_id'],child_id):return jsonify(ok=True,status='follow_back_pending')
+    return jsonify(ok=True,status='pending')
 
 @child_bp.route('/block/<int:user_id>/',methods=['POST'])
 @child_required
@@ -290,7 +301,11 @@ def accept_follow_request(requester_id):
 @child_bp.route('/child/follow-requests/<int:requester_id>/decline/',methods=['POST'])
 @child_required
 def decline_follow_request(requester_id):
-    execute('DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(requester_id,session['user_id'],session['user_id'],requester_id));return redirect('/notifications/')
+    # Decline removes only the INCOMING request (requester -> me). Deleting
+    # both directions also destroyed the child's own outgoing handshake row
+    # (e.g. at SENDER_PARENT_APPROVED); the mobile cancel path is already
+    # direction-precise.
+    execute('DELETE FROM followers WHERE approved=FALSE AND child_id=%s AND following_child_id=%s',(requester_id,session['user_id']));return redirect('/notifications/')
 
 @child_bp.route('/notifications/read/',methods=['POST'])
 @child_required

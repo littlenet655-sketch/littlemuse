@@ -48,8 +48,13 @@ def _scope_params(viewer_id):
     return effective_categories(viewer_id), _age_group(viewer_id)
 
 
-def search_visible_posts(viewer_id, query, limit=50, allowed_author_ids=None):
-    """Return safe visible posts ranked by caption/hashtag/comment relevance."""
+def search_visible_posts(viewer_id, query, limit=50):
+    """Return safe visible posts ranked by caption/hashtag/comment relevance.
+
+    Public content pool: approved posts are visible to every child account,
+    subject to age/category/block/mute controls. Friendship is never a
+    visibility gate (mission rule: public content is NOT friends-only).
+    """
     clean = _clean_query(query)
     if not clean:
         return browse_visible_posts(viewer_id, min(limit, 30))
@@ -108,13 +113,6 @@ def search_visible_posts(viewer_id, query, limit=50, allowed_author_ids=None):
               AND p.is_safe=TRUE AND p.is_story=FALSE
               AND p.content_category=ANY(%s)
               AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-              AND (
-                (%s::int[] IS NULL AND (p.child_id=%s OR EXISTS(
-                  SELECT 1 FROM followers f
-                  WHERE f.child_id=%s AND f.following_child_id=p.child_id
-                    AND f.approved=TRUE AND f.approval_stage='ACTIVE')))
-                OR (%s::int[] IS NOT NULL AND p.child_id=ANY(%s::int[]))
-              )
               AND p.child_id NOT IN (
                 SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
                 UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
@@ -150,11 +148,6 @@ def search_visible_posts(viewer_id, query, limit=50, allowed_author_ids=None):
             cats,
             age_group,
             age_group,
-            allowed_author_ids,
-            viewer_id,
-            viewer_id,
-            allowed_author_ids,
-            allowed_author_ids,
             viewer_id,
             viewer_id,
             viewer_id,
@@ -164,7 +157,12 @@ def search_visible_posts(viewer_id, query, limit=50, allowed_author_ids=None):
 
 
 def browse_visible_posts(viewer_id, limit=30):
-    """Safe Explore results when no search term is entered."""
+    """Safe Explore results when no search term is entered.
+
+    Public content pool: approved posts are visible to every child account,
+    subject to age/category/block/mute controls. Friendship is never a
+    visibility gate (mission rule: public content is NOT friends-only).
+    """
     cats, age_group = _scope_params(viewer_id)
     return fetch_all(
         """SELECT p.*,u.full_name,u.username,cp.profile_picture,NULL::text AS matched_comment,0 AS search_score
@@ -175,10 +173,6 @@ def browse_visible_posts(viewer_id, limit=30):
              AND p.is_safe=TRUE AND p.is_story=FALSE
              AND p.content_category=ANY(%s)
              AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-             AND (p.child_id=%s OR EXISTS(
-               SELECT 1 FROM followers f
-               WHERE f.child_id=%s AND f.following_child_id=p.child_id
-                 AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
              AND p.child_id NOT IN (
                SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
                UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
@@ -191,15 +185,18 @@ def browse_visible_posts(viewer_id, limit=30):
             viewer_id,
             viewer_id,
             viewer_id,
-            viewer_id,
-            viewer_id,
             max(1, min(int(limit), 50)),
         ),
     )
 
 
-def visible_hashtags(viewer_id, query="", limit=6, allowed_author_ids=None):
-    """Extract real hashtags from visible captions and approved visible comments."""
+def visible_hashtags(viewer_id, query="", limit=6):
+    """Extract real hashtags from visible captions and approved visible comments.
+
+    Public content pool: hashtags come from every approved post visible to the
+    viewer, subject to age/category/block/mute controls. Friendship is never
+    a visibility gate (mission rule: public content is NOT friends-only).
+    """
     clean = _clean_query(query).lower()
     pattern = _like_pattern(clean)
     cats, age_group = _scope_params(viewer_id)
@@ -217,13 +214,6 @@ def visible_hashtags(viewer_id, query="", limit=6, allowed_author_ids=None):
                 AND p.is_safe=TRUE AND p.is_story=FALSE
                 AND p.content_category=ANY(%s)
                 AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-                AND (
-                  (%s::int[] IS NULL AND (p.child_id=%s OR EXISTS(
-                    SELECT 1 FROM followers f
-                    WHERE f.child_id=%s AND f.following_child_id=p.child_id
-                      AND f.approved=TRUE AND f.approval_stage='ACTIVE')))
-                  OR (%s::int[] IS NOT NULL AND p.child_id=ANY(%s::int[]))
-                )
                 AND p.child_id NOT IN (
                   SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
                   UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
@@ -257,11 +247,6 @@ def visible_hashtags(viewer_id, query="", limit=6, allowed_author_ids=None):
             cats,
             age_group,
             age_group,
-            allowed_author_ids,
-            viewer_id,
-            viewer_id,
-            allowed_author_ids,
-            allowed_author_ids,
             viewer_id,
             viewer_id,
             viewer_id,

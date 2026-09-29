@@ -112,11 +112,13 @@ def test_mock_put_disabled_in_production(client, app):
     with app.app_context():
         _ensure_child(9901, "hkid_01")
         u_id = _make_session(9901)
+    token = _issue_token({"user_id": 9901, "role": "CHILD"})
 
     with patch("config.Config._PRODUCTION", True), \
          patch.dict(os.environ, {"ENABLE_MOCK_PUT": "0"}):
         resp = client.put(
             f"/api/mobile/v2/uploads/mock-put/{u_id}",
+            headers={"Authorization": f"Bearer {token}"},
             data=b"fake_bytes",
             content_type="image/jpeg",
         )
@@ -129,11 +131,13 @@ def test_mock_put_disabled_when_env_not_set(client, app):
     with app.app_context():
         _ensure_child(9902, "hkid_02")
         u_id = _make_session(9902)
+    token = _issue_token({"user_id": 9902, "role": "CHILD"})
 
     with patch("config.Config._PRODUCTION", False), \
          patch.dict(os.environ, {"ENABLE_MOCK_PUT": "0"}):
         resp = client.put(
             f"/api/mobile/v2/uploads/mock-put/{u_id}",
+            headers={"Authorization": f"Bearer {token}"},
             data=b"fake_bytes",
             content_type="image/jpeg",
         )
@@ -143,10 +147,14 @@ def test_mock_put_disabled_when_env_not_set(client, app):
 def test_mock_put_unknown_session_returns_404(client, app):
     """mock-PUT for a non-existent upload_id returns 404 (session_not_found)."""
     nonexistent_uuid = "00000000-0000-0000-0000-000000000999"
+    with app.app_context():
+        _ensure_child(9903, "hkid_03")
+    token = _issue_token({"user_id": 9903, "role": "CHILD"})
     with patch("config.Config._PRODUCTION", False), \
          patch.dict(os.environ, {"ENABLE_MOCK_PUT": "1"}):
         resp = client.put(
             f"/api/mobile/v2/uploads/mock-put/{nonexistent_uuid}",
+            headers={"Authorization": f"Bearer {token}"},
             data=b"data",
             content_type="image/jpeg",
         )

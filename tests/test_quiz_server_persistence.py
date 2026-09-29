@@ -47,8 +47,12 @@ def test_browser_reports_real_ids_and_has_no_refresh_reset_counter():
     assert 'post_id: postId' in js
     assert 'postsSinceLastQuiz' not in js
     assert 'postsSinceLastQuiz++' not in js
-    assert "document.documentElement.style.overflow = 'hidden'" in js
-    assert 'Retry quiz' in js
+    # Non-blocking nudge: the browser never locks scrolling, never shows a
+    # mandatory retry gate, and always offers a dismissible prompt.
+    assert "document.documentElement.style.overflow = 'hidden'" not in js
+    assert 'Retry quiz' not in js
+    assert 'Not now' in js
+    assert 'feed-quiz-nudge' in js
     assert 'Skip for now' not in js
 
 
@@ -63,7 +67,13 @@ def test_required_quiz_routes_live_under_quiz_exemption_and_match_assignment():
     assert 'complete_required_feed_quiz' in routes
 
 
-def test_app_gate_redirects_when_persistent_quiz_is_due():
+def test_app_gate_never_redirects_when_persistent_quiz_is_due():
+    # The periodic latch is a nudge, not a route lock: due children keep full
+    # access; the prompt card between reels handles the nudge.
     app = text('app.py')
     assert "if path.startswith('/quiz/'):" in app
-    assert "if quiz_due(session['user_id']):return redirect('/quiz/start/')" in app
+    assert "if quiz_due(session['user_id']):return redirect('/quiz/start/')" not in app
+    assert 'quiz_due' not in app
+
+    child_routes = text('child/routes.py')
+    assert 'quiz_due' not in child_routes

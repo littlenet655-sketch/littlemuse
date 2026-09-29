@@ -2,7 +2,7 @@ from flask import Blueprint,render_template,request,redirect,session,jsonify
 from extensions import limiter
 from decorators import parent_required
 from parent.service import children,owns,pending_follows
-from database.connection import fetch_one,fetch_all,execute,get_db_connection
+from database.connection import fetch_one,fetch_all,execute,execute_count,get_db_connection
 from services.usage import minutes_today, online_state
 from services.social import notify
 from services.behavior import behavior_summary
@@ -21,7 +21,9 @@ def dashboard():
         k['minutes_today']=minutes_today(cid)
         k['limit']=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,))
         k['safety']=fetch_one('SELECT safety_level FROM parent_safety_settings WHERE child_id=%s',(cid,)) or {'safety_level':'STRICT'}
-        k['open_reviews']=(fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE child_id=%s AND decision='REVIEW' AND status='OPEN'",(cid,)) or {'n':0})['n']
+        # Badge must agree with the safety queue (same approved-mapping filter),
+        # matching the mobile dashboard open_reviews filter.
+        k['open_reviews']=(fetch_one("SELECT COUNT(*) n FROM moderation_events e WHERE e.child_id=%s AND e.decision='REVIEW' AND e.status='OPEN' AND EXISTS (SELECT 1 FROM parent_child_map m JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE' WHERE m.child_id=e.child_id AND m.approved=TRUE AND m.approval_status='APPROVED' AND (m.parent_id=%s OR m.verified_parent_id=%s))",(cid,session['user_id'],session['user_id'],session['user_id'])) or {'n':0})['n']
         k['controls']=controls_for_child(cid)
         k['presence']=online_state(cid)
         k['behavior']=behavior_summary(cid)
@@ -164,9 +166,12 @@ def follow_action():
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
     action=request.form.get('action')
-    if action=='approve':execute('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
-    elif action=='reject':execute('DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b))
+    if action=='approve':changed=execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')",(a,b))
+    elif action=='reject':changed=execute_count("DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')))",(a,b,b,a))
     else:return jsonify(error='invalid action'),400
+    if not changed:
+        # Stale or already-handled request: say so instead of redirecting silently.
+        return redirect('/parent/follow-requests/?error=request_not_found')
     return redirect('/parent/follow-requests/')
 @parent_bp.route('/parent/time-limit/',methods=['GET','POST'])
 @parent_required
@@ -174,11 +179,48 @@ def time_limit():
     kids=children(session['user_id']);cid=int(request.values.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
     if request.method=='POST':
+        action=request.form.get('action') or 'save_limit'
+        if action=='approve_extension':
+            return _web_extension_decide(cid,'APPROVED')
+        if action=='reject_extension':
+            return _web_extension_decide(cid,'REJECTED')
         try:mins=int(request.form['daily_limit'])
         except:return ('Invalid limit',400)
         if not 1<=mins<=1440:return ('Limit must be 1-1440 minutes',400)
         execute('INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode) VALUES(%s,%s,%s) ON CONFLICT(child_id) DO UPDATE SET daily_limit_minutes=EXCLUDED.daily_limit_minutes,strict_mode=EXCLUDED.strict_mode,updated_at=NOW()',(cid,mins,'strict_mode' in request.form));return redirect(f'/parent/time-limit/?child_id={cid}')
-    return render_template('time_limit.html',child_id=cid,limit=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,)))
+    execute("UPDATE screen_time_extension_requests SET status='EXPIRED' WHERE status='PENDING' AND created_at::date < CURRENT_DATE")
+    pending=fetch_all('''SELECT r.request_id,r.requested_minutes,r.created_at,u.full_name AS child_name
+        FROM screen_time_extension_requests r JOIN users u ON u.user_id=r.child_id
+        WHERE r.child_id=%s AND r.status='PENDING' ORDER BY r.created_at ASC''',(cid,)) or []
+    return render_template('time_limit.html',child_id=cid,limit=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(cid,)),extension_requests=pending)
+
+
+def _web_extension_decide(cid, decision):
+    pid=session['user_id']
+    try:req_id=int(request.form['request_id'])
+    except:return ('Invalid request',400)
+    req=fetch_one("SELECT request_id,child_id,requested_minutes FROM screen_time_extension_requests WHERE request_id=%s AND status='PENDING'",(req_id,))
+    if not req or int(req['child_id'])!=cid or not owns(pid,cid):return ('Forbidden',403)
+    if decision=='APPROVED':
+        try:granted=int(request.form.get('granted_minutes') or req['requested_minutes'])
+        except:return ('Invalid minutes',400)
+        if not 1<=granted<=720:return ('Grant 1-720 minutes',400)
+        moved=execute_count("UPDATE screen_time_extension_requests SET status='APPROVED',decided_at=NOW(),decided_by=%s,granted_minutes=%s WHERE request_id=%s AND status='PENDING'",(pid,granted,req_id))
+        if not moved:return redirect(f'/parent/time-limit/?child_id={cid}')
+        execute('''INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode,bonus_minutes,bonus_date)
+                   VALUES(%s,60,TRUE,%s,CURRENT_DATE)
+                   ON CONFLICT(child_id) DO UPDATE SET
+                     bonus_minutes=CASE WHEN child_time_limits.bonus_date=CURRENT_DATE THEN child_time_limits.bonus_minutes ELSE 0 END+EXCLUDED.bonus_minutes,
+                     bonus_date=CURRENT_DATE,updated_at=NOW()''',(cid,granted))
+        execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED','SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE",(cid,))
+        log(cid,'SCREEN_TIME_EXTENSION_APPROVED',{'parent_id':pid,'request_id':req_id,'granted_minutes':granted})
+        notify(cid,'SCREEN_TIME_EXTENSION_APPROVED',f'Your parent added {granted} minutes of screen time for today!','/child/dashboard/',pid)
+    else:
+        moved=execute_count("UPDATE screen_time_extension_requests SET status='REJECTED',decided_at=NOW(),decided_by=%s WHERE request_id=%s AND status='PENDING'",(pid,req_id))
+        if moved:
+            log(cid,'SCREEN_TIME_EXTENSION_REJECTED',{'parent_id':pid,'request_id':req_id})
+            notify(cid,'SCREEN_TIME_EXTENSION_REJECTED','Your parent reviewed your extra-time request and said not right now.','/child/dashboard/',pid)
+    return redirect(f'/parent/time-limit/?child_id={cid}')
 @parent_bp.route('/parent/safety/',methods=['GET'])
 @parent_required
 def safety():
@@ -205,7 +247,19 @@ def review(event_id):
         cur=conn.cursor();cur.execute("SELECT * FROM moderation_events WHERE event_id=%s AND decision='REVIEW' AND status='OPEN' FOR UPDATE",(event_id,));e=cur.fetchone()
         if not e or not owns(session['user_id'],e['child_id']):conn.rollback();return jsonify(error='not found'),404
         effective=requested
-        if e['content_type']=='MESSAGE' and e['content_id'] and requested=='APPROVE':
+        terminally_blocked=False
+        if requested=='APPROVE' and e['content_id']:
+            # Terminal-block guard (mirrors the mobile review path): a BLOCKED
+            # decision is final — never resurrect already-blocked content via
+            # a duplicate review event.
+            ctype=e['content_type']
+            if ctype in {'IMAGE','VIDEO','AUDIO','TEXT'}:cur.execute('SELECT moderation_status FROM posts WHERE post_id=%s',(e['content_id'],))
+            elif ctype=='COMMENT':cur.execute('SELECT moderation_status FROM comments WHERE comment_id=%s',(e['content_id'],))
+            elif ctype=='MESSAGE':cur.execute('SELECT moderation_status FROM child_messages WHERE child_message_id=%s',(e['content_id'],))
+            else:cur.execute('SELECT 1 WHERE FALSE')
+            srow=cur.fetchone()
+            if str((srow or {}).get('moderation_status') or '').upper()=='BLOCKED':terminally_blocked=True;effective='BLOCK'
+        if e['content_type']=='MESSAGE' and e['content_id'] and requested=='APPROVE' and not terminally_blocked:
             cur.execute('SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],));m=cur.fetchone()
             if not m:effective='BLOCK'
             else:
@@ -214,11 +268,62 @@ def review(event_id):
                 cur.execute('SELECT 1 FROM followers WHERE approved=TRUE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(a,b,b,a));connected=cur.fetchone()
                 if blocked or not connected:effective='BLOCK'
         status='ALLOWED' if effective=='APPROVE' else 'BLOCKED'
-        if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:cur.execute('UPDATE posts SET moderation_status=%s,is_safe=%s WHERE post_id=%s',(status,effective=='APPROVE',e['content_id']))
+        sanitize_failed=False
+        # Tracked for post-commit work that must mirror the mobile review path:
+        # quarantine bytes are deleted after the DB commits (never orphaned R2
+        # objects), and an effective APPROVE refreshes feed/reel visibility.
+        quarantine_key=None
+        approved_post=None
+        if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:
+            # Mirror the mobile review path: approving a post must sanitize and
+            # promote its media out of quarantine (metadata stripped, published
+            # namespace) — not merely flip the status on the quarantine bytes.
+            post_id=int(e['content_id'])
+            cur.execute('SELECT post_id,child_id,media_type,is_reel,is_story,source_media_path FROM posts WHERE post_id=%s FOR UPDATE',(post_id,))
+            p_row=cur.fetchone()
+            kind='reel' if p_row and p_row.get('is_reel') else ('story' if p_row and p_row.get('is_story') else 'post')
+            if p_row and p_row.get('source_media_path'):
+                quarantine_key=p_row['source_media_path']
+            if p_row and effective=='APPROVE' and p_row.get('source_media_path'):
+                from services.media_processor import sanitize_and_promote_media
+                try:
+                    pub_media,pub_poster=sanitize_and_promote_media(post_id,int(p_row['child_id']),p_row['source_media_path'],kind,p_row.get('media_type') or 'IMAGE')
+                    cur.execute("UPDATE posts SET media_path=%s,poster_path=%s,moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(pub_media,pub_poster,post_id))
+                    approved_post=(post_id,int(p_row['child_id']),bool(p_row.get('is_reel')),kind)
+                except Exception as exc:
+                    # Fail closed: never publish unsanitized media.
+                    sanitize_failed=True;effective='BLOCK';status='BLOCKED'
+                    cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='FAILED',is_safe=FALSE,processing_completed_at=NOW(),processing_error=%s WHERE post_id=%s",(f'sanitization_failed: {exc}',post_id))
+            elif p_row and effective=='APPROVE':
+                cur.execute("UPDATE posts SET moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
+                approved_post=(post_id,int(p_row['child_id']),bool(p_row.get('is_reel')),kind)
+            elif p_row:
+                cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='BLOCKED',is_safe=FALSE,media_path=NULL,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
         elif e['content_type']=='COMMENT' and e['content_id']:cur.execute('UPDATE comments SET moderation_status=%s WHERE comment_id=%s',(status,e['content_id']))
         elif e['content_type']=='MESSAGE' and e['content_id']:cur.execute('UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s',(status,e['content_id']))
-        cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,'Connection changed; approval safely converted to block.' if effective!=requested else None))
+        review_note=None
+        if terminally_blocked:review_note='Content already blocked; approval safely converted to block.'
+        elif effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
+        cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,review_note))
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s",(event_id,));conn.commit()
+        # Post-commit storage/visibility work mirrors the mobile review path.
+        # Quarantine bytes must be deleted on BOTH approve and block — the
+        # review decision is terminal, so the quarantine object would otherwise
+        # strand an orphaned R2 object on every web review action.
+        if quarantine_key:
+            try:
+                from services.media_processor import block_and_cleanup_quarantine
+                block_and_cleanup_quarantine(int(e['content_id']),quarantine_key)
+            except Exception:
+                pass
+        if approved_post:
+            try:
+                from services.publication_lifecycle import refresh_publication_visibility
+                from services.media_processor import _notify_approved_followers
+                refresh_publication_visibility(approved_post[0],approved_post[1],is_reel=approved_post[2])
+                _notify_approved_followers(approved_post[0],approved_post[1],approved_post[3])
+            except Exception:
+                pass
         if e['content_type']=='MESSAGE' and e['content_id'] and effective=='APPROVE':
             msg=fetch_one('SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],))
             if msg:notify(msg['receiver_child_id'],'MESSAGE','A parent-reviewed message is now available',f'/chat/{msg["sender_child_id"]}/',msg['sender_child_id'])
@@ -316,7 +421,11 @@ def behavior():
 def activity():
     kids=children(session['user_id']);cid=int(request.args.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
-    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s ORDER BY created_at DESC LIMIT 100',(cid,)),child_id=cid)
+    # Same liked snapshot the mobile ParentActivityScreen shows (saves excluded:
+    # saved content is private to the child); lazy import keeps the web
+    # blueprint free of mobile-api import-order coupling.
+    from mobile.api import _liked_saved_snapshot, _SAVE_ACTIVITY_SQL
+    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s AND '+_SAVE_ACTIVITY_SQL+' ORDER BY created_at DESC LIMIT 100',(cid,)),liked_saved=_liked_saved_snapshot(cid, include_saved=False),child_id=cid)
 
 @parent_bp.route('/parent/child/<int:child_id>/')
 @parent_required
@@ -342,7 +451,9 @@ def approve_follow_compat():
     try:a=int(d.get('child_id'));b=int(d.get('target_id'))
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
-    execute('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b));return jsonify(ok=True)
+    changed=execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')",(a,b))
+    if not changed:return jsonify(error='request_not_found'),404
+    return jsonify(ok=True)
 @parent_bp.route('/parent/reject-follow/',methods=['POST'])
 @parent_required
 def reject_follow_compat():
@@ -350,7 +461,7 @@ def reject_follow_compat():
     try:a=int(d.get('child_id'));b=int(d.get('target_id'))
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
-    execute('DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b));return jsonify(ok=True)
+    execute("DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')))",(a,b,b,a));return jsonify(ok=True)
 
 @parent_bp.route('/parent/settings/', methods=['GET', 'POST'])
 @parent_required

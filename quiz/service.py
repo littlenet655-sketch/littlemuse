@@ -2,15 +2,15 @@ import secrets
 from datetime import date
 from database.connection import fetch_one, fetch_all, execute, get_db_connection
 
-# Server-authoritative, parent-selected pacing profiles. The exact threshold is
-# still randomized and persisted so a child cannot predict or bypass the latch.
+# Server-authoritative Reel quiz cadence. The next quiz appears unpredictably
+# after 2-5 meaningfully watched Reels, matching the college-demo product spec.
 FEED_QUIZ_INTERVAL = 5
 QUIZ_PACING_RANGES = {
     'FREQUENT': (2, 3, 4, 5),
-    'BALANCED': (4, 5, 6, 7),
-    'LIGHT': (7, 8, 9, 10),
+    'BALANCED': (2, 3, 4, 5),
+    'LIGHT': (2, 3, 4, 5),
 }
-ALLOWED_QUIZ_THRESHOLDS = tuple(range(2, 11))
+ALLOWED_QUIZ_THRESHOLDS = (2, 3, 4, 5)
 
 def quiz_pacing_policy(cid) -> str:
     row = setting(cid)
@@ -43,7 +43,7 @@ def _age_from_profile_or_user(cid):
     for key in ('profile_age', 'user_age'):
         try:
             value = int(r.get(key))
-            if 4 <= value <= 18:
+            if 6 <= value <= 17:
                 return value
         except (TypeError, ValueError):
             pass
@@ -69,15 +69,13 @@ def learning_age_group(cid):
 
 
 def needs_onboarding_quiz(cid, required_questions=2):
-    """Gate normal Kids Mode on the short age-matched onboarding quiz."""
-    created = fetch_one(
-        "SELECT 1 FROM activity_logs WHERE child_id=%s AND activity_type='ACCOUNT_CREATED_BY_PARENT' LIMIT 1",
-        (cid,)
-    )
-    if not created:
-        return False
-    row = fetch_one('SELECT COUNT(DISTINCT quiz_id) AS n FROM child_quiz_attempts WHERE child_id=%s', (cid,)) or {'n': 0}
-    return int(row.get('n') or 0) < int(required_questions)
+    """Startup quizzes are intentionally disabled.
+
+    The argument is kept for compatibility with older callers, but Kids Mode
+    always opens directly after login. Quizzes are delivered only in Learn or
+    as the compulsory Reel interruption.
+    """
+    return False
 
 # ─── Classic quiz bank (used by quiz page) ────────────────────────────────────
 
@@ -210,15 +208,15 @@ def setting(cid):
 def feed_quiz_interval(cid, row=None):
     """Return the server-authoritative view threshold for the next brain break.
 
-    LittleNet persists one unpredictable threshold from the parent's active
-    FREQUENT (2-5), BALANCED (4-7), or LIGHT (7-10) policy. A policy change
-    never rewrites an already-persisted threshold or clears a quiz_required latch.
+    LittleNet persists one unpredictable threshold from 2-5 watched Reels.
+    Legacy pacing labels remain schema-compatible, but all resolve to the same
+    2-5 demo cadence. A persisted latch is never cleared by a policy change.
     """
     threshold = None
     if row and row.get('next_quiz_threshold') is not None:
         try:
             val = int(row['next_quiz_threshold'])
-            if 2 <= val <= 10:
+            if 2 <= val <= 5:
                 threshold = val
         except (TypeError, ValueError):
             pass
@@ -228,7 +226,7 @@ def feed_quiz_interval(cid, row=None):
             r = fetch_one('SELECT next_quiz_threshold FROM child_quiz_progress WHERE child_id=%s', (cid,))
             if r and r.get('next_quiz_threshold') is not None:
                 val = int(r['next_quiz_threshold'])
-                if 2 <= val <= 10:
+                if 2 <= val <= 5:
                     threshold = val
         except Exception:
             pass
@@ -260,7 +258,7 @@ def feed_quiz_state(cid):
     else:
         try:
             persisted_threshold = int(persisted_threshold)
-            if not (2 <= persisted_threshold <= 10):
+            if not (2 <= persisted_threshold <= 5):
                 persisted_threshold = interval
         except (TypeError, ValueError):
             persisted_threshold = interval

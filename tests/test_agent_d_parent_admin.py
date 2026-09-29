@@ -49,10 +49,13 @@ def test_parent_safety_queue_uses_canonical_approved_ownership(client):
     assert params == (101, 101, 101)
 
 
-def test_parent_review_reports_cross_parent_denial_as_forbidden(client):
+def test_parent_review_reports_cross_parent_denial_as_not_found(client):
+    # Anti-enumeration: a parent probing another family's event_id must not
+    # learn the event exists (403 would be an existence oracle), so the
+    # ownership denial surfaces as 404, matching the sibling post-delete path.
     with patch("mobile.api.fetch_one", return_value=active_user()), patch("mobile.api._resolve_parent_review", return_value=(False, "forbidden")):
         response = client.post("/api/mobile/v1/parent/safety/91", headers=headers(), json={"action": "APPROVE"})
-    assert response.status_code == 403
+    assert response.status_code == 404
     assert response.get_json() == {"ok": False, "result": "forbidden"}
 
 

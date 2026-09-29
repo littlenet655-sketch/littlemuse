@@ -13,10 +13,12 @@ def text(path):
 def test_random_threshold_bounds_and_distribution():
     from quiz.service import roll_quiz_threshold, QUIZ_PACING_RANGES
 
+    # Final demo spec: legacy pacing labels are schema-compatible but all
+    # resolve to the same unpredictable 2-5 watched-Reel cadence.
     expected = {
         "FREQUENT": (2, 3, 4, 5),
-        "BALANCED": (4, 5, 6, 7),
-        "LIGHT": (7, 8, 9, 10),
+        "BALANCED": (2, 3, 4, 5),
+        "LIGHT": (2, 3, 4, 5),
     }
     assert QUIZ_PACING_RANGES == expected
     for policy, allowed in expected.items():
@@ -35,8 +37,12 @@ def test_feed_quiz_interval_reads_persisted_threshold():
     # The exact threshold is a server-persisted latch. Parent policy changes
     # affect the NEXT roll only; they never rewrite the active threshold.
     with patch("quiz.service.setting", return_value={"quiz_pacing_policy": "LIGHT"}):
-        for threshold in (2, 3, 4, 5, 6, 7, 8, 9, 10):
+        # Persisted thresholds outside the final 2-5 cadence are rejected and
+        # re-rolled; only 2-5 are ever honored.
+        for threshold in (2, 3, 4, 5):
             assert feed_quiz_interval(123, row={"next_quiz_threshold": threshold}) == threshold
+        for threshold in (6, 7, 8, 9, 10):
+            assert feed_quiz_interval(123, row={"next_quiz_threshold": threshold}) != threshold
 
     # With no persisted threshold, roll from the active parent policy.
     with patch("quiz.service.setting", return_value={"quiz_pacing_policy": "LIGHT"}), \

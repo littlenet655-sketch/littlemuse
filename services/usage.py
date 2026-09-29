@@ -1,6 +1,7 @@
-from datetime import datetime,time
+from datetime import datetime,time,date
 import json
 from database.connection import fetch_one,fetch_all,execute,get_db_connection
+from services.demo_accounts import is_demo_unlimited
 
 
 def _log_session(row,end_at):
@@ -109,16 +110,45 @@ def _notice_once(child_id, activity_type, parent_type, message, remaining):
 
 
 def lock_state(child_id):
+    if is_demo_unlimited(child_id):
+        return False,None
     lim=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(child_id,))
     if not lim:return False,None
-    used=minutes_today(child_id);remaining=max(0,int(lim['daily_limit_minutes'])-used);locked=bool(lim['strict_mode'] and remaining<=0)
+    used=minutes_today(child_id)
+    # Today-only bonus granted via approved extension requests (defect
+    # follow-up). bonus_date lets stale grants expire without a midnight cron;
+    # the enforcement check always reads the effective limit, never trusts
+    # client-side math.
+    bonus=int(lim.get('bonus_minutes') or 0) if lim.get('bonus_date')==date.today() else 0
+    effective=int(lim['daily_limit_minutes'])+bonus
+    remaining=max(0,effective-used);locked=bool(lim['strict_mode'] and remaining<=0)
     if lim['strict_mode']:
-        warning_at=min(10,max(1,int(lim['daily_limit_minutes'])//5))
+        warning_at=min(10,max(1,effective//5))
         if locked:
             _notice_once(child_id,'SCREEN_TIME_LIMIT_REACHED','SCREEN_TIME_LIMIT','Daily LittleNet screen-time limit was reached.',0)
         elif remaining<=warning_at:
             _notice_once(child_id,'SCREEN_TIME_WARNING','SCREEN_TIME_WARNING',f'{remaining} minute(s) of LittleNet time remaining today.',remaining)
     return locked,remaining
+
+
+def effective_daily_limit(child_id):
+    """Today's enforceable allowance: base limit plus any same-day bonus."""
+    if is_demo_unlimited(child_id):
+        return 24 * 60
+    lim=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(child_id,))
+    if not lim:return 60
+    bonus=int(lim.get('bonus_minutes') or 0) if lim.get('bonus_date')==date.today() else 0
+    return int(lim['daily_limit_minutes'])+bonus
+
+
+def restart_child_sessions(child_id):
+    """End active usage sessions and revoke existing child auth sessions."""
+    _finalize_open(child_id)
+    execute(
+        "UPDATE users SET session_version=COALESCE(session_version,1)+1 WHERE user_id=%s AND role='CHILD'",
+        (child_id,),
+    )
+    return True
 
 
 def online_state(child_id, stale_seconds=90):

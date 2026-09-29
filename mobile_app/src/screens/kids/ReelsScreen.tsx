@@ -19,7 +19,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
 import { ApiError } from '../../api/client';
 import { submitRecommendationAction } from '../../api/recommendation';
-import { recordCuratedShare, submitReport, toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
+import { toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { engagementTarget, feedKey, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
 import { useFeed } from '../../kids/useFeed';
@@ -32,7 +32,13 @@ import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
-import { QuizBreakCard } from '../../components/QuizBreakCard';
+import { QuizPromptCard } from '../../components/QuizPromptCard';
+import {
+  isQuizPromptRow,
+  shouldShowQuizPrompt,
+  withQuizPromptRow,
+  type QuizPromptRow,
+} from '../../kids/quizPrompt';
 
 type ReelFollowStatus = 'Follow' | 'Requested' | 'Following';
 
@@ -359,8 +365,16 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const REEL_HEIGHT = viewportHeight ?? windowHeight;
   const focused = useIsFocused();
+  // Server-authoritative compulsory Reel quiz. A due quiz is presented between
+  // Reels and the child must answer it correctly before continuing.
+  const [quizDue, setQuizDue] = useState(false);
+  const quizNavigationRef = useRef(false);
   const feed = useFeed('reels', 8);
-  const displayItems = feed.items;
+  const showQuizPrompt = shouldShowQuizPrompt(quizDue, false);
+  const displayItems: Array<FeedItem | QuizPromptRow> = useMemo(
+    () => withQuizPromptRow(feed.items, showQuizPrompt),
+    [feed.items, showQuizPrompt],
+  );
   const loadMoreRef = useRef(feed.loadMore);
   loadMoreRef.current = feed.loadMore;
   const foreground = useIsForeground();
@@ -404,10 +418,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       });
     }
   }, [session, followStates, followBusyIds]);
-  const [quizLocked, setQuizLocked] = useState(false);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem>>(null);
+  const flatListRef = useRef<FlatList<FeedItem | QuizPromptRow>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -415,14 +428,37 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   // never blocks a save.
   const toggleBusyRef = useRef<Set<string>>(new Set());
 
-  // Server latch persistence: if the server says a compulsory quiz is required,
-  // lock scrolling and pause playback immediately (e.g. after app restart, tab change).
+  // Keep local state synchronized with the server latch. When a Reel quiz becomes
+  // due, move straight into the Quiz screen; this prevents swiping past the
+  // inline prompt while still making the quiz appear as a Reel interruption.
   useEffect(() => {
     if (session?.user?.quiz_required) {
-      setQuizLocked(true);
-      setPaused(true);
+      setQuizDue(true);
+    } else {
+      setQuizDue(false);
+      quizNavigationRef.current = false;
     }
   }, [session?.user?.quiz_required]);
+
+  useEffect(() => {
+    if (!quizDue) {
+      quizNavigationRef.current = false;
+      return;
+    }
+    if (!focused) {
+      // The tab lost focus while the latch is active (the child is on the
+      // Quiz screen or another tab): re-arm the handoff so regaining focus
+      // with the latch still active hands straight back to the Quiz screen.
+      // Backing out of the compulsory Quiz is not a dismiss path inside Reels.
+      // Other tabs/Home stay reachable: this is not a global app gate.
+      quizNavigationRef.current = false;
+      return;
+    }
+    if (quizNavigationRef.current) return;
+    quizNavigationRef.current = true;
+    setPaused(true);
+    nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true });
+  }, [quizDue, focused, nav]);
 
   // Pulse the AI GUARDED badge
   useEffect(() => {
@@ -437,7 +473,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem }> }) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem | QuizPromptRow }> }) => {
     const firstRow = viewableItems.find((row) => typeof row.index === 'number');
     const first = firstRow?.index;
     if (typeof first === 'number') {
@@ -467,14 +503,15 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     try {
       const result = await recordImpressionBatch(session.token, events);
       if (result.quiz_required) {
-        setQuizLocked(true);
-        setPaused(true);
+        // Compulsory interruption: latch locally; the effect above opens Quiz.
+        setQuizDue(true);
         await refreshMe();
       }
     } catch (error) {
       if (error instanceof ApiError && error.code === 'quiz_required') {
-        setQuizLocked(true);
-        setPaused(true);
+        // Defensive compatibility with an older backend that still signals
+        // the quiz as an API gate.
+        setQuizDue(true);
         await refreshMe();
       }
       // Impression telemetry itself remains non-blocking.
@@ -514,7 +551,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const handleLike = useCallback(async (item: FeedItem) => {
     if (!session) return;
     const target = engagementTarget(item);
-    if (!target) return;
+    if (!target) {
+      Alert.alert('Could not like', 'This reel cannot be liked right now. Please try another one.');
+      return;
+    }
     const { sourceType, sourceId } = target;
     const busyKey = `${sourceType}:${sourceId}:like`;
     if (toggleBusyRef.current.has(busyKey)) return;
@@ -539,7 +579,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.liked, result.likes));
       if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
     } catch {
-      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
+      // Roll the optimistic like back in place instead of a full refetch,
+      // so the feed does not flicker on a failed tap.
+      queryClient.setQueriesData<InfiniteData<FeedPage>>(
+        { queryKey: kidsKeys.reels },
+        (old) => update(old, item.viewer_liked ?? false, item.likes ?? 0),
+      );
+      Alert.alert('Could not like', 'Your like could not be saved. Check your connection and try again.');
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
@@ -548,7 +594,10 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const handleSave = useCallback(async (item: FeedItem) => {
     if (!session) return;
     const target = engagementTarget(item);
-    if (!target) return;
+    if (!target) {
+      Alert.alert('Could not save', 'This reel cannot be saved right now. Please try another one.');
+      return;
+    }
     const { sourceType, sourceId } = target;
     const busyKey = `${sourceType}:${sourceId}:save`;
     if (toggleBusyRef.current.has(busyKey)) return;
@@ -572,7 +621,13 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: kidsKeys.reels }, (old) => update(old, result.saved));
       if (sourceType === 'SOCIAL') await invalidateSocialCaches([sourceId]);
     } catch {
-      await queryClient.invalidateQueries({ queryKey: kidsKeys.reels });
+      // Roll the optimistic save back in place instead of a full refetch,
+      // so the feed does not flicker on a failed tap.
+      queryClient.setQueriesData<InfiniteData<FeedPage>>(
+        { queryKey: kidsKeys.reels },
+        (old) => update(old, item.viewer_saved ?? false),
+      );
+      Alert.alert('Could not save', 'Your save could not be recorded. Check your connection and try again.');
     } finally {
       toggleBusyRef.current.delete(busyKey);
     }
@@ -587,11 +642,8 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       if (post) nav.navigate('PostDetail', { ...post, openShare: true });
       return;
     }
-    try {
-      await recordCuratedShare(session.token, target.sourceId);
-    } catch {
-      // Analytics failure does not relax the child sharing boundary.
-    }
+    // Curated reels cannot leave the app: show the boundary notice without
+    // recording a share, since no share actually happened.
     Alert.alert(
       'Sharing stays inside LittleMuse',
       'Curated learning reels cannot be sent through unrestricted external apps from a child account. Save it to revisit it safely.',
@@ -608,15 +660,23 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizPromptRow; index: number }) => {
+    if (isQuizPromptRow(item)) {
+      return (
+        <QuizPromptCard
+          height={REEL_HEIGHT}
+          onTakeQuiz={() => nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true })}
+        />
+      );
+    }
     return (
     <ReelCell
       item={item}
       index={index}
       activeIndex={activeIndex}
-      active={!quizLocked && shouldPlayReel(index, activeIndex, foreground && focused)}
-      nearby={!quizLocked && shouldLoadReel(index, activeIndex)}
-      paused={paused || quizLocked}
+      active={shouldPlayReel(index, activeIndex, foreground && focused)}
+      nearby={shouldLoadReel(index, activeIndex)}
+      paused={paused}
       token={session?.token}
       reelHeight={REEL_HEIGHT}
       windowWidth={windowWidth}
@@ -632,22 +692,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       badgeAnim={badgeAnim}
     />
     );
-  }, [activeIndex, foreground, focused, paused, quizLocked, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
-
-  /** Same report action the old Alert menu ran — now invoked from the action sheet.
-   * Awaits the submission: the success confirmation must only show when the
-   * server actually accepted the report (fire-and-forget lied on failure). */
-  async function performReport(item: FeedItem) {
-    if (!session) return;
-    const post = socialPostTarget(item);
-    if (!post) return;
-    try {
-      await submitReport(session.token, 'post', post.postId, 'inappropriate');
-      Alert.alert('Reported', 'Thank you. Our safety team will review this video promptly.');
-    } catch {
-      Alert.alert('Could not report', 'Your report could not be sent. Check your connection and try again.');
-    }
-  }
+  }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
   /** Same not-interested action the old Alert menu ran — now invoked from the action sheet. */
   function performNotInterested(item: FeedItem) {
@@ -769,13 +814,12 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem>
+      <FlatList<FeedItem | QuizPromptRow>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => `reel:${feedKey(it)}`}
+        keyExtractor={(it) => (isQuizPromptRow(it) ? 'quiz-prompt' : `reel:${feedKey(it)}`)}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={!quizLocked}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -795,23 +839,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         renderItem={renderReelItem}
       />
 
-      {/* Full-screen non-skippable brain break lock if server has latch active */}
-      {quizLocked ? (
-        <View style={[StyleSheet.absoluteFill, styles.lockedOverlay]}>
-          <QuizBreakCard
-            token={session?.token}
-            fullscreen
-            completed={false}
-            onCompleted={async () => {
-              setQuizLocked(false);
-              setPaused(false);
-              if (session?.token) {
-                await refreshMe();
-              }
-            }}
-          />
-        </View>
-      ) : null}
 
       {/* Instagram-style bottom action sheet — same actions as the old Alert menu */}
       {sheetItem ? (
@@ -825,15 +852,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <View style={styles.sheet} accessibilityRole="menu">
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Reel Options</Text>
-            <Pressable
-              style={styles.sheetRow}
-              onPress={() => closeSheetAnd(performReport)}
-              accessibilityRole="menuitem"
-            >
-              <Feather name="flag" size={18} color={colors.danger} />
-              <Text style={[styles.sheetLabel, styles.sheetLabelDanger]}>Report to Safety Review</Text>
-            </Pressable>
-            <View style={styles.sheetDivider} />
             <Pressable
               style={styles.sheetRow}
               onPress={() => closeSheetAnd(performNotInterested)}
@@ -1181,12 +1199,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.brand,
-  },
-  lockedOverlay: {
-    backgroundColor: '#000000',
-    zIndex: 9999,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   followPillActive: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)',

@@ -5,8 +5,11 @@
  * (and sometimes a `gate` field). This module keeps every parsing rule in one
  * pure, test-covered place so screens can render explicit UX for each gate:
  * 401 logged-out/invalid, 403 forbidden/disabled, 423 locked (quiet hours or
- * screen-time), 428 action-required (quiz/parent verification), 503
- * temporarily unavailable.
+ * screen-time), 428 action-required (parent verification, or quiz_required on
+ * reels/playback when the compulsory latch is active), 503 temporarily
+ * unavailable. Quiz 428s on reels/playback are server-side enforcement of the
+ * compulsory latch; they are handled inside the Reels flow (pause + Quiz),
+ * never as a global navigator redirect (see navigation/gates.ts).
  */
 
 export type GateKind =
@@ -15,6 +18,7 @@ export type GateKind =
   | 'email_verification'
   | 'quiet_hours'
   | 'screen_time'
+  | 'parent_pause'
   | null;
 
 export class ApiError extends Error {
@@ -42,6 +46,7 @@ const GATE_BY_CODE: Record<string, GateKind> = {
   email_verification_required: 'email_verification',
   quiet_hours: 'quiet_hours',
   screen_time_limit: 'screen_time',
+  parent_paused: 'parent_pause',
 };
 
 export function gateFor(status: number, code: string, payloadGate?: unknown): GateKind {
@@ -49,6 +54,7 @@ export function gateFor(status: number, code: string, payloadGate?: unknown): Ga
     if (payloadGate === 'quiz') return 'quiz';
     if (payloadGate === 'quiet_hours') return 'quiet_hours';
     if (payloadGate === 'screen_time') return 'screen_time';
+    if (payloadGate === 'parent_pause') return 'parent_pause';
   }
   const mapped = GATE_BY_CODE[code];
   if (mapped) return mapped;

@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchKidsTimeLimitStatus, resetKidsTimeLimitSelf, sendHeartbeat } from '../../api/kidsFeed';
-import { resetsDisplayState } from '../../navigation/gates';
+import { fetchExtensionRequestStatus, fetchKidsTimeLimitStatus, requestScreenTimeExtension, sendHeartbeat } from '../../api/kidsFeed';
+import { ApiError } from '../../api/client';
+import type { ExtensionRequest } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { colors, radius, spacing } from '../../ui/tokens';
 
 interface ScreenTimeLockedProps {
-  lockType: 'screen_time' | 'quiet_hours';
+  lockType: 'screen_time' | 'quiet_hours' | 'parent_pause';
   onUnlock: () => void;
   onSignOut: () => void;
 }
@@ -24,56 +25,35 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [checking, setChecking] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [resetsRemaining, setResetsRemaining] = useState<number | null>(null);
-  const [resetsUsed, setResetsUsed] = useState<number>(0);
-  const [resetsUnreachable, setResetsUnreachable] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [extRequest, setExtRequest] = useState<ExtensionRequest | null>(null);
   const isQuiet = lockType === 'quiet_hours';
+  const isParentPaused = lockType === 'parent_pause';
 
   useEffect(() => {
-    if (!session?.token || isQuiet) return;
+    if (!session?.token || isQuiet || isParentPaused) return;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetchKidsTimeLimitStatus(session.token);
         if (cancelled) return;
-        setResetsRemaining(res.resets_remaining);
-        setResetsUsed(res.resets_used);
-        setResetsUnreachable(false);
         if (!res.locked) {
           onUnlock();
         }
       } catch {
-        // Server is authoritative: never guess a reset count offline. The
-        // card stays disabled and explains the outage instead.
-        if (!cancelled) setResetsUnreachable(true);
+        // Server is authoritative: a failed status check leaves the lock screen up.
+      }
+      try {
+        const ext = await fetchExtensionRequestStatus(session.token);
+        if (!cancelled) setExtRequest(ext.request);
+      } catch {
+        // Extension status is best-effort; the lock state is authoritative.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [session?.token, isQuiet, onUnlock]);
-
-  async function handleKidSelfReset() {
-    if (!session?.token) return;
-    setResetting(true);
-    try {
-      const res = await resetKidsTimeLimitSelf(session.token);
-      setResetsRemaining(res.resets_remaining);
-      setResetsUsed(res.resets_used);
-      setResetsUnreachable(false);
-      Alert.alert(
-        'Unlocked! 🎉',
-        `Your screen time has been reset! You have ${res.resets_remaining} self-reset(s) left today. Have fun and remember to take kind breaks.`,
-        [{ text: 'Continue to LittleNet', onPress: onUnlock }],
-      );
-    } catch (err: any) {
-      const msg = err?.message || 'Could not reset time. You may have already used your 2 daily resets.';
-      Alert.alert('Reset Not Available', msg);
-    } finally {
-      setResetting(false);
-    }
-  }
+  }, [session?.token, isQuiet, isParentPaused, onUnlock]);
 
   async function handleCheckForTime() {
     if (!session?.token) return;
@@ -81,42 +61,111 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
     try {
       const res = await sendHeartbeat(session.token);
       if (!res.locked) {
-        Alert.alert('Unlocked! 🎉', 'Your parent granted more time or quiet hours ended. Welcome back!', [
-          { text: 'Let’s Go!', onPress: onUnlock },
-        ]);
+        Alert.alert(
+          'Unlocked! 🎉',
+          isParentPaused
+            ? 'Your parent resumed LittleNet. Welcome back!'
+            : isQuiet
+              ? 'Quiet hours ended. Welcome back!'
+              : 'Your parent granted more time. Welcome back!',
+          [{ text: 'Let’s Go!', onPress: onUnlock }],
+        );
         return;
-      }
-      if (typeof res.self_resets_remaining === 'number') {
-        setResetsRemaining(res.self_resets_remaining);
       }
       Alert.alert(
         'Still Resting ⏳',
         isQuiet
           ? 'Quiet hours are still active for bedtime. Check back tomorrow morning!'
-          : 'Your daily screen-time limit is still reached. You can use your self-reset (if available) or ask your parent in Parent Controls.',
+          : 'Your daily screen-time limit is still reached. Ask your parent in Parent Controls for more time.',
         [{ text: 'OK' }],
       );
-    } catch {
-      Alert.alert('Notice', 'Could not check time status. Please verify your internet connection.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 423) {
+        const gate = err.gate;
+        Alert.alert(
+          gate === 'parent_pause' ? 'Still Paused ⏸️' : 'Still Resting ⏳',
+          gate === 'parent_pause'
+            ? 'Your parent has not resumed LittleNet yet.'
+            : gate === 'quiet_hours'
+              ? 'Quiet hours are still active for bedtime.'
+              : 'Your daily screen-time limit is still reached.',
+          [{ text: 'OK' }],
+        );
+      } else {
+        Alert.alert('Notice', 'Could not check access status. Please verify your internet connection.');
+      }
     } finally {
       setChecking(false);
     }
   }
 
   function handleAskParent() {
+    if (!session?.token || isParentPaused) return;
+    if (extRequest?.status === 'PENDING') {
+      Alert.alert(
+        'Request Sent ⏳',
+        'Your parent has been notified. Tap "Check if Parent Added Time" once they respond.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+    if (extRequest?.status === 'APPROVED') {
+      Alert.alert(
+        'Approved! 🎉',
+        `Your parent added ${extRequest.granted_minutes ?? extRequest.requested_minutes} minutes for today.`,
+        [{ text: 'Check Status Now', onPress: () => void handleCheckForTime() }, { text: 'OK' }],
+      );
+      return;
+    }
     Alert.alert(
       'Ask Your Parent 👨‍👩‍👧',
-      'Your parent can reset your daily screen time or add bonus minutes instantly from their Parent Controls dashboard.',
+      'How many extra minutes do you want to ask for? Your parent decides from their Screen Time dashboard.',
       [
-        { text: 'Check Status Now', onPress: () => void handleCheckForTime() },
-        { text: 'Got It', style: 'cancel' },
+        ...[15, 30, 60].map((mins) => ({
+          text: `${mins} minutes`,
+          onPress: () => void sendExtensionRequest(mins),
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
       ],
     );
   }
 
-  const resetsState = resetsDisplayState(resetsRemaining);
-  const canSelfReset = !isQuiet && resetsState === 'available';
-  const selfResetsExhausted = !isQuiet && resetsState === 'exhausted';
+  async function sendExtensionRequest(minutes: number) {
+    if (!session?.token || sending) return;
+    setSending(true);
+    try {
+      const res = await requestScreenTimeExtension(session.token, minutes);
+      setExtRequest(res.request);
+      Alert.alert(
+        'Request Sent! 📩',
+        `Your parent was notified about your request for ${minutes} more minutes.`,
+        [{ text: 'OK' }],
+      );
+    } catch (err: any) {
+      if (err?.code === 'extension_request_pending' || err?.status === 409) {
+        Alert.alert('Already Sent ⏳', 'You already have a request waiting for your parent.');
+        try {
+          const ext = await fetchExtensionRequestStatus(session.token);
+          setExtRequest(ext.request);
+        } catch {
+          // keep current state
+        }
+      } else {
+        Alert.alert('Could Not Send', 'Please check your connection and try again.');
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function extensionStatusLine(): string | null {
+    if (isQuiet || isParentPaused || !extRequest) return null;
+    if (extRequest.status === 'PENDING') return '⏳ Waiting for your parent to respond…';
+    if (extRequest.status === 'APPROVED')
+      return `✅ Approved: +${extRequest.granted_minutes ?? extRequest.requested_minutes} minutes today`;
+    if (extRequest.status === 'REJECTED') return 'Your parent said not right now. You can ask again tomorrow.';
+    return null;
+  }
 
   return (
     <View style={[styles.container, isQuiet ? styles.quietBg : styles.screenTimeBg]}>
@@ -132,86 +181,31 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
       >
         {/* Visual Badge / Icon */}
         <View style={styles.badgeShell}>
-          <View style={[styles.iconCircle, isQuiet ? styles.quietCircle : styles.screenTimeCircle]}>
+          <View style={[styles.iconCircle, isQuiet ? styles.quietCircle : isParentPaused ? styles.parentPauseCircle : styles.screenTimeCircle]}>
             <Feather
-              name={isQuiet ? 'moon' : 'clock'}
+              name={isQuiet ? 'moon' : isParentPaused ? 'pause-circle' : 'clock'}
               size={44}
-              color={isQuiet ? '#A78BFA' : '#F59E0B'}
+              color={isQuiet ? '#A78BFA' : isParentPaused ? '#2563EB' : '#F59E0B'}
             />
           </View>
-          <View style={[styles.statusTag, isQuiet ? styles.quietTag : styles.screenTimeTag]}>
-            <Text style={[styles.statusTagText, isQuiet ? styles.quietTagText : styles.screenTimeTagText]}>
-              {isQuiet ? 'QUIET HOURS BEDTIME' : 'DAILY TIME LIMIT REACHED'}
+          <View style={[styles.statusTag, isQuiet ? styles.quietTag : isParentPaused ? styles.parentPauseTag : styles.screenTimeTag]}>
+            <Text style={[styles.statusTagText, isQuiet ? styles.quietTagText : isParentPaused ? styles.parentPauseTagText : styles.screenTimeTagText]}>
+              {isQuiet ? 'QUIET HOURS BEDTIME' : isParentPaused ? 'PAUSED BY PARENT' : 'DAILY TIME LIMIT REACHED'}
             </Text>
           </View>
         </View>
 
         {/* Hero Title & Encouragement */}
         <Text style={styles.title}>
-          {isQuiet ? 'Time for Bedtime! 🌙' : 'Great Job Today! 🌟'}
+          {isQuiet ? 'Time for Bedtime! 🌙' : isParentPaused ? 'LittleNet is Paused ⏸️' : 'Great Job Today! 🌟'}
         </Text>
         <Text style={styles.subtitle}>
           {isQuiet
             ? 'LittleNet is resting for the night so you can get deep, healthy sleep. See you tomorrow!'
-            : "You've reached your daily screen-time limit. Taking breaks keeps our eyes and minds healthy and fresh."}
+            : isParentPaused
+              ? 'Your parent paused Kids Mode. You can come back as soon as they resume access.'
+              : "You've reached your daily screen-time limit. Taking breaks keeps our eyes and minds healthy and fresh."}
         </Text>
-
-        {/* Kid Self-Reset Feature Card */}
-        {!isQuiet && (
-          <View style={styles.selfResetCard}>
-            <View style={styles.selfResetTopRow}>
-              <View style={styles.selfResetBadge}>
-                <Feather name="zap" size={14} color="#D97706" />
-                <Text style={styles.selfResetBadgeText}>DAILY SELF-RESETS</Text>
-              </View>
-              <Text style={styles.selfResetCountText}>
-                {resetsRemaining !== null ? `${resetsRemaining}/2 Left Today` : 'Checking resets…'}
-              </Text>
-            </View>
-
-            {resetsUnreachable ? (
-              <View style={styles.exhaustedBox}>
-                <Feather name="wifi-off" size={16} color="#B45309" />
-                <Text style={[styles.exhaustedText, { color: '#92400E' }]}>
-                  Couldn't reach LittleNet to check your remaining resets. Reconnect and tap "Check if Parent Added Time".
-                </Text>
-              </View>
-            ) : null}
-
-            {canSelfReset ? (
-              <>
-                <Text style={styles.selfResetDescription}>
-                  You are allowed to reset your screen-time limit up to 2 times per day on your own!
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.selfResetBtn, pressed && styles.btnPressed]}
-                  onPress={() => void handleKidSelfReset()}
-                  disabled={resetting}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reset my screen time"
-                >
-                  {resetting ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <>
-                      <Feather name="rotate-ccw" size={16} color="#FFFFFF" />
-                      <Text style={styles.selfResetBtnText}>
-                        Reset My Time Now ({resetsRemaining} left)
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-              </>
-            ) : selfResetsExhausted ? (
-              <View style={styles.exhaustedBox}>
-                <Feather name="alert-circle" size={16} color="#DC2626" />
-                <Text style={styles.exhaustedText}>
-                  You have used all 2 self-resets for today. Please ask your parent to add more time.
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        )}
 
         {/* Offline Activities Suggestions */}
         <View style={styles.offlineSection}>
@@ -231,28 +225,39 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
 
         {/* Actions */}
         <View style={styles.actions}>
-          {!isQuiet && (
+          {!isQuiet && !isParentPaused && (
             <Pressable
               style={({ pressed }) => [
                 styles.primaryBtn,
-                selfResetsExhausted && styles.primaryBtnHighlight,
                 pressed && styles.btnPressed,
               ]}
               onPress={handleAskParent}
+              disabled={sending}
               accessibilityRole="button"
               accessibilityLabel="Ask parent for more time"
             >
-              <Feather name="heart" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryBtnText}>Ask Parent for More Time</Text>
+              {sending ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Feather name="heart" size={18} color="#FFFFFF" />
+                  <Text style={styles.primaryBtnText}>
+                    {extRequest?.status === 'PENDING' ? 'Request Sent — Waiting for Parent' : 'Ask Parent for More Time'}
+                  </Text>
+                </>
+              )}
             </Pressable>
           )}
+          {!isQuiet && !isParentPaused && extensionStatusLine() ? (
+            <Text style={styles.extensionStatusText}>{extensionStatusLine()}</Text>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [styles.secondaryBtn, pressed && styles.btnPressed]}
             onPress={() => void handleCheckForTime()}
             disabled={checking}
             accessibilityRole="button"
-            accessibilityLabel="Check for extra time"
+            accessibilityLabel={isParentPaused ? 'Check if parent resumed LittleNet' : 'Check for extra time'}
           >
             {checking ? (
               <ActivityIndicator color={isQuiet ? '#E2E8F0' : colors.ink} size="small" />
@@ -260,7 +265,7 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
               <>
                 <Feather name="refresh-cw" size={16} color={isQuiet ? '#E2E8F0' : colors.ink} />
                 <Text style={[styles.secondaryBtnText, isQuiet && styles.quietBtnText]}>
-                  Check if Parent Added Time
+                  {isParentPaused ? 'Check if Parent Resumed' : 'Check if Parent Added Time'}
                 </Text>
               </>
             )}
@@ -319,6 +324,11 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#312E81',
   },
+  parentPauseCircle: {
+    backgroundColor: '#DBEAFE',
+    borderWidth: 3,
+    borderColor: '#93C5FD',
+  },
   statusTag: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -330,6 +340,9 @@ const styles = StyleSheet.create({
   quietTag: {
     backgroundColor: '#312E81',
   },
+  parentPauseTag: {
+    backgroundColor: '#DBEAFE',
+  },
   statusTagText: {
     fontSize: 11,
     fontWeight: '800',
@@ -340,6 +353,9 @@ const styles = StyleSheet.create({
   },
   quietTagText: {
     color: '#C4B5FD',
+  },
+  parentPauseTagText: {
+    color: '#1D4ED8',
   },
   title: {
     fontSize: 25,
@@ -496,6 +512,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  extensionStatusText: {
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
   },
   secondaryBtn: {
     width: '100%',

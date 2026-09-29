@@ -5,10 +5,11 @@ import { answerQuiz, fetchQuiz } from '../api/auth';
 import type { QuizItem } from '../api/auth';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthProvider';
+import { useIsOnline } from '../query/client';
 import { clearPendingDestination, loadPendingDestination, savePendingDestination } from '../auth/session';
 import { secureStoreBackend } from '../auth/storage';
 import type { ChildScreenProps, ChildStackParamList } from '../navigation/types';
-import { quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
+import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
 import { Button, Card, GateNotice, LoadingState, Notice, Screen } from '../ui/components';
 import { colors, radius, spacing, type } from '../ui/tokens';
 
@@ -39,7 +40,6 @@ const KNOWN_QUIZ_DESTINATIONS: ReadonlySet<keyof ChildStackParamList> = new Set(
   'Quiz', 'KidsTabs', 'FeedTab', 'DiscoverTab', 'CreateTab', 'ReelsTab',
   'ProfileTab', 'Stories', 'NotificationsTab', 'Conversations',
   'NewMessage', 'SavedContent', 'EditProfile', 'Connections',
-  'SafetyCentre', 'ReportHistory',
 ]);
 
 /** Resolve a stored pending destination to a real route, else 'KidsTabs'. */
@@ -57,13 +57,16 @@ function resolveQuizDestination(stored: string | null): keyof ChildStackParamLis
  */
 export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   const { session, refreshMe } = useAuth();
+  const online = useIsOnline();
   const params = (route.params ?? {}) as QuizScreenParams;
+  const practiceMode = !params.autoStart && !params.returnTo;
   const [items, setItems] = useState<QuizItem[]>([]);
   const [reason, setReason] = useState('');
   const [required, setRequired] = useState(true);
   const [index, setIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
+  const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>('loading');
@@ -101,7 +104,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     setError(null);
     setGateMessage('');
     try {
-      const response = await fetchQuiz(session.token);
+      const response = await fetchQuiz(session.token, undefined, practiceMode ? 'practice' : undefined);
       if (quizLoadStatus(response.quizzes.length) === 'unavailable') {
         setPhase('unavailable');
         return;
@@ -112,6 +115,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       setIndex(0);
       setSelectedOption(null);
       setLastCorrect(null);
+      setRevealedCorrectAnswer(null);
       setFeedback('');
       if (params.returnTo) await savePendingDestination(secureStoreBackend, params.returnTo);
       setCorrectCount(0);
@@ -121,7 +125,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       setError(err);
       setPhase('ready');
     }
-  }, [session, params.returnTo]);
+  }, [session, params.returnTo, practiceMode]);
 
   useEffect(() => {
     void load();
@@ -130,14 +134,14 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   // Fix 2: navigating away mid-feedback-window must not fire setState/completeQuiz.
   useEffect(() => clearPendingTimeouts, []);
 
-  /** Authoritative completion: refresh gates, proceed only when clear. */
+  /** Authoritative completion: refresh, proceed only when the quiz counted. */
   async function completeQuiz() {
     setBusy(true);
     setGateMessage('');
     try {
       const next = await refreshMe();
       if (!shouldProceedAfterRefresh(next.onboarding)) {
-        setGateMessage('The safety check still shows a required step. Reloading your quiz…');
+        setGateMessage('Your quiz was not counted yet. Reloading your quiz…');
         await load();
         return;
       }
@@ -149,7 +153,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       // 401: the session is cleared upstream and the navigator leaves the
       // quiz; the finally below still resets busy so nothing is left disabled.
       if (err instanceof ApiError && err.status === 401) return;
-      setGateMessage('Could not confirm quiz completion. Check your connection and retry — you are still safely gated.');
+      setGateMessage('Could not confirm quiz completion. Check your connection and retry — nothing else is blocked.');
     } finally {
       setBusy(false);
     }
@@ -165,15 +169,34 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     setSubmittedKey(key);
     setBusy(true);
     setSelectedOption(option);
+    setRevealedCorrectAnswer(null);
     setFeedback('');
     try {
-      const result = await answerQuiz(session.token, current.quiz_id, option);
+      const result = await answerQuiz(session.token, current.quiz_id, option, practiceMode ? 'practice' : undefined);
       setLastCorrect(result.correct);
+      setRevealedCorrectAnswer(result.correct ? null : result.correct_answer);
       if (result.correct) setCorrectCount((value) => value + 1);
       setEarnedXp((value) => value + result.xp);
-      setFeedback(result.correct ? `🌟 Correct! +${result.xp} XP. ${result.explanation ?? ''}`.trim() : `💡 ${result.explanation ?? 'Keep trying!'}`.trim());
+
+      if (!result.correct) {
+        setFeedback(
+          `😔 Not quite. Correct answer: ${result.correct_answer}. ${result.explanation ?? 'Try once more!'}`.trim(),
+        );
+        if (required) {
+          // A Reel quiz stays on this question after a wrong answer. Feedback
+          // remains visible, then the choices are enabled for another attempt.
+          scheduleTimeout(() => {
+            submittedKeyRef.current = null;
+            setSubmittedKey(null);
+          }, 1500);
+          return;
+        }
+      } else {
+        setFeedback(`🎉 Correct! +${result.xp} XP. ${result.explanation ?? ''}`.trim());
+      }
+
       const lastItem = index + 1 >= items.length;
-      if (result.onboarding_complete || !result.required || lastItem) {
+      if (result.correct && (result.onboarding_complete || !result.required || lastItem)) {
         scheduleTimeout(() => {
           submittedKeyRef.current = null;
           setSubmittedKey(null);
@@ -182,14 +205,16 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
         }, 1100);
         return;
       }
+
       scheduleTimeout(() => {
         setIndex((value) => value + 1);
         setSelectedOption(null);
         setLastCorrect(null);
+        setRevealedCorrectAnswer(null);
         setFeedback('');
         submittedKeyRef.current = null;
         setSubmittedKey(null);
-      }, 1100);
+      }, result.correct ? 1100 : 1600);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setFeedback(err instanceof ApiError ? err.message : 'Could not check that answer. Try again.');
@@ -232,6 +257,11 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   }
 
   if (error && items.length === 0) {
+    // The quiz could not load AND the server is proven unreachable: the
+    // cached gate cannot be authoritative, so offer the way out instead of
+    // stranding the child (defect C1/C2 follow-up). A server refusal (4xx/5xx)
+    // or a reachable network keeps the child gated with Retry only.
+    const canFailOpen = !online && isConnectivityFailure(error);
     return (
       <Screen>
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -244,6 +274,16 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <Card>
             <GateNotice error={error} />
             <Button label="Retry" onPress={() => void load()} />
+            {canFailOpen ? (
+              <>
+                <View style={{ height: 10 }} />
+                <Button
+                  label="Continue to Home 🏠"
+                  variant="secondary"
+                  onPress={() => navigation.reset({ index: 0, routes: [{ name: 'KidsTabs' }] })}
+                />
+              </>
+            ) : null}
           </Card>
         </ScrollView>
       </Screen>
@@ -258,7 +298,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             <View style={styles.heroIconBadge}>
               <Image source={require('../../assets/app_logo.png')} style={styles.heroLogoImg} />
             </View>
-            <Text style={styles.heroTitle}>Learning Hub 🚀</Text>
+            <Text style={styles.heroTitle}>Quiz Zone 🚀</Text>
             <Text style={styles.heroSubtitle}>Learn internet safety, earn XP, and level up your badges!</Text>
           </View>
 
@@ -291,7 +331,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             </View>
             <View style={styles.hubActionBox}>
               <Button
-                label="Start Safety Quest 🎮"
+                label="Start Quiz 🎮"
                 onPress={() => {
                   setIndex(0);
                   setSelectedOption(null);
@@ -442,7 +482,8 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <View style={styles.optionsList}>
             {current.options.map((option, optIdx) => {
               const isSelected = selectedOption === option;
-              const isCorrectChoice = isSelected && lastCorrect === true;
+              const isRevealedCorrect = lastCorrect === false && revealedCorrectAnswer === option;
+              const isCorrectChoice = (isSelected && lastCorrect === true) || isRevealedCorrect;
               const isWrongChoice = isSelected && lastCorrect === false;
 
               return (

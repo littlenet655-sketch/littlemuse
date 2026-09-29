@@ -5,7 +5,7 @@ def children(parent_id):
     """Return children linked to a currently active parent through an approved mapping."""
     return fetch_all('''
         SELECT DISTINCT u.user_id, u.username, u.full_name, u.age,
-               u.account_status, cp.profile_picture
+               u.account_status, u.parent_paused, u.demo_unlimited, cp.profile_picture
         FROM parent_child_map m
         JOIN users u ON u.user_id = m.child_id AND u.role='CHILD'
         JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE'

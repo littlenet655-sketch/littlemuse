@@ -1,16 +1,24 @@
 import { useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deactivateAdminUser,
   fetchAdminAudit,
   fetchAdminDashboard,
   fetchAdminReview,
   fetchAdminReviews,
   fetchAdminUsers,
   resolveAdminReview,
+  updateAdminDemoUnlimited,
   updateAdminUserStatus,
 } from '../../api/parentAdmin';
+import {
+  extendDemoBoost,
+  fetchDemoBoostStatus,
+  startDemoBoost,
+  stopDemoBoost,
+} from '../../api/demoBoost';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { AdminScreenProps } from '../../navigation/types';
@@ -24,12 +32,148 @@ function Metric({ value, label, alert = false }: { value: number; label: string;
   return <View style={[styles.metric, alert && styles.alertMetric]}><Text style={styles.metricValue}>{value}</Text><Text style={styles.muted}>{label}</Text></View>;
 }
 
+function DemoBoostCard() {
+  const { session } = useAuth();
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: adminKeys.demoBoost,
+    queryFn: () => fetchDemoBoostStatus(session?.token ?? ''),
+    enabled: Boolean(session),
+    refetchInterval: 15_000,
+  });
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: adminKeys.demoBoost });
+  };
+  const startBoost = useMutation({
+    mutationFn: (minutes: 15 | 30 | 60) => startDemoBoost(session?.token ?? '', minutes),
+    onSuccess: refresh,
+  });
+  const extendBoost = useMutation({
+    mutationFn: (minutes: 5 | 15 | 30) => extendDemoBoost(session?.token ?? '', minutes),
+    onSuccess: refresh,
+  });
+  const stopBoost = useMutation({
+    mutationFn: () => stopDemoBoost(session?.token ?? ''),
+    onSuccess: refresh,
+  });
+  const boost = query.data?.demo_boost;
+  const busy = startBoost.isPending || extendBoost.isPending || stopBoost.isPending;
+  const remainingMinutes = Math.max(0, Math.ceil((boost?.remaining_seconds ?? 0) / 60));
+  const actionError = startBoost.error || extendBoost.error || stopBoost.error;
+
+  return (
+    <Card>
+      <View style={styles.rowBetween}>
+        <View style={styles.flex}>
+          <Text style={styles.title}>Demo Boost</Text>
+          <Text style={styles.muted}>Temporarily warms one capped AI worker for a smoother college demo.</Text>
+        </View>
+        <View style={[styles.boostBadge, boost?.active && styles.boostBadgeActive]}>
+          <Text style={[styles.boostBadgeText, boost?.active && styles.boostBadgeTextActive]}>
+            {boost?.status ?? 'OFF'}
+          </Text>
+        </View>
+      </View>
+
+      {query.isPending ? <LoadingState message="Checking Demo Boost…" /> : null}
+      {query.isError ? <Notice message={errorText(query.error, 'Demo Boost status unavailable.')} /> : null}
+
+      {boost?.active ? (
+        <>
+          <Text style={styles.boostTime}>{remainingMinutes} min remaining</Text>
+          <Text style={styles.muted}>
+            {boost.status === 'READY' ? 'AI warmup is ready.' : 'AI models are warming in the background.'}
+          </Text>
+          {boost.last_error ? <Notice message="Warmup is still retryable. Normal LittleNet remains available." /> : null}
+          {boost.remaining_seconds <= 300 ? (
+            <>
+              <Text style={styles.boostSectionLabel}>EXTEND DEMO</Text>
+              <View style={styles.boostActionRow}>
+                {([5, 15, 30] as const).map((minutes) => (
+                  <Pressable
+                    key={minutes}
+                    style={styles.boostMiniButton}
+                    disabled={busy}
+                    onPress={() => extendBoost.mutate(minutes)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Extend Demo Boost by ${minutes} minutes`}
+                  >
+                    <Text style={styles.boostMiniButtonText}>+{minutes}m</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+          <Button label="Stop Demo Boost" variant="secondary" disabled={busy} onPress={() => stopBoost.mutate()} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.boostSectionLabel}>START FOR</Text>
+          <View style={styles.boostActionRow}>
+            {([15, 30, 60] as const).map((minutes) => (
+              <Pressable
+                key={minutes}
+                style={styles.boostMiniButton}
+                disabled={busy || !session}
+                onPress={() => startBoost.mutate(minutes)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start Demo Boost for ${minutes} minutes`}
+              >
+                <Text style={styles.boostMiniButtonText}>{minutes}m</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
+      {actionError ? <Notice message={errorText(actionError, 'Could not change Demo Boost.')} /> : null}
+    </Card>
+  );
+}
+
 export function AdminHomeScreen({ navigation }: AdminScreenProps<'AdminHome'>) {
   const { session, signOut } = useAuth();
   const online = useIsOnline();
-  const query = useQuery({ queryKey: adminKeys.dashboard, queryFn: () => fetchAdminDashboard(session?.token ?? ''), enabled: Boolean(session) });
+  const query = useQuery({
+    queryKey: adminKeys.dashboard,
+    queryFn: () => fetchAdminDashboard(session?.token ?? ''),
+    enabled: Boolean(session),
+  });
   const counts = query.data?.counts;
-  return <Screen><ScrollView refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}><OfflineBanner online={online} /><BrandHeader title="Safety operations" subtitle="Review safety events, account state and an append-only action history." />{query.isPending ? <LoadingState message="Loading moderation totals…" /> : query.isError ? <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} /> : <><View style={styles.priority}><Text style={styles.priorityKicker}>TODAY'S PRIORITY</Text><Text style={styles.priorityTitle}>{counts?.open_reviews ?? 0} open safety decisions</Text><Text style={styles.muted}>Every action below is server-authoritative and audit logged.</Text></View><View style={styles.metrics}><Metric value={counts?.open_reviews ?? 0} label="Open reviews" alert={Boolean(counts?.open_reviews)} /><Metric value={counts?.children ?? 0} label="Children" /><Metric value={counts?.parents ?? 0} label="Parents" /></View></>}<Menu label="Moderation queue" body="Inspect open REVIEW events" onPress={() => navigation.navigate('AdminReviews')} /><Menu label="User lookup" body="Search account role and status" onPress={() => navigation.navigate('AdminUsers')} /><Menu label="Audit history" body="See moderator and account actions" onPress={() => navigation.navigate('AdminAudit')} /><Button label="Log out" variant="secondary" onPress={() => void signOut()} /></ScrollView></Screen>;
+
+  return (
+    <Screen>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={query.isRefetching}
+            onRefresh={() => void Promise.all([query.refetch()])}
+          />
+        }
+      >
+        <OfflineBanner online={online} />
+        <BrandHeader
+          title="Admin dashboard"
+          subtitle="Lightweight account overview and demo controls."
+        />
+        {query.isPending ? (
+          <LoadingState message="Loading account totals…" />
+        ) : query.isError ? (
+          <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} />
+        ) : (
+          <View style={styles.metrics}>
+            <Metric value={counts?.signups_today ?? 0} label="Signups today" />
+            <Metric value={counts?.children ?? 0} label="Children" />
+            <Metric value={counts?.parents ?? 0} label="Parents" />
+          </View>
+        )}
+
+        <DemoBoostCard />
+        <Menu label="Manage accounts" body="Search, pause or reactivate accounts" onPress={() => navigation.navigate('AdminUsers')} />
+        <Menu label="Admin activity" body="See recent account actions" onPress={() => navigation.navigate('AdminAudit')} />
+        <Button label="Log out" variant="secondary" onPress={() => void signOut()} />
+      </ScrollView>
+    </Screen>
+  );
 }
 
 function Menu({ label, body, onPress }: { label: string; body: string; onPress: () => void }) {
@@ -69,21 +213,105 @@ export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
   const [input, setInput] = useState('');
   const [queryText, setQueryText] = useState('');
   const query = useQuery({ queryKey: adminKeys.users(queryText), queryFn: () => fetchAdminUsers(session?.token ?? '', queryText), enabled: Boolean(session) });
-  const mutation = useMutation({ mutationFn: ({ userId, status }: { userId: number; status: 'ACTIVE' | 'SUSPENDED' }) => updateAdminUserStatus(session?.token ?? '', userId, status), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: ['admin', 'users'] }), client.invalidateQueries({ queryKey: adminKeys.audit })]); } });
+  const mutation = useMutation({
+    mutationFn: ({ userId, status }: { userId: number; status: 'ACTIVE' | 'SUSPENDED' }) =>
+      updateAdminUserStatus(session?.token ?? '', userId, status),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.dashboard }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (userId: number) => deactivateAdminUser(session?.token ?? '', userId),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.dashboard }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
+  const demoMutation = useMutation({
+    mutationFn: ({ userId, enabled }: { userId: number; enabled: boolean }) =>
+      updateAdminDemoUnlimited(session?.token ?? '', userId, enabled),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
   const users = query.data?.users ?? [];
   /** Only ACTIVE/SUSPENDED are togglable from mobile. Activating a pending or
       deactivated account could bypass its verification flow, so those stay read-only. */
-  function accountAction(user: { user_id: number; role: string; account_status: string }) {
-    if (user.role === 'ADMIN') return <Notice tone="info" message="Admin accounts cannot be changed from mobile lookup." />;
-    if (user.account_status === 'ACTIVE') {
-      return <Button label="Suspend account" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate({ userId: user.user_id, status: 'SUSPENDED' })} />;
-    }
-    if (user.account_status === 'SUSPENDED') {
-      return <Button label="Activate account" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate({ userId: user.user_id, status: 'ACTIVE' })} />;
-    }
-    return <Notice tone="info" message="This account is still in verification or has been deactivated. Status changes must be completed by the user in-app; they cannot be activated from here." />;
+  function confirmDelete(user: { user_id: number; full_name?: string }) {
+    Alert.alert(
+      'Delete account?',
+      `This will deactivate ${user.full_name || 'this account'} and sign it out on all devices.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMutation.mutate(user.user_id),
+        },
+      ],
+    );
   }
-  const header = <><BrandHeader title="User lookup" subtitle="Search by name, username or email. Passwords, tokens and biometric data are never returned." /><Card><Field label="Search accounts" value={input} onChangeText={setInput} autoCapitalize="none" autoCorrect={false} /><Button label="Search" onPress={() => setQueryText(input.trim())} /></Card>{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}</>;
+
+  function accountAction(user: { user_id: number; full_name?: string; role: string; account_status: string; demo_unlimited?: boolean }) {
+    if (user.role === 'ADMIN') return <Notice tone="info" message="Admin accounts cannot be changed from mobile lookup." />;
+    if (user.account_status === 'DEACTIVATED') {
+      return <Notice tone="info" message="This account is deleted/deactivated." />;
+    }
+    const busy = mutation.isPending || deleteMutation.isPending || demoMutation.isPending;
+    return (
+      <>
+        {user.role === 'CHILD' ? (
+          <>
+            {user.demo_unlimited ? (
+              <Notice tone="ok" message="Unlimited demo account: screen-time and quiet-hour locks are bypassed. Safety rules still apply." />
+            ) : null}
+            <Button
+              label={user.demo_unlimited ? 'Disable unlimited demo' : 'Enable unlimited demo'}
+              variant="secondary"
+              disabled={busy}
+              onPress={() => demoMutation.mutate({ userId: user.user_id, enabled: !user.demo_unlimited })}
+            />
+          </>
+        ) : null}
+        {user.account_status === 'ACTIVE' ? (
+          <Button
+            label="Pause account"
+            variant="secondary"
+            disabled={busy}
+            onPress={() => mutation.mutate({ userId: user.user_id, status: 'SUSPENDED' })}
+          />
+        ) : user.account_status === 'SUSPENDED' ? (
+          <Button
+            label="Resume account"
+            variant="secondary"
+            disabled={busy}
+            onPress={() => mutation.mutate({ userId: user.user_id, status: 'ACTIVE' })}
+          />
+        ) : (
+          <Notice tone="info" message="This account is still in verification and cannot be changed here yet." />
+        )}
+        {(user.account_status === 'ACTIVE' || user.account_status === 'SUSPENDED') ? (
+          <Button
+            label="Delete account"
+            variant="secondary"
+            disabled={busy}
+            onPress={() => confirmDelete(user)}
+          />
+        ) : null}
+      </>
+    );
+  }
+  const header = <><BrandHeader title="User lookup" subtitle="Search accounts and mark a child as unlimited only for intentional demo/testing use." /><Card><Field label="Search accounts" value={input} onChangeText={setInput} autoCapitalize="none" autoCorrect={false} /><Button label="Search" onPress={() => setQueryText(input.trim())} /></Card>{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}{deleteMutation.error ? <Notice message={errorText(deleteMutation.error)} /> : null}{demoMutation.error ? <Notice message={errorText(demoMutation.error)} /> : null}</>;
   return <Screen><FlatList keyboardShouldPersistTaps="handled" data={users} keyExtractor={(user) => String(user.user_id)} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />} ListHeaderComponent={header} ListEmptyComponent={query.isPending ? <LoadingState message="Loading accounts…" /> : query.isError ? <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} /> : <EmptyState title="No accounts found" body="Try a different name, username or email." />} renderItem={({ item: user }) => <Card><View style={styles.rowBetween}><CategoryBadge label={user.role} /><Text style={[styles.status, user.account_status !== 'ACTIVE' && styles.statusAlert]}>{user.account_status}</Text></View><Text style={styles.title}>{user.full_name}</Text><Text style={styles.muted}>@{user.username} · {user.email}</Text>{accountAction(user)}</Card>} /></Screen>;
 }
 
@@ -146,4 +374,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
+  boostBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: '#F1F5F9',
+  },
+  boostBadgeActive: { backgroundColor: '#DCFCE7' },
+  boostBadgeText: { color: '#64748B', fontWeight: '900', fontSize: 11 },
+  boostBadgeTextActive: { color: '#166534' },
+  boostTime: { color: colors.ink, fontSize: type.title, fontWeight: '900', marginBottom: 4 },
+  boostSectionLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    marginTop: spacing.sm,
+    marginBottom: 6,
+  },
+  boostActionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  boostMiniButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.md,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  boostMiniButtonText: { color: '#1D4ED8', fontWeight: '900' },
 });

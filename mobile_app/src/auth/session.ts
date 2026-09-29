@@ -85,15 +85,13 @@ export async function clearSession(storage: StorageBackend): Promise<void> {
 }
 
 /**
- * Cold-start routing from a restored session plus authoritative gates.
- * For CHILD, unknown/missing onboarding ALWAYS fails closed to child_quiz:
- * a stale cached flag must never bypass unknown onboarding state.
+ * Cold-start routing from a restored session.
+ * The periodic Reel quiz latch never blocks app launch or Home. It is handled
+ * only inside Reels, so every signed-in child starts in the child stack.
  */
-export function decideInitialRoute(session: PersistedSession | null, onboarding?: { quiz_required: boolean } | null): InitialRoute {
+export function decideInitialRoute(session: PersistedSession | null, _onboarding?: { quiz_required: boolean } | null): InitialRoute {
   if (!session) return 'auth';
   if (session.user.role === 'PARENT') return 'parent';
   if (session.user.role === 'ADMIN') return 'admin';
-  if (!onboarding) return 'child_quiz';
-  if (onboarding.quiz_required) return 'child_quiz';
   return 'child';
 }

@@ -25,24 +25,36 @@ def test_content_search_never_bypasses_child_visibility_policy():
     assert "p.processing_status='ALLOWED'" in source
     assert "p.is_safe=TRUE" in source
     assert "~* s.tag_regex" in source
-    assert "p.child_id=ANY(%s::int[])" in source
     assert "p.is_story=FALSE" in source
     assert "p.content_category=ANY(%s)" in source
     assert "p.audience_age_group='ALL'" in source
-    assert "f.approved=TRUE AND f.approval_stage='ACTIVE'" in source
+    # Public content pool (mission rule): approved content is visible to every
+    # child subject to age/category/block/mute. Friendship must NOT gate
+    # content visibility in search/discover.
+    assert "approval_stage" not in source
     assert "hidden_commenters" in source
     assert "blocked_users" in source
     assert "muted_users" in source
 
 
-def test_mobile_explore_uses_db_search_and_discoverable_author_scope():
+def test_mobile_explore_uses_db_search_over_public_content_pool():
+    # Mission rule (authoritative): safe approved content is visible to ALL
+    # child accounts, NOT friends-only. Explore/discover therefore queries the
+    # public safe pool with age/category/block/mute controls, and must not
+    # scope post or hashtag search to discoverable authors.
     mobile = text("mobile/api.py")
     social = text("services/social.py")
-    assert "search_visible_posts(uid, q, 30, allowed_author_ids=allowed_author_ids)" in mobile
-    assert "visible_hashtags(uid, q, 10, allowed_author_ids=allowed_author_ids)" in mobile
-    assert "allowed_author_ids = [uid] + discoverable_child_ids(uid)" in mobile
-    assert "allowed_child_ids = discoverable_child_ids(viewer_id)" in social
-    assert "p.child_id = ANY(%s::int[])" in social
+    routes = text("child/search_routes.py")
+    assert "search_visible_posts(uid, q, 30)" in mobile
+    assert "visible_hashtags(uid, q, 10)" in mobile
+    assert "allowed_author_ids" not in mobile
+    assert "allowed_author_ids" not in routes
+    assert "discoverable_child_ids" not in mobile
+    # Person discovery (finding children) stays scoped to legitimate
+    # relationship context; content search does not.
+    assert "discoverable_children(uid" in mobile
+    # No friendship gate in the content-search SQL.
+    assert "approval_stage" not in routes
 
 
 def test_discover_uses_real_database_hashtags_not_hardcoded_demo_tags():

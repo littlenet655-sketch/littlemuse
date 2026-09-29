@@ -26,6 +26,7 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
   const token = session?.token;
   const childId = session?.user?.user_id;
   const isChild = session?.user?.role === 'CHILD';
+  const parentPaused = Boolean(session?.user?.parent_paused && !session?.user?.demo_unlimited);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const snapshotRef = useRef<OfflineTimeSnapshot | null>(null);
   const offlineAnchorRef = useRef<number | null>(null);
@@ -43,10 +44,10 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
     void loadOfflineTimeSnapshot(childId).then((snapshot) => {
       if (cancelled) return;
       snapshotRef.current = snapshot;
-      if (!online) onGateChange?.(gateForSnapshot(snapshot));
+      if (!online) onGateChange?.(parentPaused ? 'parent_pause' : gateForSnapshot(snapshot));
     });
     return () => { cancelled = true; };
-  }, [childId, isChild, online, onGateChange]);
+  }, [childId, isChild, online, onGateChange, parentPaused]);
 
   // Online path: the backend remains authoritative and every successful
   // heartbeat refreshes the offline policy snapshot.
@@ -69,12 +70,29 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
           void queryClient.invalidateQueries({ queryKey: kidsKeys.home });
         } else {
           onGateChange?.(null);
+          if (parentPaused) {
+            // A successful heartbeat proves the server pause was cleared.
+            try {
+              await refreshMeRef.current();
+            } catch {
+              // A later /me refresh can reconcile; the heartbeat already
+              // authoritatively unlocked this active screen.
+            }
+          }
         }
       } catch (err) {
         if (err instanceof ApiError) {
-          if (err.status === 423 || err.gate === 'screen_time' || err.gate === 'quiet_hours') {
+          if (err.status === 423 || err.gate === 'screen_time' || err.gate === 'quiet_hours' || err.gate === 'parent_pause') {
             onGateChange?.(err.gate ?? 'screen_time');
             void queryClient.invalidateQueries({ queryKey: kidsKeys.home });
+            if (err.gate === 'parent_pause') {
+              try {
+                await refreshMeRef.current();
+              } catch {
+                // The visible server gate remains authoritative even if /me
+                // cannot be refreshed for offline persistence immediately.
+              }
+            }
             return;
           }
           if (shouldRefreshOnboardingForGate(err, onboardingRef.current)) {
@@ -102,13 +120,18 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
       abortController?.abort();
       subscription.remove();
     };
-  }, [token, childId, isChild, online, queryClient, onGateChange]);
+  }, [token, childId, isChild, online, queryClient, onGateChange, parentPaused]);
 
   // Offline path: consume only foreground time from the last authoritative
   // remaining budget and keep quiet-hours enforcement active locally.
   useEffect(() => {
     if (!childId || !isChild || online) {
       offlineAnchorRef.current = null;
+      return;
+    }
+    if (parentPaused) {
+      offlineAnchorRef.current = null;
+      onGateChange?.('parent_pause');
       return;
     }
 
@@ -159,5 +182,5 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
       subscription.remove();
       offlineAnchorRef.current = null;
     };
-  }, [childId, isChild, online, onGateChange]);
+  }, [childId, isChild, online, onGateChange, parentPaused]);
 }

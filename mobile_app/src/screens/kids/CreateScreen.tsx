@@ -8,7 +8,7 @@ import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
 import { clearCreateDraft, draftHasContent, loadCreateDraft, saveCreateDraft, type CreateDraft } from '../../kids/createDrafts';
-import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
+import { capturePostMedia, localMediaSize, maxVideoDurationFor, pickGalleryMedia, validateMediaIdentity, validateVideoDuration, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { kidsKeys } from '../../query/keys';
 import { IgIcon } from '../../components/IgIcon';
@@ -356,6 +356,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     try {
       const picked = await fn();
       if (picked) {
+        // Fast client-side guard: the server re-enforces the limit during
+        // processing, but rejecting here avoids a doomed upload.
+        validateVideoDuration(picked, kind);
         setMedia(picked);
         setError(null);
         resetPipelineState();
@@ -484,6 +487,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   }
 
   const isVideo = kind === 'reel';
+  const allowVideoForPost = kind === 'post';
   const pickedIsVideo = (media?.mimeType ?? '').startsWith('video/');
 
   return (
@@ -562,7 +566,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   style={styles.pickOption}
                   accessibilityRole="button"
                   accessibilityLabel="Record a video with the camera"
-                  onPress={() => void choose(() => capturePostMedia('video'))}
+                  onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
                     <Feather name="video" size={24} color={colors.ink} />
@@ -597,6 +601,34 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   <Text style={styles.pickOptionTitle}>Take Photo</Text>
                   <Text style={styles.pickOptionSub}>Snap with camera</Text>
                 </Pressable>
+                {allowVideoForPost && (
+                  <>
+                    <Pressable
+                      style={styles.pickOption}
+                      accessibilityRole="button"
+                      accessibilityLabel="Choose a video from your gallery"
+                      onPress={() => void choose(() => pickGalleryMedia('video'))}
+                    >
+                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                        <Feather name="film" size={24} color={colors.ink} />
+                      </View>
+                      <Text style={styles.pickOptionTitle}>Gallery Video</Text>
+                      <Text style={styles.pickOptionSub}>Choose from files</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.pickOption}
+                      accessibilityRole="button"
+                      accessibilityLabel="Record a video with the camera"
+                      onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
+                    >
+                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
+                        <Feather name="video" size={24} color={colors.ink} />
+                      </View>
+                      <Text style={styles.pickOptionTitle}>Camera Video</Text>
+                      <Text style={styles.pickOptionSub}>Record right now</Text>
+                    </Pressable>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -625,7 +657,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
             <Pressable
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel="Change the selected media"
+              accessibilityLabel="Retake or choose a different photo or video"
               onPress={() => {
                 setMedia(null);
                 resetPipelineState();
@@ -634,7 +666,10 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
               }}
               style={styles.changeBtn}
             >
-              <Text style={styles.changeBtnText}>Change</Text>
+              <View style={styles.changeBtnContent}>
+                <Feather name="camera" size={13} color={colors.brand} />
+                <Text style={styles.changeBtnText}>Retake / Choose different</Text>
+              </View>
             </Pressable>
           </View>
         </Card>
@@ -1110,6 +1145,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 12,
     backgroundColor: '#F2F2F2',
+  },
+  changeBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   changeBtnText: {
     fontSize: 12,

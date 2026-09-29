@@ -1,18 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { childNextRoute, resolveChildRoute, screenForGate } from '../src/navigation/gates';
-import { quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision';
+import { childNextRoute, offlineGateReset, resolveChildRoute, screenForGate } from '../src/navigation/gates';
+import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision';
+import { ApiError } from '../src/api/errors';
 import { validateResetInput } from '../src/auth/resetValidation';
 import { captureLivePhotoCore, CameraBlockedError, CameraCancelledError, CameraPermissionError } from '../src/camera/capture';
 
-describe('reactive child gate routing (quiz -> home)', () => {
-  it('orders gates quiz first, then home', () => {
-    assert.equal(childNextRoute(true), 'Quiz');
+describe('quiz latch is a nudge: routing never leaves the child', () => {
+  it('never routes to Quiz on a due quiz — the prompt card handles it', () => {
+    assert.equal(childNextRoute(true), 'KidsTabs');
     assert.equal(childNextRoute(false), 'KidsTabs');
   });
 
-  it('cold restore with quiz_required stays on Quiz', () => {
-    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'Quiz');
+  it('cold restore with quiz_required stays on the current route', () => {
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'KidsTabs'), 'KidsTabs');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'ReelsTab'), 'ReelsTab');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'KidsTabs');
   });
 
   it('preserves ungated product routes', () => {
@@ -23,26 +26,26 @@ describe('reactive child gate routing (quiz -> home)', () => {
     assert.equal(resolveChildRoute(clear, false, 'Chat'), 'Chat');
   });
 
-  it('forces active gates from every product route', () => {
+  it('never forces a due quiz out of any product route', () => {
     for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat'] as const) {
-      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), 'Quiz');
+      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), route);
     }
   });
 
-  it('enters the product once after a gate clears', () => {
+  it('stays on the voluntarily opened Quiz screen once the latch clears', () => {
     const clear = { quiz_required: false };
-    assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'KidsTabs');
+    assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'Quiz');
   });
 
-  it('restart never bypasses an unknown gate (fails closed)', () => {
-    assert.equal(resolveChildRoute(null, false), 'Quiz');
-    assert.equal(resolveChildRoute(null, true), 'Quiz');
-    assert.equal(resolveChildRoute(undefined, false), 'Quiz');
-    assert.equal(resolveChildRoute(undefined, true), 'Quiz');
+  it('restart with unknown gate fails open to home (defect C1/C2)', () => {
+    assert.equal(resolveChildRoute(null, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(null, true), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, true), 'KidsTabs');
   });
 
-  it('routes backend gates to their resolving screens', () => {
-    assert.equal(screenForGate('quiz'), 'Quiz');
+  it('quiz is not a route gate: no backend gate resolves to Quiz', () => {
+    assert.equal(screenForGate('quiz'), null);
     assert.equal(screenForGate('parent_verification'), 'OtpVerify');
     assert.equal(screenForGate('email_verification'), 'OtpVerify');
     assert.equal(screenForGate('quiet_hours'), null);
@@ -50,13 +53,13 @@ describe('reactive child gate routing (quiz -> home)', () => {
   });
 });
 
-describe('quiz completion gating (authoritative refresh)', () => {
-  it('proceeds only when the refresh confirms every gate clear', () => {
+describe('quiz completion signal (authoritative refresh)', () => {
+  it('proceeds only when the refresh confirms the quiz was counted', () => {
     assert.equal(shouldProceedAfterRefresh({ quiz_required: false }), true);
     assert.equal(shouldProceedAfterRefresh({ quiz_required: true }), false);
   });
 
-  it('never proceeds on unknown/failed refresh (stays gated with retry)', () => {
+  it('never proceeds on unknown/failed refresh (stays on the quiz screen with retry)', () => {
     assert.equal(shouldProceedAfterRefresh(null), false);
     assert.equal(shouldProceedAfterRefresh(undefined), false);
   });
@@ -144,5 +147,33 @@ describe('camera permission UX states', () => {
       }),
       (err: unknown) => err instanceof Error && !(err instanceof CameraCancelledError),
     );
+  });
+});
+
+describe('offline quiz fail-open (defect C1/C2 follow-up)', () => {
+  it('resets a stranded Quiz screen to KidsTabs when offline', () => {
+    assert.equal(offlineGateReset('Quiz', false), 'KidsTabs');
+  });
+
+  it('leaves every other route alone when offline', () => {
+    for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat', 'ProfileTab'] as const) {
+      assert.equal(offlineGateReset(route, false), null);
+    }
+  });
+
+  it('never resets while online — the online gate sync stays authoritative', () => {
+    assert.equal(offlineGateReset('Quiz', true), null);
+    assert.equal(offlineGateReset('KidsTabs', true), null);
+  });
+
+  it('detects proven-unreachable servers vs server refusals', () => {
+    assert.equal(isConnectivityFailure(new ApiError(0, 'network_unreachable', 'no route')), true);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_timeout', 'timed out')), true);
+    assert.equal(isConnectivityFailure(new ApiError(500, 'server_error', 'oops')), false);
+    assert.equal(isConnectivityFailure(new ApiError(403, 'disabled_by_parent', 'no')), false);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_cancelled', 'cancel')), false);
+    assert.equal(isConnectivityFailure(new Error('boom')), false);
+    assert.equal(isConnectivityFailure(null), false);
+    assert.equal(isConnectivityFailure(undefined), false);
   });
 });

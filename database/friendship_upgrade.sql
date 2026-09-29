@@ -123,9 +123,15 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_littlenet_friendship_delete_pair ON followers;
+-- Pair-cascade fires ONLY for established friendships. Pending follow
+-- requests must never cascade: deleting one child's outgoing request must not
+-- delete the other child's genuine incoming request (Follow-Back bug).
+-- Pending handshake rows are deleted explicitly by the application.
 CREATE TRIGGER trg_littlenet_friendship_delete_pair
 AFTER DELETE ON followers
-FOR EACH ROW EXECUTE FUNCTION littlenet_friendship_delete_pair();
+FOR EACH ROW
+WHEN (OLD.approved IS TRUE)
+EXECUTE FUNCTION littlenet_friendship_delete_pair();
 
 CREATE INDEX IF NOT EXISTS idx_followers_active_pair
   ON followers(child_id,following_child_id)

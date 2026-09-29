@@ -12,6 +12,9 @@ export const kidsKeys = {
   post: (id: number) => ['kids', 'post', id],
   comments: (id: number) => ['kids', 'comments', id],
   saved: ['kids', 'saved'],
+  timeLimit: ['kids', 'time-limit', 'status'],
+  myControls: ['kids', 'my-controls'],
+  myActivity: ['kids', 'my-activity'],
   connections: ['kids', 'connections'],
   notifications: ['kids', 'notifications'],
   conversations: ['kids', 'conversations'],
@@ -27,10 +30,12 @@ export const parentKeys = {
   activity: (childId: number) => ['parent', 'activity', childId],
   insights: (childId: number) => ['parent', 'insights', childId],
   notifications: ['parent', 'notifications'],
+  extensionRequests: ['parent', 'extension-requests'],
 } as const;
 
 export const adminKeys = {
   dashboard: ['admin', 'dashboard'],
+  demoBoost: ['demo-boost', 'status'],
   reviews: ['admin', 'reviews'],
   review: (eventId: number) => ['admin', 'review', eventId],
   users: (query: string) => ['admin', 'users', query],

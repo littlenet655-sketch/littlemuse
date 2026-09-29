@@ -226,7 +226,9 @@ def test_real_postgres_child_parent_admin_routes_and_live_status_guards():
             headers=other_parent_headers,
             json={"action": "APPROVE"},
         )
-        assert cross_parent.status_code == 403
+        # Cross-family moderation IDs are deliberately indistinguishable from missing IDs.
+        # The API returns 404 here to avoid leaking another family's event existence.
+        assert cross_parent.status_code == 404
 
         escalated = client.post(
             f"/api/mobile/v1/admin/reviews/{event_id}",

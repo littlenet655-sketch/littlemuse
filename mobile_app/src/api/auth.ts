@@ -17,6 +17,8 @@ export interface SessionUser {
   email: string;
   role: Role;
   age: number | null;
+  parent_paused?: boolean;
+  demo_unlimited?: boolean;
   profile: Record<string, unknown> | null;
   quiz_required: boolean;
   posts_seen: number;
@@ -141,11 +143,18 @@ export interface QuizAnswerResponse {
   required: boolean;
 }
 
-export function fetchQuiz(token: string, limit?: number): Promise<QuizResponse> {
-  const query = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
+export function fetchQuiz(token: string, limit?: number, mode?: 'practice'): Promise<QuizResponse> {
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  if (mode) params.set('mode', mode);
+  const query = params.toString() ? `?${params.toString()}` : '';
   return apiRequest<QuizResponse>(`${routes.quiz}${query}`, {}, token);
 }
 
-export function answerQuiz(token: string, quizId: number, answer: string): Promise<QuizAnswerResponse> {
-  return apiRequest<QuizAnswerResponse>(routes.quizAnswer(quizId), { method: 'POST', body: JSON.stringify({ answer }) }, token);
+export function answerQuiz(token: string, quizId: number, answer: string, mode?: 'practice'): Promise<QuizAnswerResponse> {
+  return apiRequest<QuizAnswerResponse>(
+    routes.quizAnswer(quizId),
+    { method: 'POST', body: JSON.stringify({ answer, mode }) },
+    token,
+  );
 }

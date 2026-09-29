@@ -4,6 +4,7 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from database.connection import fetch_one, execute
 from services.request_cache import memo as _req_memo
+from services.demo_accounts import is_demo_unlimited
 
 SAFE_CATEGORIES = [
     'Other','Science','Math','Art','Sports','Music','Technology','Education',
@@ -131,6 +132,13 @@ def _parse_clock(value):
 
 def quiet_hours_state(child_id, at=None):
     controls=controls_for_child(child_id)
+    if is_demo_unlimited(child_id):
+        return {
+            'active':False,
+            'start':controls['quiet_start'],
+            'end':controls['quiet_end'],
+            'demo_bypass':True,
+        }
     if not controls.get('quiet_hours_enabled'):
         return {'active':False,'start':controls['quiet_start'],'end':controls['quiet_end']}
     if at is None:
@@ -153,6 +161,13 @@ def quiet_hours_state(child_id, at=None):
 
 def quiet_hours_active(child_id, at=None):
     return bool(quiet_hours_state(child_id,at)['active'])
+
+
+def reset_controls_to_defaults(child_id):
+    """Restore LittleNet feature/category/quiet-hour controls to defaults."""
+    execute("DELETE FROM parent_control_settings WHERE child_id=%s", (child_id,))
+    _controls_cache.pop(child_id, None)
+    return controls_for_child(child_id)
 
 
 def save_controls(parent_id,child_id,form):

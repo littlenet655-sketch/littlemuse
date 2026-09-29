@@ -4,13 +4,13 @@ import { routes, ApiError } from '../src/api/client';
 import { childNextRoute, resetsDisplayState, screenForGate, shouldRefreshOnboardingForGate } from '../src/navigation/gates';
 
 describe('onboarding navigation', () => {
-  it('orders child gates quiz -> home', () => {
-    assert.equal(childNextRoute(true), 'Quiz');
+  it('never routes a due quiz: quiz latch is a nudge, not a route gate', () => {
+    assert.equal(childNextRoute(true), 'KidsTabs');
     assert.equal(childNextRoute(false), 'KidsTabs');
   });
 
   it('routes backend gates to their resolving screens', () => {
-    assert.equal(screenForGate('quiz'), 'Quiz');
+    assert.equal(screenForGate('quiz'), null);
     assert.equal(screenForGate('parent_verification'), 'OtpVerify');
     assert.equal(screenForGate('email_verification'), 'OtpVerify');
     assert.equal(screenForGate('quiet_hours'), null);
@@ -21,19 +21,19 @@ describe('onboarding navigation', () => {
     assert.ok(routes.feedV2.startsWith('/api/mobile/v2/'));
     assert.ok(routes.reelsV2.startsWith('/api/mobile/v2/'));
     assert.ok(routes.discoverV2.startsWith('/api/mobile/v2/'));
-    assert.ok(routes.uploadSession.startsWith('/api/mobile/v2/'));
+    assert.ok(routes.uploadSession.startsWith('/api/mobile/v2/uploads/'));
     assert.equal(routes.processingStatus(42), '/api/mobile/v2/posts/42/processing-status');
     assert.equal(routes.uploadComplete('up 1/2'), '/api/mobile/v2/uploads/up%201%2F2/complete');
   });
 
-  it('refreshes onboarding only on a NEW 428 quiz gate', () => {
+  it('never refreshes onboarding into a quiz gate: quiz 428s re-route nothing', () => {
     const quizGate = new ApiError(428, 'quiz_required', 'quiz required', 'quiz');
     const other = new ApiError(403, 'disabled_by_parent', 'disabled', null);
 
-    // Unknown onboarding: always refresh so the child is routed to quiz.
-    assert.equal(shouldRefreshOnboardingForGate(quizGate, undefined), true);
-    // Changed gates refresh; already-known gates do not (no refresh loop).
-    assert.equal(shouldRefreshOnboardingForGate(quizGate, { quiz_required: false }), true);
+    // A stale 428 quiz gate must not re-gate the child to Quiz, no matter
+    // what the onboarding snapshot says.
+    assert.equal(shouldRefreshOnboardingForGate(quizGate, undefined), false);
+    assert.equal(shouldRefreshOnboardingForGate(quizGate, { quiz_required: false }), false);
     assert.equal(shouldRefreshOnboardingForGate(quizGate, { quiz_required: true }), false);
     // Non-428 errors never trigger the onboarding redirect.
     assert.equal(shouldRefreshOnboardingForGate(other, null), false);

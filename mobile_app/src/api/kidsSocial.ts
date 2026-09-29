@@ -33,16 +33,6 @@ export interface CommentItem {
   can_delete?: boolean;
 }
 
-export interface ReportItem {
-  report_id: number;
-  target_type: string;
-  target_id: number;
-  reason: string;
-  details?: string;
-  status: string;
-  created_at?: string;
-}
-
 async function get<T>(path: string, token: string): Promise<T> {
   return apiRequest<T>(path, {}, token);
 }
@@ -113,14 +103,6 @@ export function blockUser(token: string, targetId: number, action: string): Prom
 
 export function muteUser(token: string, targetId: number, action: string): Promise<{ ok: boolean; muted: boolean }> {
   return postJson(routes.mute(targetId), { action }, token);
-}
-
-export function submitReport(token: string, targetType: string, targetId: number, reason: string): Promise<{ ok: boolean }> {
-  return postJson(routes.report, { target_type: targetType, target_id: targetId, reason, details: '' }, token);
-}
-
-export function fetchReports(token: string): Promise<{ ok: boolean; reports: ReportItem[] }> {
-  return get(routes.reports, token);
 }
 
 export function fetchConnections(token: string): Promise<{ ok: boolean; followers: unknown[]; following: unknown[]; suggested: unknown[] }> {

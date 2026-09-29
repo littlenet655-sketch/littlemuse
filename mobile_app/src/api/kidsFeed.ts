@@ -191,8 +191,6 @@ export interface HeartbeatResult {
   quiet_hours?: { enabled: boolean; active: boolean; start: string; end: string };
   server_time?: string;
   locked?: boolean;
-  self_resets_used?: number;
-  self_resets_remaining?: number;
 }
 
 export interface KidTimeLimitStatus {
@@ -202,8 +200,6 @@ export interface KidTimeLimitStatus {
   daily_limit_minutes: number;
   strict_mode: boolean;
   remaining_minutes: number | null;
-  resets_used: number;
-  resets_remaining: number;
 }
 
 export function sendHeartbeat(token: string, signal?: AbortSignal): Promise<HeartbeatResult> {
@@ -218,14 +214,32 @@ export function fetchKidsTimeLimitStatus(token: string): Promise<KidTimeLimitSta
   return get<KidTimeLimitStatus>(routes.kidsTimeLimitStatus, token);
 }
 
-export function resetKidsTimeLimitSelf(token: string): Promise<{
-  ok: boolean;
-  message: string;
-  resets_used: number;
-  resets_remaining: number;
-  minutes_today: number;
-}> {
-  return apiRequest(routes.kidsTimeLimitReset, { method: 'POST' }, token);
+export type ExtensionRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+
+export interface ExtensionRequest {
+  request_id: number;
+  requested_minutes: number;
+  status: ExtensionRequestStatus;
+  granted_minutes?: number | null;
+  created_at: string;
+  decided_at?: string | null;
+}
+
+export function requestScreenTimeExtension(
+  token: string,
+  requestedMinutes: number,
+): Promise<{ ok: boolean; message: string; request: ExtensionRequest }> {
+  return apiRequest(
+    routes.kidsExtensionRequest,
+    { method: 'POST', body: JSON.stringify({ requested_minutes: requestedMinutes }) },
+    token,
+  );
+}
+
+export function fetchExtensionRequestStatus(
+  token: string,
+): Promise<{ ok: boolean; request: ExtensionRequest | null }> {
+  return get<{ ok: boolean; request: ExtensionRequest | null }>(routes.kidsExtensionRequest, token);
 }
 
 export function recordImpressionBatch(
@@ -252,3 +266,55 @@ export function recordImpressionBatch(
   );
 }
 
+
+/** Read-only "My Controls" payload for the signed-in child (own data only). */
+export interface KidFeatureFlags {
+  reels: boolean;
+  stories: boolean;
+  messaging: boolean;
+  posting: boolean;
+  discover: boolean;
+  comments: boolean;
+}
+
+export interface KidMyControls {
+  ok: boolean;
+  safety_level: string;
+  daily_limit_minutes: number;
+  strict_mode: boolean;
+  quiet_hours: { enabled: boolean; active: boolean; start: string; end: string };
+  features: KidFeatureFlags;
+  educational_only_feed: boolean;
+}
+
+export function fetchMyControls(token: string): Promise<KidMyControls> {
+  return get<KidMyControls>(routes.kidsMyControls, token);
+}
+
+/** Read-only "My Activity" payload for the signed-in child (own data only). */
+export interface KidActivityItem {
+  log_id: number;
+  activity_type: string;
+  action: 'liked' | 'saved';
+  target_type?: string;
+  target_id?: number;
+  label?: string | null;
+  created_at?: string;
+}
+
+export interface KidQuizAttempt {
+  quiz_id: number;
+  is_correct: boolean;
+  attempted_at?: string;
+}
+
+export interface KidMyActivity {
+  ok: boolean;
+  liked_saved: KidActivityItem[];
+  quiz_7d: { attempted: number; correct: number };
+  recent_quizzes: KidQuizAttempt[];
+}
+
+export function fetchMyActivity(token: string): Promise<KidMyActivity> {
+  return get<KidMyActivity>(routes.kidsMyActivity, token);
+}

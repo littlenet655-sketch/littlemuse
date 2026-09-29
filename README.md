@@ -223,6 +223,14 @@ If you only need the Flask application, database routes, source work, or API dev
 python -m pip install -r requirements-core.txt
 ~~~
 
+For parent onboarding or child-account creation flows, also install the text stack:
+
+~~~bash
+python -m pip install -r requirements-text.txt
+~~~
+
+Parent onboarding runs server-side text moderation on the child profile. Without the text dependencies, that safety step fails closed rather than silently creating an unchecked child account.
+
 The application is designed to fail closed when required safety evidence is unavailable. Therefore, media/text behavior with only the core dependencies is not equivalent to a fully configured moderation environment.
 
 FFmpeg must still be installed on the system for video sanitization and video-processing tests.

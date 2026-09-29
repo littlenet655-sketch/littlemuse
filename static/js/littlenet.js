@@ -49,16 +49,16 @@
       b.onclick=async()=>{
         const r=await postForm(`/follow/${b.dataset.follow}/`);
         if(r.ok){
-          if(r.data.status==='pending'){
+          if(r.data.status==='pending'||r.data.status==='follow_back_pending'){
             b.textContent='Requested';
             b.classList.remove('ig-btn-primary');
             b.classList.add('ig-btn-secondary');
-            showToast('Follow request sent! 🤝');
-          } else if(r.data.status==='removed'){
+            showToast(r.data.status==='follow_back_pending'?'Follow request sent! Their parent still needs to approve. 🤝':'Follow request sent! 🤝');
+          } else if(r.data.status==='removed'||r.data.status==='cancelled'){
             b.textContent='Follow';
             b.classList.remove('ig-btn-secondary');
             b.classList.add('ig-btn-primary');
-            showToast('Connection removed');
+            showToast(r.data.status==='cancelled'?'Request cancelled':'Connection removed');
           } else {
             b.textContent='Follow';
           }

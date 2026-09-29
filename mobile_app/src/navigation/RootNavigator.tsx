@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -18,7 +18,8 @@ import { ChatScreen } from '../screens/kids/ChatScreen';
 import { ChatDetailsScreen, ConnectionsScreen, EditProfileScreen, NewMessageScreen, SavedContentScreen } from '../screens/kids/SocialStates';
 import { CreateScreen } from '../screens/kids/CreateScreen';
 import { ProcessingStatusScreen } from '../screens/kids/ProcessingScreen';
-import { SafetyCentreScreen, ReportHistoryScreen } from '../screens/kids/SafetyScreens';
+import { MyControlsScreen } from '../screens/kids/MyControlsScreen';
+import { MyActivityScreen } from '../screens/kids/MyActivityScreen';
 import { CreateChildScreen } from '../screens/Parent';
 import {
   ParentActivityScreen,
@@ -46,8 +47,11 @@ import { QuizScreen } from '../screens/Quiz';
 import { LoginScreen, WelcomeScreen } from '../screens/WelcomeLogin';
 import { BrandHeader, Button, LoadingState, Notice, Screen } from '../ui/components';
 import { ParentModeGate } from '../components/ParentModeGate';
+import { DemoBoostNotice } from '../components/DemoBoostNotice';
 import { useScreenTimeHeartbeat } from '../kids/useScreenTimeHeartbeat';
-import { resolveChildRoute } from './gates';
+import { offlineGateReset, resolveChildRoute } from './gates';
+import type { ChildRoute } from './gates';
+import { useIsOnline } from '../query/client';
 import type { AdminStackParamList, AuthStackParamList, ChildStackParamList, ParentStackParamList } from './types';
 import { colors } from '../ui/tokens';
 
@@ -78,21 +82,39 @@ function AuthNavigator() {
 
 /**
  * Keeps the visible child screen pinned to the authoritative gate state.
- * Runs on mount (fixes any initial-route mismatch) and on every gate change,
- * so enrollment/quiz completion transitions without manual navigation.
+ * Runs on mount (fixes any initial-route mismatch) and on every gate change.
+ * The compulsory Reel quiz is enforced inside the Reels flow itself (pause +
+ * hand off to the Quiz screen, no dismiss path while the server latch is
+ * active), so this never routes to Quiz: the child always stays where they are.
  */
 function ChildGateSync() {
   const navigation = useNavigation<NavigationProp<ChildStackParamList>>();
   const { session } = useAuth();
+  const online = useIsOnline();
 
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
         const state = navigation.getState();
         const index = state?.index ?? 0;
-        const current = state?.routes[index]?.name as keyof ChildStackParamList | undefined;
+        const current = state?.routes[index]?.name as ChildRoute | undefined;
         if (!current) return;
-        const target = resolveChildRoute(session?.onboarding, session?.user.quiz_required ?? true, current);
+        if (!online) {
+          // Offline: no authoritative gate exists. A stale cached
+          // quiz_required must not strand the child on Quiz (defect C1/C2
+          // follow-up) — fail open to Home. Anywhere else, leave the child
+          // alone; the server re-signals quiz_due on reconnect and the
+          // client shows the prompt card.
+          const fallback = offlineGateReset(current, online);
+          if (fallback) {
+            navigation.reset({
+              index: 0,
+              routes: [{ name: fallback } as never],
+            });
+          }
+          return;
+        }
+        const target = resolveChildRoute(session?.onboarding, session?.user.quiz_required ?? false, current);
         if (current === target) return;
         navigation.reset({
           index: 0,
@@ -104,27 +126,35 @@ function ChildGateSync() {
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [navigation, session?.onboarding, session?.user.quiz_required]);
+  }, [navigation, session?.onboarding, session?.user.quiz_required, online]);
 
   return null;
 }
 
 function ChildNavigator() {
   const { session, signOut } = useAuth();
-  const [activeLock, setActiveLock] = useState<string | null>(null);
+  const [activeLock, setActiveLock] = useState<string | null>(() =>
+    session?.user?.parent_paused && !session?.user?.demo_unlimited ? 'parent_pause' : null,
+  );
   const handleGateChange = useCallback((gate: string | null) => setActiveLock(gate), []);
   useScreenTimeHeartbeat(handleGateChange);
 
   const initialRoute = resolveChildRoute(
     session?.onboarding,
-    session?.user.quiz_required ?? true,
+    session?.user.quiz_required ?? false,
     'KidsTabs',
   );
 
   if (activeLock) {
     return (
       <ScreenTimeLockedScreen
-        lockType={activeLock === 'quiet_hours' ? 'quiet_hours' : 'screen_time'}
+        lockType={
+          activeLock === 'quiet_hours'
+            ? 'quiet_hours'
+            : activeLock === 'parent_pause'
+              ? 'parent_pause'
+              : 'screen_time'
+        }
         onUnlock={() => setActiveLock(null)}
         onSignOut={() => void signOut()}
       />
@@ -150,8 +180,8 @@ function ChildNavigator() {
       <ChildStack.Screen name="EditProfile" component={withGateSync(EditProfileScreen)} options={{ title: 'Edit profile' }} />
       <ChildStack.Screen name="Connections" component={withGateSync(ConnectionsScreen)} options={{ title: 'Connections' }} />
       <ChildStack.Screen name="PostDetail" component={withGateSync(PostDetailScreen)} options={{ title: 'Post' }} />
-      <ChildStack.Screen name="SafetyCentre" component={withGateSync(SafetyCentreScreen)} options={{ title: 'Safety Centre' }} />
-      <ChildStack.Screen name="ReportHistory" component={withGateSync(ReportHistoryScreen)} options={{ title: 'Report history' }} />
+      <ChildStack.Screen name="MyControls" component={withGateSync(MyControlsScreen)} options={{ title: 'My Controls' }} />
+      <ChildStack.Screen name="MyActivity" component={withGateSync(MyActivityScreen)} options={{ title: 'My Activity' }} />
       <ChildStack.Screen name="OtherProfile" component={withGateSync(OtherProfileScreen)} options={{ title: 'Profile' }} />
       <ChildStack.Screen name="ProcessingStatus" component={withGateSync(ProcessingStatusScreen)} options={{ headerShown: false }} />
     </ChildStack.Navigator>
@@ -203,8 +233,8 @@ function AdminNavigator() {
 
 /**
  * Role-aware cold-start routing: unauthenticated -> AuthStack, CHILD ->
- * ChildStack (reactively forced to quiz only while a gate is active),
- * PARENT -> ParentStack, ADMIN -> AdminStack.
+ * ChildStack, PARENT -> ParentStack, ADMIN -> AdminStack. Startup never forces
+ * a quiz; compulsory quizzes are Reel interruptions only.
  */
 export function RootNavigator() {
   const { status, session } = useAuth();
@@ -225,27 +255,23 @@ export function RootNavigator() {
     );
   }
 
+  let signedInNavigator: ReactNode;
   if (session.user.role === 'PARENT') {
-    return (
-      <NavigationContainer>
-        <ParentModeGate>
-          <ParentNavigator />
-        </ParentModeGate>
-      </NavigationContainer>
+    signedInNavigator = (
+      <ParentModeGate>
+        <ParentNavigator />
+      </ParentModeGate>
     );
-  }
-
-  if (session.user.role === 'ADMIN') {
-    return (
-      <NavigationContainer>
-        <AdminNavigator />
-      </NavigationContainer>
-    );
+  } else if (session.user.role === 'ADMIN') {
+    signedInNavigator = <AdminNavigator />;
+  } else {
+    signedInNavigator = <ChildNavigator />;
   }
 
   return (
-    <NavigationContainer>
-      <ChildNavigator />
-    </NavigationContainer>
+    <>
+      <NavigationContainer>{signedInNavigator}</NavigationContainer>
+      <DemoBoostNotice />
+    </>
   );
 }

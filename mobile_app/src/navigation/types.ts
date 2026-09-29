@@ -10,7 +10,7 @@ export type AuthStackParamList = {
 };
 
 export type ChildStackParamList = {
-  Quiz: { returnTo?: string } | undefined;
+  Quiz: { returnTo?: string; autoStart?: boolean } | undefined;
   KidsTabs: { tab?: string } | undefined;
   FeedTab: undefined;
   DiscoverTab: undefined;
@@ -27,8 +27,8 @@ export type ChildStackParamList = {
   EditProfile: undefined;
   Connections: { mode?: 'followers' | 'following' } | undefined;
   PostDetail: { postId: number; openShare?: boolean };
-  SafetyCentre: undefined;
-  ReportHistory: undefined;
+  MyControls: undefined;
+  MyActivity: undefined;
   OtherProfile: { targetId: number };
   ProcessingStatus: { postId: number };
 };

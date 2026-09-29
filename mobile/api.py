@@ -30,15 +30,18 @@ from auth.password_reset import (
 from auth.service import login_user
 from child.service import (
     can_discover_child,
+    cancel_outgoing_follow,
+    child_has_guardian,
     counts,
     create_child_profile,
-    discoverable_child_ids,
     discoverable_children,
     follow_child,
     get_child_profile,
     get_random_children,
+    incoming_follow_pending,
     is_follow_pending,
     is_following,
+    outgoing_follow_pending,
     profile_exists,
     replace_profile_tags,
     unfollow_child,
@@ -72,6 +75,7 @@ from services.controls import (
     effective_categories,
     feature_allowed,
     quiet_hours_state,
+    reset_controls_to_defaults,
     save_controls,
 )
 from services.curated_feed import (
@@ -94,7 +98,7 @@ from services.social import (
 )
 from child.search_routes import search_visible_posts, visible_hashtags
 from services.audit import log
-from services.usage import close_session, heartbeat, lock_state, minutes_today, online_state, start_session
+from services.usage import close_session, heartbeat, lock_state, minutes_today, online_state, restart_child_sessions, start_session
 
 _AUTH_SALT = "littlenet-native-auth-v1"
 _PENDING_PARENT_SALT = "littlenet-native-parent-pending-v1"
@@ -304,7 +308,7 @@ def _require_mobile(*roles):
             if _mobile_token_revoked(token):
                 return jsonify(error="token_revoked"), 401
             user = fetch_one(
-                "SELECT user_id,username,full_name,email,role,age,account_status,session_version FROM users WHERE user_id=%s",
+                "SELECT user_id,username,full_name,email,role,age,account_status,session_version,parent_paused,demo_unlimited FROM users WHERE user_id=%s",
                 (int(claims.get("uid") or 0),),
             )
             if not user or user.get("account_status") != "ACTIVE":
@@ -324,40 +328,38 @@ def _require_mobile(*roles):
     return decorator
 
 def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
-    """Authoritative gate state: only the onboarding quiz gates Kids Mode."""
-    if quiz_state is None:
-        quiz_state = {"required": bool(feed_quiz_state(uid).get("required") or needs_onboarding_quiz(uid))}
-    return {"quiz_required": bool(quiz_state.get("required"))}
+    """Expose the server Reel-quiz latch without making it a global app gate.
 
-def _kid_self_resets_today(child_id: int) -> int:
-    row = fetch_one(
-        "SELECT COUNT(*) as cnt FROM activity_logs WHERE child_id=%s AND activity_type='KID_SCREEN_TIME_SELF_RESET' AND created_at::date=CURRENT_DATE",
-        (child_id,),
-    )
-    return int(row["cnt"]) if row else 0
+    quiz_required=True is consumed by the Reels screen, which performs the
+    compulsory interruption. Startup/home never route into a quiz.
+    """
+    if quiz_state is None:
+        quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
+    return {"quiz_required": bool(quiz_state.get("required"))}
 
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
-    if needs_onboarding_quiz(uid):
-
-        return jsonify(error="onboarding_quiz_required", gate="quiz"), 428
+    # Demo/testing children may bypass only parent timing locks (screen-time,
+    # quiet hours). Parent Pause is an explicit parent action and always blocks,
+    # even for demo_unlimited children. Moderation, relationship checks and
+    # feature permissions still execute normally.
+    demo_unlimited = bool(g.mobile_user.get("demo_unlimited"))
+    if bool(g.mobile_user.get("parent_paused")):
+        return jsonify(error="parent_paused", gate="parent_pause"), 423
     if feature and not feature_allowed(uid, feature):
         return jsonify(error="disabled_by_parent", feature=feature), 403
     quiet = quiet_hours_state(uid)
-    if quiet.get("active"):
+    if quiet.get("active") and not demo_unlimited:
         return jsonify(error="quiet_hours", gate="quiet_hours", quiet=_clean(quiet)), 423
     locked, remaining = lock_state(uid)
-    if locked:
-        used_resets = _kid_self_resets_today(uid)
+    if locked and not demo_unlimited:
         return jsonify(
             error="screen_time_limit",
             gate="screen_time",
             remaining=remaining,
-            self_resets_used=used_resets,
-            self_resets_remaining=max(0, 2 - used_resets),
         ), 423
-    if feed_quiz_state(uid).get("required"):
-        return jsonify(error="quiz_required", gate="quiz"), 428
+    # The periodic Reel quiz is not a global app gate. Reels consumes the
+    # quiz_required signal and performs the compulsory interruption there.
     key = (g.mobile_claims or {}).get("usage_session_key")
     if key:
         try:
@@ -366,7 +368,7 @@ def _child_gate(feature: str | None = None):
             pass
     return None
 
-def _asset_url(reference, viewer_id=None, viewer_role=None):
+def _asset_url(reference, viewer_id=None, viewer_role=None, auth_decisions=None):
     if not reference:
         return None
     from services.media_delivery import resolve_media_delivery
@@ -376,18 +378,116 @@ def _asset_url(reference, viewer_id=None, viewer_role=None):
     if v_id is None and hasattr(g, "mobile_user") and g.mobile_user:
         v_id = g.mobile_user.get("user_id")
         v_role = g.mobile_user.get("role")
-    res = resolve_media_delivery(reference, viewer_id=v_id, viewer_role=v_role)
+    res = resolve_media_delivery(reference, viewer_id=v_id, viewer_role=v_role,
+                                 auth_decisions=auth_decisions)
     return res.get("url")
 
-def _profile_json(row):
+def _profile_json(row, auth_decisions=None):
     if not row:
         return None
     out = dict(row)
-    out["avatar_url"] = _asset_url(out.get("profile_picture"))
+    out["avatar_url"] = _asset_url(out.get("profile_picture"), auth_decisions=auth_decisions)
     out.pop("profile_picture", None)
     return _clean(out)
 
-def _post_json(row, viewer_id=None):
+
+_LIKE_SAVE_TYPES = (
+    "POST_LIKED", "POST_UNLIKED", "POST_SAVED", "POST_UNSAVED",
+    "CURATED_LIKED", "CURATED_UNLIKED", "CURATED_SAVED", "CURATED_UNSAVED",
+)
+_LIKE_SAVE_ACTIVE = {"POST_LIKED", "POST_SAVED", "CURATED_LIKED", "CURATED_SAVED"}
+# Save/unsave activity is the child's private bookmarking behaviour. These
+# rows must never appear on parent-facing surfaces (mission rule: saved
+# content is private to the child, no parent saved-content surveillance).
+_SAVE_ACTIVITY_SQL = "activity_type NOT IN ('POST_SAVED','POST_UNSAVED','CURATED_SAVED','CURATED_UNSAVED')"
+# Parent-visible subset: saves are private to the child (mission rule), so
+# parent supervision surfaces only public like engagement, never bookmarks.
+_LIKE_ACTIVE = {"POST_LIKED", "CURATED_LIKED"}
+
+
+def _liked_saved_snapshot(child_id, limit=30, include_saved=True):
+    """Current liked/saved state per target.
+
+    Supervision metadata only: target type/id, the action, when it happened,
+    and a display label (post author's handle or curated content title).
+    Captions, message text, and media bytes are never exposed.
+
+    Saved content is private to the child: pass include_saved=False on parent
+    surfaces so a parent never sees the child's bookmarks. The child's own
+    "my activity" view keeps include_saved=True.
+    """
+    rows = fetch_all(
+        """SELECT DISTINCT ON ((activity_data->>'target_type'), (activity_data->>'target_id'))
+                  log_id, activity_type, activity_data, created_at
+           FROM activity_logs
+           WHERE child_id=%s AND activity_type IN
+               ('POST_LIKED','POST_UNLIKED','POST_SAVED','POST_UNSAVED',
+                'CURATED_LIKED','CURATED_UNLIKED','CURATED_SAVED','CURATED_UNSAVED')
+           ORDER BY (activity_data->>'target_type'), (activity_data->>'target_id'), log_id DESC""",
+        (child_id,),
+    ) or []
+    # Defensive: keep only the newest row per target even if DISTINCT ON is bypassed.
+    newest = {}
+    for r in rows:
+        data = r.get("activity_data") or {}
+        key = (data.get("target_type"), str(data.get("target_id")))
+        if key not in newest or r["log_id"] > newest[key]["log_id"]:
+            newest[key] = r
+    latest = [r for r in newest.values()
+              if r["activity_type"] in (_LIKE_SAVE_ACTIVE if include_saved else _LIKE_ACTIVE)]
+    latest.sort(key=lambda r: r["created_at"], reverse=True)
+    latest = latest[:limit]
+    parsed = []
+    post_ids, curated_ids = [], []
+    for r in latest:
+        data = r.get("activity_data") or {}
+        try:
+            tid = int(data.get("target_id"))
+        except (TypeError, ValueError):
+            continue
+        ttype = data.get("target_type")
+        if ttype == "POST":
+            post_ids.append(tid)
+        elif ttype == "CURATED":
+            curated_ids.append(tid)
+        else:
+            continue
+        parsed.append((r, ttype, tid))
+    authors = {}
+    if post_ids:
+        for prow in fetch_all(
+            "SELECT p.post_id, u.username, u.full_name FROM posts p "
+            "JOIN users u ON u.user_id=p.child_id WHERE p.post_id = ANY(%s)",
+            (post_ids,),
+        ) or []:
+            authors[prow["post_id"]] = prow["username"] or prow["full_name"] or "friend"
+    titles = {}
+    if curated_ids:
+        for crow in fetch_all(
+            "SELECT content_id, title FROM curated_content WHERE content_id = ANY(%s)",
+            (curated_ids,),
+        ) or []:
+            titles[crow["content_id"]] = crow["title"]
+    out = []
+    for r, ttype, tid in parsed:
+        action = "liked" if r["activity_type"].endswith("_LIKED") else "saved"
+        label = None
+        if ttype == "POST" and tid in authors:
+            label = "Post by @" + str(authors[tid])
+        elif ttype == "CURATED" and tid in titles:
+            label = str(titles[tid])
+        out.append({
+            "log_id": r["log_id"],
+            "activity_type": r["activity_type"],
+            "action": action,
+            "target_type": ttype,
+            "target_id": tid,
+            "target_label": label,
+            "created_at": r["created_at"],
+        })
+    return out
+
+def _post_json(row, viewer_id=None, auth_decisions=None):
     if not row:
         return None
     out = dict(row)
@@ -401,9 +501,12 @@ def _post_json(row, viewer_id=None):
 
     from services.media_delivery import resolve_media_delivery
 
-    media_res = resolve_media_delivery(out.get("media_path"), viewer_id=v_id, viewer_role=v_role)
-    avatar_res = resolve_media_delivery(out.get("profile_picture"), viewer_id=v_id, viewer_role=v_role)
-    poster_res = resolve_media_delivery(out.get("poster_path"), viewer_id=v_id, viewer_role=v_role)
+    media_res = resolve_media_delivery(out.get("media_path"), viewer_id=v_id, viewer_role=v_role,
+                                       auth_decisions=auth_decisions)
+    avatar_res = resolve_media_delivery(out.get("profile_picture"), viewer_id=v_id, viewer_role=v_role,
+                                        auth_decisions=auth_decisions)
+    poster_res = resolve_media_delivery(out.get("poster_path"), viewer_id=v_id, viewer_role=v_role,
+                                        auth_decisions=auth_decisions)
 
     out["media_url"] = media_res.get("url")
     out["avatar_url"] = avatar_res.get("url")
@@ -448,7 +551,7 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
         if quiz_state is None:
             q_state = feed_quiz_state(uid)
             quiz_state = {
-                "required": bool(q_state.get("required") or needs_onboarding_quiz(uid)),
+                "required": bool(q_state.get("required")),
                 "posts_seen": int(q_state.get("posts_seen", 0)),
                 "interval": int(q_state.get("interval", 5)),
                 "next_quiz_threshold": int(q_state.get("next_quiz_threshold", 5)),
@@ -463,6 +566,8 @@ def _mobile_user_payload(user, quiz_state: dict | None = None):
         "email": user.get("email"),
         "role": user.get("role"),
         "age": user.get("age"),
+        "parent_paused": bool(user.get("parent_paused")) if user.get("role") == "CHILD" else False,
+        "demo_unlimited": bool(user.get("demo_unlimited")) if user.get("role") == "CHILD" else False,
         "profile": profile,
         "quiz_required": quiz_required,
         "posts_seen": posts_seen,
@@ -482,7 +587,7 @@ def _mobile_login_response(user, method="PASSWORD"):
         uid = int(user["user_id"])
         qs = feed_quiz_state(uid)
         quiz_state = {
-            "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+            "required": bool(qs.get("required")),
             "posts_seen": int(qs.get("posts_seen", 0)),
             "interval": int(qs.get("interval", 5)),
             "next_quiz_threshold": int(qs.get("next_quiz_threshold", 5)),
@@ -667,12 +772,11 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
                WHERE p.post_id = ANY(%s)
                  AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE
                  AND p.content_category = ANY(%s) AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-                 AND (p.child_id=%s OR EXISTS(SELECT 1 FROM followers f WHERE f.child_id=%s AND f.following_child_id=p.child_id AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
                  AND p.child_id NOT IN (
                    SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
                    UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
                    UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)""",
-            (child_post_ids, uid, cats, age_group, age_group, uid, uid, uid, uid, uid),
+            (child_post_ids, uid, cats, age_group, age_group, uid, uid, uid),
         ) or []:
             if vr.get("is_reel") and not feature_allowed(uid, "reels"):
                 continue
@@ -787,6 +891,26 @@ def _resolve_parent_review(
             conn.rollback()
             return False, "forbidden"
 
+        # Terminal-block guard: a BLOCKED decision is final. If the content
+        # was blocked after this event was minted (e.g. a duplicate child
+        # report created a fresh OPEN event for already-blocked content), an
+        # APPROVE must not resurrect it — downgrade to BLOCK, mirroring the
+        # connection-changed safe conversion below.
+        content_terminally_blocked = False
+        if requested == "APPROVE" and event.get("content_id"):
+            ctype = event.get("content_type")
+            if ctype in {"IMAGE", "VIDEO", "AUDIO", "TEXT"}:
+                cur.execute("SELECT moderation_status FROM posts WHERE post_id=%s", (event["content_id"],))
+            elif ctype == "COMMENT":
+                cur.execute("SELECT moderation_status FROM comments WHERE comment_id=%s", (event["content_id"],))
+            elif ctype == "MESSAGE":
+                cur.execute("SELECT moderation_status FROM child_messages WHERE child_message_id=%s", (event["content_id"],))
+            else:
+                cur.execute("SELECT 1 WHERE FALSE")
+            srow = cur.fetchone()
+            if str((srow or {}).get("moderation_status") or "").upper() == "BLOCKED":
+                content_terminally_blocked = True
+
         status = "ALLOWED" if requested == "APPROVE" else "BLOCKED"
         # Safety: a MESSAGE approval is only effective while the sender/receiver pair is
         # still an unblocked, approved connection. If the relationship broke (or the
@@ -794,6 +918,8 @@ def _resolve_parent_review(
         # converted to a block so the message can never be delivered after the fact.
         # Mirrors the web parent review path in parent/routes.py.
         effective = requested
+        if content_terminally_blocked:
+            effective = "BLOCK"
         if event["content_type"] == "MESSAGE" and event.get("content_id") and requested == "APPROVE":
             cur.execute(
                 "SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s FOR UPDATE",
@@ -982,7 +1108,7 @@ def _resolve_parent_review(
 
         cur.execute(
             "INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)",
-            (event_id, reviewer_id, effective, ("Connection changed; approval safely converted to block." if effective != requested else notes)),
+            (event_id, reviewer_id, effective, ("Content already blocked; approval safely converted to block." if content_terminally_blocked else ("Connection changed; approval safely converted to block." if effective != requested else notes))),
         )
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s", (event_id,))
         if is_admin:
@@ -1265,7 +1391,7 @@ def register_mobile_api(bp):
             uid = int(g.mobile_user["user_id"])
             qs = feed_quiz_state(uid)
             quiz_state = {
-                "required": bool(qs.get("required") or needs_onboarding_quiz(uid)),
+                "required": bool(qs.get("required")),
                 "posts_seen": int(qs.get("posts_seen", 0)),
                 "interval": int(qs.get("interval", 4)),
             }
@@ -1309,13 +1435,35 @@ def register_mobile_api(bp):
         uid = int(g.mobile_user["user_id"])
         if not profile_exists(uid):
             create_child_profile(uid, {"full_name": g.mobile_user.get("full_name") or "Student", "bio": "Hey! I'm on LittleNet 🌟"})
+        # Startup-critical path: authorize every media reference in the whole
+        # payload with one batched pass instead of ~10 sequential DB round
+        # trips per item inside _post_json (dominant /kids/home latency cost).
+        story_rows = active_stories(uid)
+        post_rows = visible_posts(uid, False, 20, 0)
+        reel_rows = visible_posts(uid, True, 8, 0)
+        suggested_rows = get_random_children(uid)[:8]
+        _refs = set()
+        for _r in story_rows + post_rows + reel_rows:
+            for _k in ("media_path", "poster_path", "profile_picture"):
+                _v = (_r.get(_k) or "").strip() if isinstance(_r, dict) else ""
+                if _v:
+                    _refs.add(_v)
+        _pp = get_child_profile(uid)
+        _pp_pic = (_pp.get("profile_picture") or "") if isinstance(_pp, dict) else ""
+        if _pp_pic.strip():
+            _refs.add(_pp_pic.strip())
+        for _c in suggested_rows:
+            _av = (_c.get("profile_picture") or "").strip() if isinstance(_c, dict) else ""
+            if _av:
+                _refs.add(_av)
+        _auth = _media_allowed_many(uid, "CHILD", _refs)
         return jsonify(
             ok=True,
-            profile=_profile_json(get_child_profile(uid)),
-            stories=[_post_json(p, uid) for p in active_stories(uid)],
-            posts=[_post_json(p, uid) for p in visible_posts(uid, False, 20, 0)],
-            reels=[_post_json(p, uid) for p in visible_posts(uid, True, 8, 0)],
-            suggested=[_clean({**dict(c), "avatar_url": _asset_url(c.get("profile_picture"))}) for c in get_random_children(uid)[:8]],
+            profile=_profile_json(_pp, auth_decisions=_auth),
+            stories=[_post_json(p, uid, auth_decisions=_auth) for p in story_rows],
+            posts=[_post_json(p, uid, auth_decisions=_auth) for p in post_rows],
+            reels=[_post_json(p, uid, auth_decisions=_auth) for p in reel_rows],
+            suggested=[_clean({**dict(c), "avatar_url": _asset_url(c.get("profile_picture"), auth_decisions=_auth)}) for c in suggested_rows],
             controls=_clean(controls_for_child(uid)),
             minutes_today=minutes_today(uid),
         )
@@ -1331,6 +1479,11 @@ def register_mobile_api(bp):
             page = max(1, int(request.args.get("page", 1)))
         except (TypeError, ValueError):
             page = 1
+        # Server-side quiz latch enforcement: backend is the final authority.
+        # When the compulsory quiz latch is active, serve no reels — the client
+        # must present the quiz. Prevents bypass by ignoring the quiz_required signal.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=True, page=page, reels=[], quiz_required=True)
         rows = visible_posts(uid, True, 10, (page - 1) * 10)
         return jsonify(ok=True, page=page, reels=[_post_json(p, uid) for p in rows])
 
@@ -1744,11 +1897,17 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v2/kids/chat/uploads/mock-put/<upload_id>", methods=["PUT"])
     @csrf.exempt
+    @_require_mobile("CHILD")
     def mobile_kids_chat_mock_put(upload_id):
         if Config._PRODUCTION or os.environ.get("ENABLE_MOCK_PUT", "0") != "1":
             return jsonify(error="not_found"), 404
         row = fetch_one("SELECT * FROM chat_upload_sessions WHERE upload_id=%s", (upload_id,))
         if not row:
+            return jsonify(error="session_not_found"), 404
+        # The upload session is bound to its owning child: a different child
+        # (or a tokenless caller) must not be able to overwrite the pending
+        # bytes that will be sent under the owner's name.
+        if int(row["child_id"]) != int(g.mobile_user["user_id"]):
             return jsonify(error="session_not_found"), 404
         mock_dir = Path("uploads/mock_chat_quarantine") / str(row["child_id"]) / str(upload_id)
         mock_dir.mkdir(parents=True, exist_ok=True)
@@ -1962,6 +2121,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v1/kids/follow/<int:child_id>", methods=["POST"])
     @csrf.exempt
+    @limiter.limit("30 per hour")
     @_require_mobile("CHILD")
     def mobile_kids_follow(child_id):
         gate = _child_gate("discover")
@@ -1972,12 +2132,27 @@ def register_mobile_api(bp):
             return jsonify(error="self_follow"), 400
         if not can_discover_child(uid, child_id):
             return jsonify(error="child_unavailable"), 404
-        if is_following(uid, child_id) or is_follow_pending(uid, child_id):
+        if is_following(uid, child_id):
+            # Active friendship: unfollowing removes both directions.
             unfollow_child(uid, child_id)
             return jsonify(ok=True, status="removed")
+        if outgoing_follow_pending(uid, child_id):
+            # Cancel MY request. Unwinds trigger-generated handshake rows, but
+            # never deletes their genuine incoming request.
+            cancel_outgoing_follow(uid, child_id)
+            return jsonify(ok=True, status="cancelled")
+        if not child_has_guardian(child_id):
+            # Nobody on the other side can ever approve: refuse now instead of
+            # creating a request that deadlocks at RECEIVER_PARENT_PENDING.
+            return jsonify(error="target_has_no_guardian",
+                           message="This user can't receive follow requests right now."), 400
+        # Follow back is a fresh outgoing request of mine; their incoming
+        # request is left untouched for their parent to approve.
         follow_child(uid, child_id)
         record_signal(uid, "CREATOR", child_id, "FOLLOW")
         parent_notify(uid, "FOLLOW_REQUEST", "A new connection request needs approval", "/parent/follow-requests/")
+        if incoming_follow_pending(uid, child_id):
+            return jsonify(ok=True, status="follow_back_pending")
         return jsonify(ok=True, status="pending")
 
     @bp.route("/api/mobile/v1/kids/connections")
@@ -2088,9 +2263,11 @@ def register_mobile_api(bp):
         if exists:
             execute("DELETE FROM likes WHERE post_id=%s AND child_id=%s", (post_id, uid))
             liked = False
+            log(uid, "POST_UNLIKED", {"target_type": "POST", "target_id": post_id})
         else:
             execute("INSERT INTO likes(post_id,child_id) VALUES(%s,%s)", (post_id, uid))
             liked = True
+            log(uid, "POST_LIKED", {"target_type": "POST", "target_id": post_id})
             record_signal(uid, "SOCIAL", post_id, "LIKE")
             owner_id = post["child_id"]
             if owner_id != uid and can_interact(owner_id, uid):
@@ -2118,9 +2295,11 @@ def register_mobile_api(bp):
         if exists:
             execute("DELETE FROM saved_posts WHERE child_id=%s AND post_id=%s", (uid, post_id))
             saved = False
+            log(uid, "POST_UNSAVED", {"target_type": "POST", "target_id": post_id})
         else:
             execute("INSERT INTO saved_posts(child_id,post_id) VALUES(%s,%s) ON CONFLICT DO NOTHING", (uid, post_id))
             saved = True
+            log(uid, "POST_SAVED", {"target_type": "POST", "target_id": post_id})
             record_signal(uid, "SOCIAL", post_id, "SAVE")
         return jsonify(ok=True, saved=saved)
 
@@ -2567,6 +2746,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v2/uploads/mock-put/<upload_id>", methods=["PUT"])
     @csrf.exempt
+    @_require_mobile("CHILD")
     def mobile_v2_mock_put(upload_id):
         # PRODUCTION GUARD: mock-PUT is a dev/CI convenience only.
         # Disabled whenever the server runs under HTTPS or when the explicit
@@ -2577,6 +2757,11 @@ def register_mobile_api(bp):
             return jsonify(error="not_found"), 404
         session_row = fetch_one("SELECT * FROM upload_sessions WHERE upload_id=%s", (upload_id,))
         if not session_row:
+            return jsonify(error="session_not_found"), 404
+        # Bind the PUT to the session owner: otherwise anyone holding the
+        # upload_id could substitute the bytes published under another
+        # child's name at complete time.
+        if int(session_row["child_id"]) != int(g.mobile_user["user_id"]):
             return jsonify(error="session_not_found"), 404
         mock_dir = Path("uploads/mock_quarantine") / str(session_row["child_id"]) / upload_id
         mock_dir.mkdir(parents=True, exist_ok=True)
@@ -2969,16 +3154,20 @@ def register_mobile_api(bp):
     def mobile_quiz():
         uid = int(g.mobile_user["user_id"])
         state = feed_quiz_state(uid)
-        if state.get("required"):
+        practice_mode = str(request.args.get("mode") or "").lower() == "practice"
+        if state.get("required") and not practice_mode:
             row = required_feed_quiz(uid)
             rows = [row] if row else []
             reason = "feed_break"
         else:
             limit_arg = request.args.get("limit", type=int)
-            default_limit = 2 if needs_onboarding_quiz(uid) else 5
+            default_limit = 5
             n = limit_arg if (limit_arg and 1 <= limit_arg <= 20) else default_limit
-            rows = quizzes(uid, n)
-            reason = "onboarding" if needs_onboarding_quiz(uid) else "practice"
+            rows = quizzes(uid, min(20, n + (1 if state.get("quiz_id") else 0)))
+            if practice_mode and state.get("quiz_id"):
+                rows = [r for r in rows if int(r.get("quiz_id") or 0) != int(state["quiz_id"])]
+            rows = rows[:n]
+            reason = "practice"
 
         if not rows:
             return jsonify(error="quiz_bank_unavailable"), 503
@@ -2996,7 +3185,7 @@ def register_mobile_api(bp):
         return jsonify(
             ok=True,
             reason=reason,
-            required=bool((state.get("required") or needs_onboarding_quiz(uid)) and len(payload) > 0),
+            required=bool(state.get("required") and not practice_mode and len(payload) > 0),
             quiz_interval=int(state.get("interval", 5)),
             next_quiz_threshold=int(state.get("next_quiz_threshold", 5)),
             quizzes=_clean(payload),
@@ -3007,7 +3196,9 @@ def register_mobile_api(bp):
     @_require_mobile("CHILD")
     def mobile_quiz_answer(quiz_id):
         uid = int(g.mobile_user["user_id"])
-        answer = str((_json_dict()).get("answer") or "").strip()
+        answer_data = _json_dict()
+        answer = str(answer_data.get("answer") or "").strip()
+        practice_mode = str(answer_data.get("mode") or "").lower() == "practice"
         if not answer:
             return jsonify(error="answer_required"), 400
 
@@ -3019,7 +3210,10 @@ def register_mobile_api(bp):
             return jsonify(error="quiz_not_available"), 404
         correct, correct_answer, xp, explanation = record_feed_answer(uid, quiz_id, answer)
         state = feed_quiz_state(uid)
-        if state.get("required") and state.get("quiz_id") == quiz_id:
+        # A compulsory Reel quiz unlocks only after a correct answer.
+        # Wrong answers are recorded and the correct answer is returned for UI
+        # feedback, but the server-side latch remains active.
+        if (not practice_mode) and correct and state.get("required") and state.get("quiz_id") == quiz_id:
             complete_required_feed_quiz(uid, quiz_id)
         after_state = feed_quiz_state(uid)
         return jsonify(
@@ -3136,6 +3330,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v1/kids/report", methods=["POST"])
     @csrf.exempt
+    @limiter.limit("30 per hour")
     @_require_mobile("CHILD")
     def mobile_kids_report():
         uid = int(g.mobile_user["user_id"])
@@ -3164,7 +3359,7 @@ def register_mobile_api(bp):
             row = fetch_one("SELECT post_id FROM comments WHERE comment_id=%s AND moderation_status='ALLOWED'", (tid,))
             valid = bool(row and post_visible_to(uid, row["post_id"]))
         elif kind == "MESSAGE":
-            valid = bool(fetch_one("SELECT 1 FROM child_messages WHERE child_message_id=%s AND (sender_child_id=%s OR receiver_child_id=%s)", (tid, uid, uid)))
+            valid = bool(fetch_one("SELECT 1 FROM child_messages WHERE child_message_id=%s AND moderation_status<>'BLOCKED' AND (sender_child_id=%s OR receiver_child_id=%s)", (tid, uid, uid)))
 
         if not valid:
             return jsonify(error="target_unavailable"), 404
@@ -3197,7 +3392,7 @@ def register_mobile_api(bp):
             except Exception:
                 child["safety"] = {"safety_level": "STRICT"}
             try:
-                child["open_reviews"] = (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE child_id=%s AND decision='REVIEW' AND status='OPEN'", (cid,)) or {"n": 0})["n"]
+                child["open_reviews"] = (fetch_one("SELECT COUNT(*) n FROM moderation_events e WHERE e.child_id=%s AND e.decision='REVIEW' AND e.status='OPEN' AND EXISTS (SELECT 1 FROM parent_child_map m JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE' WHERE m.child_id=e.child_id AND m.approved=TRUE AND m.approval_status='APPROVED' AND (m.parent_id=%s OR m.verified_parent_id=%s))", (cid, pid, pid, pid)) or {"n": 0})["n"]
             except Exception:
                 child["open_reviews"] = 0
             try:
@@ -3247,7 +3442,7 @@ def register_mobile_api(bp):
             if "unique constraint" in err_msg or "duplicate key" in err_msg or "uniqueviolation" in err_msg:
                 return jsonify(error="This username is already taken. Please choose another."), 400
             return jsonify(error="child_creation_failed", message="Unable to create child account. Please verify details and try again."), 400
-        return jsonify(ok=True, child_id=child_id, next_steps=["age_quiz"]), 201
+        return jsonify(ok=True, child_id=child_id, next_steps=["kids_mode"]), 201
 
     @bp.route("/api/mobile/v1/parent/controls/<int:child_id>", methods=["GET", "PUT"])
     @csrf.exempt
@@ -3314,6 +3509,94 @@ def register_mobile_api(bp):
             controls=_clean(controls_payload),
             time_limit=_clean(limit_row) if limit_row else None,
             categories=SAFE_CATEGORIES,
+        )
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/access", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_access(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        action = str((_json_dict()).get("action") or "").upper()
+        if action not in {"PAUSE", "RESUME"}:
+            return jsonify(error="invalid_action"), 400
+        paused = action == "PAUSE"
+        execute(
+            "UPDATE users SET parent_paused=%s WHERE user_id=%s AND role='CHILD'",
+            (paused, child_id),
+        )
+        log(child_id, f"PARENT_{action}", {"parent_id": pid})
+        notify(
+            child_id,
+            "PARENT_ACCESS",
+            "Your parent paused LittleNet." if paused else "Your parent resumed LittleNet.",
+            "/child/dashboard/",
+            pid,
+        )
+        return jsonify(ok=True, parent_paused=paused, action=action)
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/restart", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_restart(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        restart_child_sessions(child_id)
+        log(child_id, "PARENT_RESTART_SESSIONS", {"parent_id": pid})
+        return jsonify(ok=True, message="Child sessions restarted. Sign in again on the child device.")
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/reset-settings", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_child_reset_settings(child_id):
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        reset_controls_to_defaults(child_id)
+        execute(
+            """INSERT INTO child_time_limits(child_id,daily_limit_minutes,strict_mode,bonus_minutes,bonus_date)
+               VALUES(%s,60,TRUE,0,NULL)
+               ON CONFLICT(child_id) DO UPDATE SET
+                 daily_limit_minutes=60,strict_mode=TRUE,bonus_minutes=0,bonus_date=NULL,updated_at=NOW()""",
+            (child_id,),
+        )
+        execute("DELETE FROM parent_quiz_settings WHERE child_id=%s", (child_id,))
+        execute("DELETE FROM screen_time_extension_requests WHERE child_id=%s", (child_id,))
+        execute("UPDATE users SET parent_paused=FALSE WHERE user_id=%s AND role='CHILD'", (child_id,))
+        log(child_id, "PARENT_RESET_SETTINGS", {"parent_id": pid})
+        notify(child_id, "PARENT_CONTROLS", "Your parent restored LittleNet settings to defaults.", "/child/dashboard/", pid)
+        return jsonify(ok=True, message="Child settings restored to defaults.")
+
+    @bp.route("/api/mobile/v1/parent/child/<int:child_id>/clear-everything", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("10 per hour")
+    @_require_mobile("PARENT")
+    def mobile_parent_child_clear_everything(child_id):
+        # Destructive: wipes the child's posts/reels/stories, social graph,
+        # chats, quiz/activity history and resets settings to defaults, while
+        # keeping the login identity and the parent-child link. R2 media is
+        # queued for durable deletion via media_delete_outbox (never stranded).
+        # Server-authoritative: parent role + owns() gate; the mobile UI must
+        # explain the scope and require fresh parent device auth first.
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        from services.account_reset import clear_everything_for_child
+        try:
+            summary = clear_everything_for_child(child_id, pid)
+        except ValueError as exc:
+            return jsonify(error=str(exc) or "clear_everything_failed"), 400
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Clear-everything failed for child %s", child_id)
+            return jsonify(error="clear_everything_failed"), 500
+        log(child_id, "PARENT_CLEAR_EVERYTHING", {"parent_id": pid, "summary": summary})
+        return jsonify(
+            ok=True,
+            message="Cleared all activity for this child. Login and family link are unchanged.",
+            cleared=summary,
         )
 
     @bp.route("/api/mobile/v1/parent/child/<int:child_id>", methods=["DELETE"])
@@ -3466,7 +3749,11 @@ def register_mobile_api(bp):
     def mobile_parent_review(event_id):
         action = str((_json_dict()).get("action") or "").upper()
         ok, result = _resolve_parent_review(int(g.mobile_user["user_id"]), event_id, action)
-        status = 200 if ok else 403 if result == "forbidden" else 404 if result == "not_found" else 400
+        # Map "forbidden" to 404 as well: a 403 would tell a probing parent
+        # that the event_id exists but belongs to another family (enumeration
+        # oracle). The sibling post-delete path already 404s on failed
+        # ownership for the same reason.
+        status = 200 if ok else 404 if result in ("forbidden", "not_found") else 400
         return jsonify(ok=ok, result=result), status
 
     @bp.route("/api/mobile/v1/parent/follow-requests")
@@ -3490,7 +3777,11 @@ def register_mobile_api(bp):
         if action == "approve":
             changed = execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')", (child_id, target_id))
         elif action == "reject":
-            changed = execute_count("DELETE FROM followers WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')", (child_id, target_id))
+            # Explicit pair cleanup: the delete trigger no longer cascades for
+            # pending rows, so remove my outgoing request plus the handshake
+            # row ((target, child) at either handshake stage). Genuine
+            # REQUESTED rows in the opposite direction are never touched.
+            changed = execute_count("DELETE FROM followers WHERE approved=FALSE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s AND approval_stage IN ('SENDER_PARENT_APPROVED','RECEIVER_PARENT_PENDING')))", (child_id, target_id, target_id, child_id))
         else:
             return jsonify(error="invalid_action"), 400
         if not changed:
@@ -3547,6 +3838,7 @@ def register_mobile_api(bp):
                 """SELECT log_id,activity_type,activity_data,created_at
                    FROM activity_logs
                    WHERE child_id=%s AND log_id < %s
+                     AND """ + _SAVE_ACTIVITY_SQL + """
                    ORDER BY log_id DESC
                    LIMIT %s""",
                 (child_id, before_id, limit + 1),
@@ -3556,6 +3848,7 @@ def register_mobile_api(bp):
                 """SELECT log_id,activity_type,activity_data,created_at
                    FROM activity_logs
                    WHERE child_id=%s
+                     AND """ + _SAVE_ACTIVITY_SQL + """
                    ORDER BY log_id DESC
                    LIMIT %s""",
                 (child_id, limit + 1),
@@ -3599,7 +3892,79 @@ def register_mobile_api(bp):
             has_more=has_more,
             next_cursor=next_cursor,
             recent_chat_partners=partners,
+            liked_saved=_clean(_liked_saved_snapshot(child_id, include_saved=False)),
         )
+
+    @bp.route("/api/mobile/v1/demo-boost/status")
+    @_require_mobile("CHILD", "PARENT", "ADMIN")
+    def mobile_demo_boost_status():
+        from services.demo_boost import status as demo_boost_status
+        try:
+            return jsonify(ok=True, demo_boost=_clean(demo_boost_status()))
+        except Exception:
+            # Demo Boost is an optional acceleration layer; an unavailable
+            # control plane must never break normal LittleNet screens.
+            return jsonify(ok=True, demo_boost={"active": False, "status": "OFF", "remaining_seconds": 0})
+
+    def _audit_demo_boost(action, details):
+        # Demo Boost changes GPU spend, so every admin start/extend/stop is
+        # recorded in the simple admin activity log. The audit write must
+        # never break the admin action itself.
+        try:
+            execute(
+                """INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,details)
+                   VALUES(%s,%s,'DEMO_BOOST',NULL,%s::jsonb)""",
+                (int(g.mobile_user["user_id"]), action, json.dumps(details or {})),
+            )
+        except Exception:
+            pass
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/start", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_start():
+        from services.demo_boost import activate
+        data = _json_dict()
+        try:
+            minutes = int(data.get("minutes"))
+            result = activate(int(g.mobile_user["user_id"]), minutes)
+        except (TypeError, ValueError) as exc:
+            return jsonify(error=str(exc) or "invalid_demo_boost_minutes"), 400
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_START", {"minutes": minutes, "status": (result or {}).get("status")})
+        return jsonify(ok=True, demo_boost=_clean(result))
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/extend", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_extend():
+        from services.demo_boost import extend
+        data = _json_dict()
+        try:
+            minutes = int(data.get("minutes"))
+            result = extend(int(g.mobile_user["user_id"]), minutes)
+        except (TypeError, ValueError) as exc:
+            return jsonify(error=str(exc) or "invalid_demo_boost_extension"), 400
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_EXTEND", {"minutes": minutes, "status": (result or {}).get("status")})
+        return jsonify(ok=True, demo_boost=_clean(result))
+
+    @bp.route("/api/mobile/v1/admin/demo-boost/stop", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("12 per minute")
+    @_require_mobile("ADMIN")
+    def mobile_admin_demo_boost_stop():
+        from services.demo_boost import stop
+        try:
+            result = stop()
+        except Exception as exc:
+            return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_STOP", {"status": (result or {}).get("status")})
+        return jsonify(ok=True, demo_boost=_clean(result))
 
     @bp.route("/api/mobile/v1/admin/dashboard")
     @_require_mobile("ADMIN")
@@ -3608,7 +3973,7 @@ def register_mobile_api(bp):
             "users": (fetch_one("SELECT COUNT(*) n FROM users", ()) or {"n": 0})["n"],
             "children": (fetch_one("SELECT COUNT(*) n FROM users WHERE role='CHILD'", ()) or {"n": 0})["n"],
             "parents": (fetch_one("SELECT COUNT(*) n FROM users WHERE role='PARENT'", ()) or {"n": 0})["n"],
-            "open_reviews": (fetch_one("SELECT COUNT(*) n FROM moderation_events WHERE decision='REVIEW' AND status='OPEN'", ()) or {"n": 0})["n"],
+            "signups_today": (fetch_one("SELECT COUNT(*) n FROM users WHERE created_at::date=CURRENT_DATE", ()) or {"n": 0})["n"],
         }
         return jsonify(ok=True, counts=_clean(counts_row))
 
@@ -3633,7 +3998,6 @@ def register_mobile_api(bp):
         if gate:
             return gate
         locked, remaining = lock_state(uid)
-        used_resets = _kid_self_resets_today(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         controls = controls_for_child(uid)
         quiet = quiet_hours_state(uid)
@@ -3651,8 +4015,6 @@ def register_mobile_api(bp):
             },
             server_time=datetime.now(timezone.utc).isoformat(),
             locked=locked,
-            self_resets_used=used_resets,
-            self_resets_remaining=max(0, 2 - used_resets),
         )
 
     @bp.route("/api/mobile/v1/kids/time-limit/status")
@@ -3660,7 +4022,6 @@ def register_mobile_api(bp):
     def mobile_kids_time_limit_status():
         uid = int(g.mobile_user["user_id"])
         locked, remaining = lock_state(uid)
-        used = _kid_self_resets_today(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         return jsonify(
             ok=True,
@@ -3669,54 +4030,320 @@ def register_mobile_api(bp):
             daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
             strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
             remaining_minutes=remaining,
-            resets_used=used,
-            resets_remaining=max(0, 2 - used),
+        )
+
+    @bp.route("/api/mobile/v1/kids/my-controls")
+    @_require_mobile("CHILD")
+    def mobile_kids_my_controls():
+        """Read-only view of the requesting child's own safety controls.
+
+        Strictly self-scoped: every value is derived from the session uid.
+        No parent account info, no sibling data, no moderation internals.
+        Everything shown stays parent-managed and server-enforced; this
+        endpoint only surfaces what already applies to the child.
+        """
+        uid = int(g.mobile_user["user_id"])
+        controls = controls_for_child(uid)
+        quiet = quiet_hours_state(uid)
+        safety_row = fetch_one("SELECT safety_level FROM parent_safety_settings WHERE child_id=%s", (uid,))
+        limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
+        return jsonify(
+            ok=True,
+            safety_level=(safety_row["safety_level"] if safety_row else "STRICT"),
+            daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
+            strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
+            quiet_hours={
+                "enabled": bool(controls.get("quiet_hours_enabled")),
+                "active": bool(quiet.get("active")),
+                "start": str(quiet.get("start") or controls.get("quiet_start") or "21:00"),
+                "end": str(quiet.get("end") or controls.get("quiet_end") or "07:00"),
+            },
+            features={
+                "reels": bool(feature_allowed(uid, "reels")),
+                "stories": bool(feature_allowed(uid, "stories")),
+                "messaging": bool(feature_allowed(uid, "messaging")),
+                "posting": bool(feature_allowed(uid, "posting")),
+                "discover": bool(feature_allowed(uid, "discover")),
+                "comments": bool(feature_allowed(uid, "comments")),
+            },
+            educational_only_feed=bool(controls.get("educational_only_feed")),
+        )
+
+    @bp.route("/api/mobile/v1/kids/my-activity")
+    @_require_mobile("CHILD")
+    def mobile_kids_my_activity():
+        """Read-only view of the requesting child's own recent activity.
+
+        Strictly self-scoped (session uid only): own like/save snapshot,
+        own quiz attempts. The child already sees all of this content
+        in-app; this just aggregates it in one place.
+        """
+        uid = int(g.mobile_user["user_id"])
+        liked_saved = _clean(_liked_saved_snapshot(uid, limit=30))
+        quiz_7d = fetch_one(
+            "SELECT COUNT(*) attempted, COUNT(*) FILTER (WHERE is_correct) correct "
+            "FROM child_quiz_attempts WHERE child_id=%s AND attempted_at>=NOW()-INTERVAL '7 days'",
+            (uid,),
+        ) or {"attempted": 0, "correct": 0}
+        recent = fetch_all(
+            "SELECT quiz_id, is_correct, attempted_at FROM child_quiz_attempts "
+            "WHERE child_id=%s ORDER BY attempted_at DESC LIMIT 10",
+            (uid,),
+        ) or []
+        return jsonify(
+            ok=True,
+            liked_saved=liked_saved,
+            quiz_7d={
+                "attempted": int(quiz_7d.get("attempted") or 0),
+                "correct": int(quiz_7d.get("correct") or 0),
+            },
+            recent_quizzes=_clean(recent),
         )
 
     @bp.route("/api/mobile/v1/kids/time-limit/reset", methods=["POST"])
     @csrf.exempt
     @_require_mobile("CHILD")
     def mobile_kids_time_limit_self_reset():
-        uid = int(g.mobile_user["user_id"])
-        quiet = quiet_hours_state(uid)
-        if quiet.get("active"):
-            return jsonify(error="quiet_hours_active", message="Cannot reset screen time during quiet hours bedtime."), 403
+        # Final college-demo rule: children cannot reset or extend their own
+        # allowance. They may request more time, but only the linked parent can
+        # grant/reset it from Parent Mode.
+        return jsonify(
+            error="parent_action_required",
+            message="Only your parent can reset or extend screen time.",
+            resets_used=0,
+            resets_remaining=0,
+        ), 403
 
-        used = _kid_self_resets_today(uid)
-        if used >= 2:
-            return jsonify(
-                error="self_resets_exhausted",
-                message="You have used all 2 daily resets for today. Please ask your parent to add more time.",
-                resets_used=used,
-                resets_remaining=0,
-            ), 403
+    # ---- Screen-time extension requests (child asks, parent decides) ----
+    # A child creates a PENDING request; a parent approves (granting a
+    # today-only bonus enforced by services/usage.py lock_state) or rejects.
+    # Decided requests are immutable; stale PENDING rows expire end of day.
 
-        # Clear today's logged usage logs and active session durations
-        execute("DELETE FROM child_usage_logs WHERE child_id=%s AND usage_date=CURRENT_DATE", (uid,))
-        execute("DELETE FROM child_usage_sessions WHERE child_id=%s AND ended_at IS NOT NULL AND started_at::date=CURRENT_DATE", (uid,))
-        execute("UPDATE child_usage_sessions SET started_at=NOW(), last_seen_at=NOW() WHERE child_id=%s AND ended_at IS NULL", (uid,))
-        execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE", (uid,))
-
-        new_count = used + 1
-        remaining = max(0, 2 - new_count)
-        log(uid, "KID_SCREEN_TIME_SELF_RESET", {"reset_number": new_count, "remaining_resets": remaining})
-        notify(uid, "SCREEN_TIME_RESET", f"You used daily reset #{new_count}. You have {remaining} reset(s) left today.", "/child/dashboard/")
-
-        # Notify parents of child self-reset
+    def _expire_stale_extension_requests():
         execute(
-            """INSERT INTO parent_notifications(parent_id, child_id, notification_type, notification_message, target_url)
-               SELECT parent_id, %s, 'SCREEN_TIME', 'Your child used daily screen-time reset #' || %s || ' (' || %s || ' remaining today).', '/parent/time-limit/?child_id=' || %s
-               FROM parent_child_map WHERE child_id=%s AND parent_id IS NOT NULL""",
-            (uid, str(new_count), str(remaining), str(uid), uid),
+            "UPDATE screen_time_extension_requests SET status='EXPIRED' "
+            "WHERE status='PENDING' AND created_at::date < CURRENT_DATE"
         )
 
+    @bp.route("/api/mobile/v1/kids/time-limit/extension-request", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("10 per hour")
+    @_require_mobile("CHILD")
+    def mobile_kids_time_limit_extension_request():
+        uid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        data = _json_dict()
+        try:
+            requested = int(data.get("requested_minutes", 30))
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_minutes"), 400
+        if not 5 <= requested <= 180:
+            return jsonify(error="invalid_minutes", message="Ask for 5-180 minutes."), 400
+        # Race guard: the check-then-insert runs inside one transaction under a
+        # per-child advisory lock, so concurrent double-submits cannot create
+        # two PENDING rows. The partial unique index
+        # idx_ster_one_pending_per_child is defense in depth: a violation is
+        # reported as 409, never a 500.
+        from database.connection import get_db_connection
+        import psycopg2.errors as _pg_errors
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842103, uid))
+                cur.execute(
+                    "SELECT request_id FROM screen_time_extension_requests "
+                    "WHERE child_id=%s AND status='PENDING'",
+                    (uid,),
+                )
+                pending = cur.fetchone()
+                if pending:
+                    conn.rollback()
+                    return jsonify(
+                        error="extension_request_pending",
+                        message="You already have a request waiting for your parent.",
+                        request_id=pending["request_id"],
+                    ), 409
+                try:
+                    cur.execute(
+                        "INSERT INTO screen_time_extension_requests(child_id, requested_minutes) "
+                        "VALUES(%s, %s) RETURNING request_id, requested_minutes, status, created_at",
+                        (uid, requested),
+                    )
+                    row = cur.fetchone()
+                except _pg_errors.UniqueViolation:
+                    conn.rollback()
+                    dup = fetch_one(
+                        "SELECT request_id FROM screen_time_extension_requests "
+                        "WHERE child_id=%s AND status='PENDING'",
+                        (uid,),
+                    )
+                    return jsonify(
+                        error="extension_request_pending",
+                        message="You already have a request waiting for your parent.",
+                        request_id=dup["request_id"] if dup else None,
+                    ), 409
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        child_name = (g.mobile_user.get("full_name") or "Your child").strip() or "Your child"
+        parent_notify(
+            uid,
+            "SCREEN_TIME_EXTENSION_REQUEST",
+            f"{child_name} asked for {requested} more minutes of screen time today.",
+            f"/parent/time-limit/?child_id={uid}",
+        )
         return jsonify(
             ok=True,
-            message=f"Screen time reset! You have {remaining} reset(s) left today.",
-            resets_used=new_count,
-            resets_remaining=remaining,
-            minutes_today=0,
+            message="Request sent to your parent.",
+            request={"request_id": row["request_id"], "requested_minutes": row["requested_minutes"],
+                     "status": row["status"], "created_at": str(row["created_at"])},
         )
+
+    @bp.route("/api/mobile/v1/kids/time-limit/extension-request", methods=["GET"])
+    @_require_mobile("CHILD")
+    def mobile_kids_time_limit_extension_request_status():
+        uid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        row = fetch_one(
+            "SELECT request_id, requested_minutes, status, granted_minutes, created_at, decided_at "
+            "FROM screen_time_extension_requests WHERE child_id=%s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (uid,),
+        )
+        if not row:
+            return jsonify(ok=True, request=None)
+        return jsonify(
+            ok=True,
+            request={
+                "request_id": row["request_id"],
+                "requested_minutes": row["requested_minutes"],
+                "status": row["status"],
+                "granted_minutes": row.get("granted_minutes"),
+                "created_at": str(row["created_at"]),
+                "decided_at": str(row["decided_at"]) if row.get("decided_at") else None,
+            },
+        )
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests", methods=["GET"])
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_requests():
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        rows = fetch_all(
+            """SELECT r.request_id, r.child_id, u.full_name AS child_name,
+                      r.requested_minutes, r.status, r.created_at
+               FROM screen_time_extension_requests r
+               JOIN users u ON u.user_id = r.child_id
+               WHERE r.status='PENDING'
+                 AND EXISTS (
+                   SELECT 1 FROM parent_child_map m
+                   JOIN users p ON p.user_id=%s AND p.role='PARENT' AND p.account_status='ACTIVE'
+                   WHERE m.child_id=r.child_id AND m.approved=TRUE
+                     AND m.approval_status='APPROVED'
+                     AND (m.parent_id=%s OR m.verified_parent_id=%s)
+                 )
+               ORDER BY r.created_at ASC""",
+            (pid, pid, pid),
+        ) or []
+        return jsonify(
+            ok=True,
+            requests=[
+                {
+                    "request_id": r["request_id"],
+                    "child_id": r["child_id"],
+                    "child_name": r.get("child_name") or "Your child",
+                    "requested_minutes": r["requested_minutes"],
+                    "status": r["status"],
+                    "created_at": str(r["created_at"]),
+                }
+                for r in rows
+            ],
+        )
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests/<int:req_id>/approve", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_request_approve(req_id):
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        req = fetch_one(
+            "SELECT request_id, child_id, requested_minutes FROM screen_time_extension_requests "
+            "WHERE request_id=%s AND status='PENDING'",
+            (req_id,),
+        )
+        if not req or not owns(pid, req["child_id"]):
+            return jsonify(error="request_not_found"), 404
+        data = _json_dict()
+        try:
+            granted = int(data.get("granted_minutes", req["requested_minutes"]))
+        except (TypeError, ValueError):
+            return jsonify(error="invalid_minutes"), 400
+        if not 1 <= granted <= 720:
+            return jsonify(error="invalid_minutes", message="Grant 1-720 minutes."), 400
+        # Decided requests are immutable: only a PENDING row can transition.
+        moved = execute_count(
+            "UPDATE screen_time_extension_requests "
+            "SET status='APPROVED', decided_at=NOW(), decided_by=%s, granted_minutes=%s "
+            "WHERE request_id=%s AND status='PENDING'",
+            (pid, granted, req_id),
+        )
+        if not moved:
+            return jsonify(error="request_already_decided"), 409
+        # Server-enforced grant: today-only bonus read by lock_state() at
+        # check time. Stale (non-today) bonuses are zeroed, never stacked.
+        execute(
+            """INSERT INTO child_time_limits(child_id, daily_limit_minutes, strict_mode, bonus_minutes, bonus_date)
+               VALUES(%s, 60, TRUE, %s, CURRENT_DATE)
+               ON CONFLICT(child_id) DO UPDATE SET
+                 bonus_minutes = CASE
+                   WHEN child_time_limits.bonus_date = CURRENT_DATE
+                   THEN child_time_limits.bonus_minutes ELSE 0 END + EXCLUDED.bonus_minutes,
+                 bonus_date = CURRENT_DATE,
+                 updated_at = NOW()""",
+            (req["child_id"], granted),
+        )
+        execute(
+            "DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN "
+            "('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE",
+            (req["child_id"],),
+        )
+        log(req["child_id"], "SCREEN_TIME_EXTENSION_APPROVED",
+            {"parent_id": pid, "request_id": req_id, "granted_minutes": granted})
+        notify(req["child_id"], "SCREEN_TIME_EXTENSION_APPROVED",
+               f"Your parent added {granted} minutes of screen time for today!",
+               "/child/dashboard/", pid)
+        return jsonify(ok=True, message=f"Granted {granted} minutes for today.", granted_minutes=granted)
+
+    @bp.route("/api/mobile/v1/parent/screen-time/extension-requests/<int:req_id>/reject", methods=["POST"])
+    @csrf.exempt
+    @_require_mobile("PARENT")
+    def mobile_parent_extension_request_reject(req_id):
+        pid = int(g.mobile_user["user_id"])
+        _expire_stale_extension_requests()
+        req = fetch_one(
+            "SELECT request_id, child_id FROM screen_time_extension_requests "
+            "WHERE request_id=%s AND status='PENDING'",
+            (req_id,),
+        )
+        if not req or not owns(pid, req["child_id"]):
+            return jsonify(error="request_not_found"), 404
+        moved = execute_count(
+            "UPDATE screen_time_extension_requests "
+            "SET status='REJECTED', decided_at=NOW(), decided_by=%s "
+            "WHERE request_id=%s AND status='PENDING'",
+            (pid, req_id),
+        )
+        if not moved:
+            return jsonify(error="request_already_decided"), 409
+        log(req["child_id"], "SCREEN_TIME_EXTENSION_REJECTED",
+            {"parent_id": pid, "request_id": req_id})
+        notify(req["child_id"], "SCREEN_TIME_EXTENSION_REJECTED",
+               "Your parent reviewed your extra-time request and said not right now.",
+               "/child/dashboard/", pid)
+        return jsonify(ok=True, message="Request rejected.")
 
     @bp.route("/api/mobile/v2/kids/feed")
     @_require_mobile("CHILD")
@@ -3776,6 +4403,11 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: backend is the final authority.
+        # When the compulsory quiz latch is active, serve no reels — the client
+        # must present the quiz. Prevents bypass by ignoring the quiz_required signal.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=True, items=[], quiz_required=True, message="quiz_required")
         try:
             cursor = max(0, int(request.args.get("cursor", 0)))
         except (TypeError, ValueError):
@@ -3843,6 +4475,9 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: block playback while latch active.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=False, error="quiz_required"), 428
         from services.curated_feed import authorize_curated_media
         try:
             playback = authorize_curated_media(uid, content_id)
@@ -3866,6 +4501,9 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        # Server-side quiz latch enforcement: block playback while latch active.
+        if feed_quiz_state(uid).get("required"):
+            return jsonify(ok=False, error="quiz_required"), 428
         from services.video_delivery import resolve_video_playback
         playback = resolve_video_playback(post_id, viewer_id=uid, viewer_role="CHILD")
         if not playback.get("playback_url"):
@@ -4115,6 +4753,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 liked = False
+                log(uid, "CURATED_UNLIKED", {"target_type": "CURATED", "target_id": source_id})
             else:
                 execute(
                     """INSERT INTO content_reactions(child_id,source_type,source_id,reaction_type)
@@ -4122,6 +4761,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 liked = True
+                log(uid, "CURATED_LIKED", {"target_type": "CURATED", "target_id": source_id})
                 record_signal(uid, "CURATED", source_id, "LIKE")
             row = fetch_one(
                 """SELECT COUNT(*) AS n FROM content_reactions
@@ -4141,6 +4781,7 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 saved = False
+                log(uid, "CURATED_UNSAVED", {"target_type": "CURATED", "target_id": source_id})
             else:
                 execute(
                     """INSERT INTO content_saves(child_id,source_type,source_id)
@@ -4148,15 +4789,15 @@ def register_mobile_api(bp):
                     (uid, source_id),
                 )
                 saved = True
+                log(uid, "CURATED_SAVED", {"target_type": "CURATED", "target_id": source_id})
                 record_signal(uid, "CURATED", source_id, "SAVE")
             return jsonify(ok=True, source_type="CURATED", source_id=source_id, saved=saved)
 
-        execute(
-            "INSERT INTO content_shares(child_id,source_type,source_id) VALUES(%s,'CURATED',%s)",
-            (uid, source_id),
-        )
-        record_signal(uid, "CURATED", source_id, "SHARE")
-        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=True)
+        # Curated reels stay inside LittleMuse: no share is performed and no
+        # share row is recorded. The route is kept so older clients calling it
+        # receive a truthful answer instead of a phantom "shared" record.
+        return jsonify(ok=True, source_type="CURATED", source_id=source_id, shared=False,
+                       message="Curated reels stay inside LittleMuse")
 
     @bp.route("/api/mobile/v2/kids/impressions", methods=["POST"])
     @csrf.exempt
@@ -4188,10 +4829,6 @@ def register_mobile_api(bp):
         except (TypeError, ValueError):
             replay_count = 0
 
-        state = feed_quiz_state(uid)
-        if state.get("required"):
-            return jsonify(error="quiz_required", gate="quiz", quiz_required=True), 428
-
         ok = record_feed_impression(
             uid, session_id, source_type, source_id, surface,
             watched_ms=watched_ms, completed=completed, liked=liked, saved=saved,
@@ -4206,16 +4843,17 @@ def register_mobile_api(bp):
         else:
             view_res = feed_quiz_state(uid)
 
+        # The impression is accepted and content keeps flowing; quiz_required=True
+        # tells the client to pause Reels and hand off to the compulsory Quiz
+        # screen (no dismiss path while the server latch is active).
         if view_res.get("required"):
             return jsonify(
                 ok=True,
                 quiz_required=True,
-                gate="quiz",
                 posts_seen=view_res.get("posts_seen", 5),
                 quiz_interval=view_res.get("interval", 5),
                 next_quiz_threshold=view_res.get("next_quiz_threshold", 5),
-                error="quiz_required",
-            ), 428
+            )
 
         return jsonify(
             ok=True,
@@ -4350,9 +4988,11 @@ def register_mobile_api(bp):
             row.pop("profile_picture", None)
             out_kids.append(_clean(row))
 
-        allowed_author_ids = [uid] + discoverable_child_ids(uid)
+        # Content search uses the public safe pool (approved posts visible to
+        # every child, subject to age/category/block/mute). Person discovery
+        # above stays scoped to legitimate relationship context.
         if q:
-            posts = search_visible_posts(uid, q, 30, allowed_author_ids=allowed_author_ids)
+            posts = search_visible_posts(uid, q, 30)
         else:
             posts = discoverable_posts(uid, False, 30, 0)
 
@@ -4375,6 +5015,6 @@ def register_mobile_api(bp):
             pii_warning=False,
             children=out_kids,
             posts=[_post_json(p, uid) for p in posts],
-            hashtags=_clean(visible_hashtags(uid, q, 10, allowed_author_ids=allowed_author_ids)),
+            hashtags=_clean(visible_hashtags(uid, q, 10)),
             curated=_clean(curated),
         )

@@ -29,6 +29,8 @@ export interface ParentChild {
   full_name: string;
   age: number | null;
   account_status: string;
+  parent_paused?: boolean;
+  demo_unlimited?: boolean;
   avatar_url?: string | null;
   minutes_today: number;
   limit: TimeLimit | null;
@@ -102,6 +104,16 @@ export interface ActivityEvent {
   created_at?: string;
 }
 
+export interface LikedSavedItem {
+  log_id: number;
+  activity_type: string;
+  action: 'liked' | 'saved';
+  target_type: 'POST' | 'CURATED';
+  target_id: number;
+  target_label?: string;
+  created_at?: string;
+}
+
 export interface RecentChatPartner {
   child_id: number;
   full_name?: string;
@@ -119,6 +131,7 @@ export interface AdminUser {
   role: 'CHILD' | 'PARENT' | 'ADMIN';
   age?: number | null;
   account_status: string;
+  demo_unlimited?: boolean;
   created_at?: string;
 }
 
@@ -161,6 +174,32 @@ export function extendChildScreenTime(token: string, childId: number, additional
   return apiRequest(routes.parentExtendTimeLimit(childId), { method: 'POST', body: JSON.stringify({ additional_minutes: additionalMinutes }) }, token);
 }
 
+export interface PendingExtensionRequest {
+  request_id: number;
+  child_id: number;
+  child_name: string;
+  requested_minutes: number;
+  status: 'PENDING';
+  created_at: string;
+}
+
+export function fetchPendingExtensionRequests(token: string): Promise<{ ok: boolean; requests: PendingExtensionRequest[] }> {
+  return apiRequest(routes.parentExtensionRequests, {}, token);
+}
+
+export function decideExtensionRequest(
+  token: string,
+  requestId: number,
+  action: 'approve' | 'reject',
+  grantedMinutes?: number,
+): Promise<{ ok: boolean; message: string; granted_minutes?: number }> {
+  return apiRequest(
+    routes.parentExtensionRequestAction(requestId, action),
+    { method: 'POST', body: JSON.stringify(action === 'approve' && grantedMinutes != null ? { granted_minutes: grantedMinutes } : {}) },
+    token,
+  );
+}
+
 export function fetchParentSafety(token: string): Promise<{ ok: boolean; events: ReviewEvent[] }> {
   return apiRequest(routes.parentSafety, {}, token);
 }
@@ -185,7 +224,7 @@ export function markParentNotificationsRead(token: string): Promise<{ ok: boolea
   return apiRequest(routes.parentNotifications, body({}), token);
 }
 
-export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[] }> {
+export function fetchParentActivity(token: string, childId: number, beforeId?: number | null, limit = 30): Promise<{ ok: boolean; events: ActivityEvent[]; has_more: boolean; next_cursor: number | null; recent_chat_partners: RecentChatPartner[]; liked_saved: LikedSavedItem[] }> {
   const params = new URLSearchParams();
   if (beforeId) params.set('before_id', String(beforeId));
   if (limit !== 30) params.set('limit', String(limit));
@@ -193,18 +232,18 @@ export function fetchParentActivity(token: string, childId: number, beforeId?: n
   return apiRequest(`${routes.parentActivity(childId)}${query ? `?${query}` : ''}`, {}, token);
 }
 
-/** Read-only per-child viewing insights: watch totals (7d/30d), per-category
-    breakdown, and top reels. Served by parent/api.py; the server enforces the
-    parent-owns-child gate. */
+/** Small parent supervision snapshot: the last five distinct Reels watched. */
 export interface ViewingInsights {
   success: boolean;
   child_id: number;
-  windows: {
-    '7d': { views: number; watch_seconds: number };
-    '30d': { views: number; watch_seconds: number };
-  };
-  by_category: { category: string; views: number; watch_seconds: number }[];
-  top_reels: { kind: string; id: number; title: string; category: string; views: number; watch_seconds: number }[];
+  recent_items: {
+    kind: 'curated' | 'social' | string;
+    id: number;
+    title: string;
+    category: string;
+    watch_seconds: number;
+    watched_at?: string;
+  }[];
 }
 
 export function fetchViewingInsights(token: string, childId: number): Promise<ViewingInsights> {
@@ -221,7 +260,24 @@ export function unlinkChild(token: string, childId: number): Promise<{ ok: boole
   return apiRequest(routes.parentChild(childId), { method: 'DELETE' }, token);
 }
 
-export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; open_reviews: number } }> {
+export function setChildAccess(token: string, childId: number, action: 'PAUSE' | 'RESUME'): Promise<{ ok: boolean; parent_paused: boolean; action: string }> {
+  return apiRequest(routes.parentChildAccess(childId), { method: 'POST', body: JSON.stringify({ action }) }, token);
+}
+
+export function restartChildSessions(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
+  return apiRequest(routes.parentChildRestart(childId), { method: 'POST' }, token);
+}
+
+export function resetChildSettings(token: string, childId: number): Promise<{ ok: boolean; message: string }> {
+  return apiRequest(routes.parentChildResetSettings(childId), { method: 'POST' }, token);
+}
+
+/** Parent clears all of a child's activity and restores defaults. Login and family link are kept server-side. */
+export function clearChildEverything(token: string, childId: number): Promise<{ ok: boolean; message: string; cleared?: Record<string, number> }> {
+  return apiRequest(routes.parentChildClearEverything(childId), { method: 'POST' }, token);
+}
+
+export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; signups_today: number } }> {
   return apiRequest(routes.adminDashboard, {}, token);
 }
 
@@ -244,6 +300,14 @@ export function fetchAdminUsers(token: string, query: string): Promise<{ ok: boo
 
 export function updateAdminUserStatus(token: string, userId: number, status: 'ACTIVE' | 'SUSPENDED'): Promise<{ ok: boolean; user_id: number; status: string }> {
   return apiRequest(routes.adminUserStatus(userId), body({ status }), token);
+}
+
+export function updateAdminDemoUnlimited(token: string, userId: number, enabled: boolean): Promise<{ ok: boolean; user_id: number; demo_unlimited: boolean }> {
+  return apiRequest(routes.adminDemoUnlimited(userId), body({ enabled }), token);
+}
+
+export function deactivateAdminUser(token: string, userId: number): Promise<{ ok: boolean; user_id: number; status: string }> {
+  return apiRequest(routes.adminDeleteUser(userId), { method: 'DELETE' }, token);
 }
 
 export function fetchAdminAudit(token: string): Promise<{ ok: boolean; events: AdminAuditEvent[] }> {

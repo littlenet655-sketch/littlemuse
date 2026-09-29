@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
 import { Feather } from '@expo/vector-icons';
 import {
+  clearChildEverything,
+  decideExtensionRequest,
   extendChildScreenTime,
   fetchFollowRequests,
   fetchParentActivity,
@@ -11,18 +13,23 @@ import {
   fetchParentDashboard,
   fetchParentNotifications,
   fetchParentSafety,
+  fetchPendingExtensionRequests,
   fetchViewingInsights,
   markParentNotificationsRead,
   resetChildPassword,
   resetChildScreenTime,
+  resetChildSettings,
+  restartChildSessions,
   resolveFollowRequest,
   resolveParentReview,
+  setChildAccess,
   unlinkChild,
   updateParentControls,
   updateTimeLimit,
   type ParentChild,
   type ParentControls,
   type ParentNotification,
+  type PendingExtensionRequest,
   type ReviewPreview,
   type ViewingInsights,
 } from '../../api/parentAdmin';
@@ -343,6 +350,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             icon="users"
             iconColor="#2563EB"
             bgTone="#EFF6FF"
+            onPress={() => navigation.navigate('Children')}
           />
           <Metric
             value={reviews ? `${reviews} Open` : '0 Open'}
@@ -351,6 +359,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             iconColor={reviews ? '#DC2626' : '#059669'}
             bgTone={reviews ? '#FEF2F2' : '#ECFDF5'}
             tone={reviews ? 'alert' : 'normal'}
+            onPress={() => navigation.navigate('ParentSafety')}
           />
           <Metric
             value={String(unreadAlerts)}
@@ -358,6 +367,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
             icon="bell"
             iconColor="#7C3AED"
             bgTone="#F5F3FF"
+            onPress={() => navigation.navigate('ParentNotifications')}
           />
         </View>
 
@@ -370,15 +380,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
                 <Text style={styles.sectionCountText}>{children.length}</Text>
               </View>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('CreateChild')}
-              hitSlop={8}
-              style={styles.addInlineButton}
-            >
-              <Feather name="plus" size={13} color={colors.brand} />
-              <Text style={styles.addInlineText}>Add Child</Text>
-            </Pressable>
           </View>
 
           {dashboard.isPending ? (
@@ -411,20 +412,6 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
                 />
               ))}
 
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate('CreateChild')}
-                style={styles.addChildCard}
-              >
-                <View style={styles.addChildCardPlusWrap}>
-                  <Feather name="user-plus" size={18} color={colors.brand} />
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.addChildCardTitle}>Add Another Child Account</Text>
-                  <Text style={styles.addChildCardSub}>Set up individualized AI boundaries and daily screen allowances</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color="#9CA3AF" />
-              </Pressable>
             </>
           ) : (
             <Card>
@@ -442,7 +429,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           )}
         </View>
 
-        {/* VIEWING INSIGHTS SECTION — per-child read-only watch aggregates */}
+        {/* RECENT WATCH ACTIVITY SECTION — per-child read-only watch aggregates */}
         {children.length ? (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionHeaderLabel}>VIEWING INSIGHTS</Text>
@@ -500,49 +487,22 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           </View>
         </View>
 
-        {/* Bottom Guidance Card */}
-        <View style={styles.bottomCtaCard}>
-          <View style={styles.bottomCtaHeader}>
-            <View style={styles.bottomCtaIconWrap}>
-              <Feather name="shield" size={20} color="#0284C7" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.bottomCtaTitle}>Independent Child Safekeeping</Text>
-              <Text style={styles.bottomCtaSub}>Every child profile has distinct content filters, friendship gates, and daily limits</Text>
-            </View>
-          </View>
-          <Button label="+ Add Child Profile" onPress={() => navigation.navigate('CreateChild')} />
-        </View>
       </RefreshingScroll>
     </Screen>
   );
 }
 
-function formatWatchDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 1) return '0m';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
-/** Per-child read-only watch summary, rendered inside the parent dashboard.
-    Data comes from GET /api/parent/child/<id>/viewing-insights (server
-    aggregates content_impressions; the parent-owns-child gate is enforced
-    server-side). States: loading / error / empty / data. */
+/** Last five watched Reels for one child. */
 function ViewingInsightsCard({ token, child }: { token?: string; child: ParentChild }) {
   const insights = useQuery({
     queryKey: parentKeys.insights(child.user_id),
     queryFn: () => fetchViewingInsights(token as string, child.user_id),
     enabled: !!token,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
   });
 
   const data: ViewingInsights | undefined = insights.data;
-  const top = (data?.by_category ?? []).slice(0, 3);
-  const maxViews = top.reduce((m, c) => Math.max(m, c.views), 0) || 1;
-  const topReel = data?.top_reels?.[0];
+  const recent = data?.recent_items ?? [];
 
   return (
     <Card style={styles.insightCard}>
@@ -550,7 +510,7 @@ function ViewingInsightsCard({ token, child }: { token?: string; child: ParentCh
         <Avatar uri={child.avatar_url} name={child.full_name ?? child.username} size={36} />
         <View style={styles.flex}>
           <Text style={styles.insightChildName}>{child.full_name ?? child.username}</Text>
-          <Text style={styles.muted}>Viewing insights</Text>
+          <Text style={styles.muted}>Last watched Reels</Text>
         </View>
         <Feather name="eye" size={16} color={colors.muted} />
       </View>
@@ -558,36 +518,21 @@ function ViewingInsightsCard({ token, child }: { token?: string; child: ParentCh
       {insights.isPending ? (
         <ActivityIndicator size="small" color={colors.muted} style={styles.insightPad} />
       ) : insights.isError || !data ? (
-        <Text style={[styles.muted, styles.insightPad]}>Watch insights unavailable right now.</Text>
-      ) : data.windows['30d'].views === 0 ? (
-        <Text style={[styles.muted, styles.insightPad]}>No watch activity recorded yet.</Text>
+        <Text style={[styles.muted, styles.insightPad]}>Recent watch activity unavailable right now.</Text>
+      ) : recent.length === 0 ? (
+        <Text style={[styles.muted, styles.insightPad]}>No watched Reels recorded yet.</Text>
       ) : (
-        <>
-          <View style={styles.insightStatRow}>
-            <View style={styles.insightStat}>
-              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['7d'].watch_seconds)}</Text>
-              <Text style={styles.muted}>This week</Text>
+        recent.map((item, index) => (
+          <View key={`${item.kind}-${item.id}`} style={[styles.rowBetween, index > 0 && { marginTop: spacing.sm }]}>
+            <View style={styles.flex}>
+              <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.muted} numberOfLines={1}>
+                {item.category}{item.watch_seconds > 0 ? ` · watched ${item.watch_seconds}s` : ''}
+              </Text>
             </View>
-            <View style={styles.insightStat}>
-              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['30d'].watch_seconds)}</Text>
-              <Text style={styles.muted}>Last 30 days</Text>
-            </View>
+            <TimeAgo value={item.watched_at} />
           </View>
-          {top.map((c) => (
-            <View key={c.category} style={styles.insightBarRow}>
-              <Text style={styles.insightBarLabel} numberOfLines={1}>{c.category}</Text>
-              <View style={styles.insightBarTrack}>
-                <View style={[styles.insightBarFill, { width: `${Math.max(4, (c.views / maxViews) * 100)}%` }]} />
-              </View>
-              <Text style={styles.insightBarValue}>{c.views}</Text>
-            </View>
-          ))}
-          {topReel ? (
-            <Text style={styles.insightTopReel} numberOfLines={2}>
-              Most watched: {topReel.title} · {topReel.views} views
-            </Text>
-          ) : null}
-        </>
+        ))
       )}
     </Card>
   );
@@ -600,6 +545,7 @@ function Metric({
   iconColor,
   bgTone = '#FFFFFF',
   tone = 'normal',
+  onPress,
 }: {
   value: string;
   label: string;
@@ -607,9 +553,15 @@ function Metric({
   iconColor: string;
   bgTone?: string;
   tone?: 'normal' | 'alert';
+  onPress?: () => void;
 }) {
   return (
-    <View style={[styles.metric, { backgroundColor: bgTone }, tone === 'alert' && styles.metricAlert]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[styles.metric, { backgroundColor: bgTone }, tone === 'alert' && styles.metricAlert]}
+    >
       <View style={styles.metricTop}>
         <View style={[styles.metricIconWrap, { backgroundColor: `${iconColor}15` }]}>
           <Feather name={icon} size={16} color={iconColor} />
@@ -617,7 +569,7 @@ function Metric({
         <Text style={[styles.metricValue, tone === 'alert' && styles.metricValueAlert]}>{value}</Text>
       </View>
       <Text style={styles.metricLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -710,20 +662,6 @@ export function ParentChildrenScreen({ navigation }: ParentScreenProps<'Children
                 onActivity={() => navigation.navigate('ParentActivity', { childId: child.user_id })}
               />
             ))}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('CreateChild')}
-              style={styles.addChildCard}
-            >
-              <View style={styles.addChildCardPlusWrap}>
-                <Feather name="user-plus" size={18} color={colors.brand} />
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.addChildCardTitle}>Add Another Child</Text>
-                <Text style={styles.addChildCardSub}>Configure individual safety shields and screen limits</Text>
-              </View>
-              <Feather name="chevron-right" size={18} color="#9CA3AF" />
-            </Pressable>
           </>
         ) : (
           <Card>
@@ -788,13 +726,128 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
     }
   }
 
-  function confirmUnlink() {
+  async function runAccessAction(action: 'PAUSE' | 'RESUME') {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      await setChildAccess(session?.token ?? '', childId, action);
+      setAccountDone(action === 'PAUSE' ? 'LittleNet paused for this child.' : 'LittleNet resumed for this child.');
+      await refreshFamily();
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmRestart() {
     Alert.alert(
-      'Unlink Child Account?',
-      `This removes ${child?.full_name ?? 'your child'} from your family oversight and deactivates their Kids Mode account. You can contact support to restore it.`,
+      'Restart Child Session?',
+      'This signs the child out on all devices and closes the current usage session. Their account and content stay intact.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Unlink Account', style: 'destructive', onPress: () => void doUnlink() },
+        {
+          text: 'Restart',
+          onPress: () => void doRestart(),
+        },
+      ],
+    );
+  }
+
+  async function doRestart() {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await restartChildSessions(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await refreshFamily();
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmResetSettings() {
+    Alert.alert(
+      'Reset Child Settings?',
+      'This restores feature permissions, quiet hours, quiz pacing and the daily screen-time limit to LittleNet defaults. Content is not deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset Settings',
+          style: 'destructive',
+          onPress: () => void doResetSettings(),
+        },
+      ],
+    );
+  }
+
+  async function doResetSettings() {
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await resetChildSettings(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await Promise.all([
+        refreshFamily(),
+        client.invalidateQueries({ queryKey: parentKeys.controls(childId) }),
+      ]);
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmClearEverything() {
+    Alert.alert(
+      'Clear Everything?',
+      'This permanently deletes ALL of this child’s activity: posts, reels, stories, comments, likes, saves, follows, blocks, chats, quiz history, watch history, notifications and screen-time data. Settings return to defaults.\n\nKept: the child username, password and your family link. Safety and security records are retained.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Everything',
+          style: 'destructive',
+          onPress: () => void doClearEverything(),
+        },
+      ],
+    );
+  }
+
+  async function doClearEverything() {
+    // Sensitive action: require a fresh parent device authentication.
+    if (!(await ensureParentAuthForAction())) return;
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountDone('');
+    try {
+      const result = await clearChildEverything(session?.token ?? '', childId);
+      setAccountDone(result.message);
+      await Promise.all([
+        refreshFamily(),
+        client.invalidateQueries({ queryKey: parentKeys.controls(childId) }),
+      ]);
+    } catch (err) {
+      setAccountError(errorText(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
+  function confirmUnlink() {
+    Alert.alert(
+      'Delete Child Account?',
+      `This deactivates ${child?.full_name ?? 'your child'} and removes the family link. This does not silently erase retained safety/audit records.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete Account', style: 'destructive', onPress: () => void doUnlink() },
       ],
     );
   }
@@ -834,7 +887,7 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
         <View style={styles.summaryProfileCard}>
           <View style={styles.summaryProfileTopRow}>
             <View style={styles.avatarWrapper}>
-              <Avatar uri={child.avatar_url} size={56} />
+              <Avatar uri={child.avatar_url} name={child.full_name} size={56} />
               <View
                 style={[
                   styles.presenceIndicatorLarge,
@@ -854,7 +907,9 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Text style={styles.childHandleText}>@{child.username}</Text>
               <View style={styles.summaryStatusRow}>
                 <View style={[styles.statusDot, isOnline ? styles.onlineDot : styles.offlineDot]} />
-                <Text style={styles.summaryStatusText}>{isOnline ? 'Active on LittleNet' : 'Offline'}</Text>
+                <Text style={styles.summaryStatusText}>
+                  {child.parent_paused ? 'Paused by parent' : isOnline ? 'Active on LittleNet' : 'Offline'}
+                </Text>
               </View>
             </View>
           </View>
@@ -979,6 +1034,78 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
         {/* Child Account Management */}
         <Text style={styles.sectionHeaderLabelStandalone}>CHILD ACCOUNT</Text>
         <View style={styles.actionTilesGroup}>
+          {child.demo_unlimited ? (
+            <View style={styles.accountNoticeWrap}>
+              <Notice tone="info" message="Unlimited demo mode is enabled by Admin. Time and quiet-hour locks are bypassed; safety checks still apply." />
+            </View>
+          ) : null}
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            disabled={accountBusy || child.demo_unlimited}
+            onPress={() => void runAccessAction(child.parent_paused ? 'RESUME' : 'PAUSE')}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: child.parent_paused ? '#ECFDF5' : '#FFF7ED' }]}>
+              <Feather name={child.parent_paused ? 'play' : 'pause'} size={20} color={child.parent_paused ? '#059669' : '#EA580C'} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>{child.parent_paused ? 'Resume LittleNet' : 'Pause LittleNet'}</Text>
+              <Text style={styles.muted}>
+                {child.demo_unlimited ? 'Disabled while Admin unlimited demo mode is active' : child.parent_paused ? 'Restore child access immediately' : 'Temporarily stop Kids Mode until you resume it'}
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmRestart}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#F0F9FF' }]}>
+              <Feather name="refresh-cw" size={20} color="#0284C7" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Restart Child Session</Text>
+              <Text style={styles.muted}>Sign out all child devices and require a clean login</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmResetSettings}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#F5F3FF' }]}>
+              <Feather name="rotate-ccw" size={20} color="#7C3AED" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Reset Settings</Text>
+              <Text style={styles.muted}>Restore controls, quiet hours, quiz pacing and time limit defaults</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            style={styles.actionTileRow}
+            onPress={confirmClearEverything}
+            disabled={accountBusy}
+          >
+            <View style={[styles.menuIconBadge, { backgroundColor: '#FEF2F2' }]}>
+              <Feather name="trash-2" size={20} color="#DC2626" />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.menuTitle}>Clear Everything</Text>
+              <Text style={styles.muted}>Delete all child activity and restore defaults. Login and family link are kept</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#9CA3AF" />
+          </Pressable>
+
           <Pressable
             accessibilityRole="button"
             style={styles.actionTileRow}
@@ -1032,8 +1159,8 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
               <Feather name="user-x" size={20} color="#DC2626" />
             </View>
             <View style={styles.flex}>
-              <Text style={[styles.menuTitle, styles.dangerText]}>Unlink Child Account</Text>
-              <Text style={styles.muted}>Remove from your family and deactivate Kids Mode</Text>
+              <Text style={[styles.menuTitle, styles.dangerText]}>Delete Child Account</Text>
+              <Text style={styles.muted}>Deactivate Kids Mode and remove this child from your family</Text>
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />
           </Pressable>
@@ -1383,6 +1510,129 @@ function SelectChild({ children, onPick }: { children: ParentChild[]; onPick: (i
   );
 }
 
+/**
+ * Pending extra-time requests from the child (defect follow-up: child asks,
+ * parent decides). Approving writes a today-only bonus grant server-side;
+ * the grant is enforced by lock_state(), never by client math.
+ */
+function ExtensionRequestQueue({
+  token,
+  childId,
+  childName,
+}: {
+  token: string;
+  childId: number;
+  childName: string;
+}) {
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: parentKeys.extensionRequests,
+    queryFn: () => fetchPendingExtensionRequests(token),
+    enabled: Boolean(token),
+  });
+  const [grantMinutes, setGrantMinutes] = useState<Record<number, string>>({});
+  const decide = useMutation({
+    mutationFn: (p: { requestId: number; action: 'approve' | 'reject'; minutes?: number }) =>
+      decideExtensionRequest(token, p.requestId, p.action, p.minutes),
+    onSuccess: async (_data, vars) => {
+      await client.invalidateQueries({ queryKey: parentKeys.extensionRequests });
+      await client.invalidateQueries({ queryKey: parentKeys.dashboard });
+      if (vars.action === 'approve') {
+        Alert.alert(
+          'Time Granted! ✨',
+          `Added ${vars.minutes} bonus minutes for ${childName} — today only. Kids Mode unlocks now.`,
+        );
+      }
+    },
+    onError: (err) => {
+      Alert.alert('Request Failed', errorText(err));
+    },
+  });
+
+  const mine = (query.data?.requests ?? []).filter((r) => r.child_id === childId);
+  if (query.isPending || mine.length === 0) return null;
+
+  return (
+    <Card style={styles.extReqCard}>
+      <Text style={styles.presetHeading}>EXTRA-TIME REQUESTS</Text>
+      <Text style={[styles.muted, { marginBottom: 4 }]}>
+        {childName} asked for more time today. Approving adds bonus minutes for today only — it does not change the daily base limit.
+      </Text>
+      {mine.map((r) => {
+        const grant = Number(grantMinutes[r.request_id] ?? r.requested_minutes);
+        const grantValid = Number.isInteger(grant) && grant >= 1 && grant <= 720;
+        const busy = decide.isPending;
+        return (
+          <View key={r.request_id} style={styles.extReqRow}>
+            <Text style={styles.extReqTitle}>
+              {r.child_name} asked for {r.requested_minutes} more minutes
+            </Text>
+            <Text style={styles.extReqMeta}>
+              Requested <TimeAgo value={r.created_at} />
+            </Text>
+            <View style={styles.extReqActions}>
+              <View style={styles.extGrantField}>
+                <Field
+                  label="Grant (min)"
+                  value={grantMinutes[r.request_id] ?? String(r.requested_minutes)}
+                  onChangeText={(v) => setGrantMinutes((m) => ({ ...m, [r.request_id]: v }))}
+                  keyboardType="number-pad"
+                  error={grantValid ? undefined : 'Enter 1–720.'}
+                />
+              </View>
+              <Pressable
+                disabled={busy || !grantValid}
+                onPress={() => {
+                  void (async () => {
+                    if (await ensureParentAuthForAction())
+                      decide.mutate({ requestId: r.request_id, action: 'approve', minutes: grant });
+                  })();
+                }}
+                style={styles.extApproveBtn}
+              >
+                {busy ? (
+                  <ActivityIndicator size="small" color="#059669" />
+                ) : (
+                  <>
+                    <Feather name="check" size={14} color="#059669" />
+                    <Text style={styles.extApproveBtnText}>Approve</Text>
+                  </>
+                )}
+              </Pressable>
+              <Pressable
+                disabled={busy}
+                onPress={() => {
+                  Alert.alert(
+                    'Reject Request?',
+                    `${r.child_name} asked for ${r.requested_minutes} more minutes. They will be told you said not right now.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reject',
+                        style: 'destructive',
+                        onPress: () => {
+                          void (async () => {
+                            if (await ensureParentAuthForAction())
+                              decide.mutate({ requestId: r.request_id, action: 'reject' });
+                          })();
+                        },
+                      },
+                    ],
+                  );
+                }}
+                style={styles.extRejectBtn}
+              >
+                <Text style={styles.extRejectBtnText}>Reject</Text>
+              </Pressable>
+            </View>
+            {decide.error ? <Notice message={errorText(decide.error)} /> : null}
+          </View>
+        );
+      })}
+    </Card>
+  );
+}
+
 export function ParentScreenTimeScreen({ route }: ParentScreenProps<'ScreenTime'>) {
   const { session } = useAuth();
   const client = useQueryClient();
@@ -1515,6 +1765,13 @@ export function ParentScreenTimeScreen({ route }: ParentScreenProps<'ScreenTime'
               </Text>
             </View>
           ) : null}
+
+          {/* Child's extra-time requests, if any */}
+          <ExtensionRequestQueue
+            token={session?.token ?? ''}
+            childId={childId}
+            childName={child.full_name}
+          />
 
           {/* Usage Gauge Card */}
           <Card>
@@ -1928,6 +2185,12 @@ export function ParentFollowRequestsScreen(_props: ParentScreenProps<'FollowRequ
         client.invalidateQueries({ queryKey: parentKeys.dashboard }),
       ]);
     },
+    onError: () => {
+      Alert.alert(
+        'Could not update',
+        'This request may already have been handled. Pull to refresh and try again.',
+      );
+    },
   });
   const rows = query.data?.pending ?? [];
 
@@ -2106,6 +2369,7 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
 
   const rows = [...(query.data?.events ?? []), ...moreEvents];
   const recentPartners = query.data?.recent_chat_partners ?? [];
+  const likedSaved = query.data?.liked_saved ?? [];
   const canLoadMoreActivity = moreHasMore ?? query.data?.has_more ?? false;
 
   return (
@@ -2143,6 +2407,31 @@ export function ParentActivityScreen({ route }: ParentScreenProps<'ParentActivit
                 ))}
               </Card>
             ) : null}
+            <Card>
+              <Text style={styles.rowTitle}>Liked & saved</Text>
+              <Text style={styles.muted}>Posts and reels your child has liked or saved. Content itself stays private.</Text>
+              {likedSaved.length ? (
+                likedSaved.map((item) => (
+                  <View key={item.log_id} style={[styles.rowBetween, { marginTop: spacing.md }]}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      <View style={styles.activityIconBubble}>
+                        <Feather name={item.action === 'liked' ? 'heart' : 'bookmark'} size={16} color="#7C3AED" />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.rowTitle}>
+                          {item.action === 'liked' ? 'Liked' : 'Saved'}
+                          {item.target_label ? ` · ${item.target_label}` : ''}
+                        </Text>
+                        <Text style={styles.muted}>{item.target_type === 'CURATED' ? 'Curated reel' : 'Post'}</Text>
+                      </View>
+                    </View>
+                    <TimeAgo value={item.created_at} />
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.muted, { marginTop: spacing.sm }]}>Nothing liked or saved yet.</Text>
+              )}
+            </Card>
           </>
         }
         ListEmptyComponent={
@@ -2346,40 +2635,6 @@ export function ParentSettingsScreen(_props: ParentScreenProps<'ParentSettings'>
           </View>
         </Card>
 
-        {/* Security Architecture Card */}
-        <Text style={styles.sectionHeaderLabelStandalone}>SECURITY & ENVIRONMENT</Text>
-        <Card>
-          <View style={styles.settingsSecItem}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#EFF6FF' }]}>
-              <Feather name="server" size={16} color="#2563EB" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Server-Enforced Safety</Text>
-              <Text style={styles.settingsSecSub}>All child time limits and filters are enforced in the cloud</Text>
-            </View>
-          </View>
-
-          <View style={styles.settingsSecItem}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#ECFDF5' }]}>
-              <Feather name="lock" size={16} color="#059669" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Multi-Device Invalidation</Text>
-              <Text style={styles.settingsSecSub}>Active token and multi-device revocation</Text>
-            </View>
-          </View>
-
-          <View style={[styles.settingsSecItem, { borderBottomWidth: 0 }]}>
-            <View style={[styles.controlIconWrap, { backgroundColor: '#FDF2F8' }]}>
-              <Feather name="users" size={16} color="#DB2777" />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.settingsSecTitle}>Dual-Consent Friendships</Text>
-              <Text style={styles.settingsSecSub}>Two parents must approve before child chatting is enabled</Text>
-            </View>
-          </View>
-        </Card>
-
         {/* Session Sign Out */}
         <View style={{ marginHorizontal: spacing.md, marginTop: spacing.md, marginBottom: spacing.xl }}>
           <Button
@@ -2432,22 +2687,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   sectionCountText: { color: '#2563EB', fontSize: 10, fontWeight: '800' },
-  addInlineButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  addInlineText: {
-    color: colors.brand,
-    fontWeight: '800',
-    fontSize: 12,
-  },
   parentWelcomeBanner: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
@@ -2606,32 +2845,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuTitle: { color: colors.ink, fontSize: 15, fontWeight: '800' },
-  bottomCtaCard: {
-    backgroundColor: '#F0F9FF',
-    borderWidth: 1,
-    borderColor: '#BAE6FD',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-    gap: 12,
-  },
-  bottomCtaHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  bottomCtaIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomCtaTitle: { color: '#0369A1', fontSize: 15, fontWeight: '800' },
-  bottomCtaSub: { color: '#0284C7', fontSize: 12, lineHeight: 16, marginTop: 2 },
   childCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
@@ -2722,29 +2935,6 @@ const styles = StyleSheet.create({
   quickActionText: { color: '#334155', fontSize: 11, fontWeight: '700' },
   cardChevronWrap: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 2 },
   detailsPromptText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
-  addChildCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    borderStyle: 'dashed',
-    borderRadius: 18,
-    padding: 14,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  addChildCardPlusWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addChildCardTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
-  addChildCardSub: { fontSize: 11, color: colors.muted, marginTop: 2 },
   emptyChildContainer: {
     alignItems: 'center',
     paddingVertical: spacing.sm,
@@ -3353,6 +3543,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+
+  /* Screen-time extension requests (child asks, parent decides) */
+  extReqCard: { marginTop: 12 },
+  extReqRow: {
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  extReqTitle: { color: colors.ink, fontSize: 14, fontWeight: '800' },
+  extReqMeta: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  extReqActions: { flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center' },
+  extGrantField: { flex: 1 },
+  extApproveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  extApproveBtnText: { color: '#059669', fontSize: 13, fontWeight: '800' },
+  extRejectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  extRejectBtnText: { color: colors.muted, fontSize: 13, fontWeight: '800' },
 
   /* Child Account Management */
   accountPanel: {

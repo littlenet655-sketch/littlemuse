@@ -39,14 +39,22 @@ def test_random_reel_brain_break_is_server_driven_and_feed_stays_optional():
     reels = text("mobile_app/src/screens/kids/ReelsScreen.tsx")
     service = text("quiz/service.py")
     assert "'FREQUENT': (2, 3, 4, 5)" in service
-    assert "'BALANCED': (4, 5, 6, 7)" in service
-    assert "'LIGHT': (7, 8, 9, 10)" in service
+    assert "'BALANCED': (2, 3, 4, 5)" in service
+    assert "'LIGHT': (2, 3, 4, 5)" in service
     assert "next_quiz_threshold" in service
-    assert "Quiz Zone" in feed
+    # Learn keeps an optional Quiz Zone; it does not count toward or clear
+    # the compulsory Reel latch.
+    assert "QuizPromoCard" in feed
+    assert "tab === 'Learn'" in feed
     assert "scrollEnabled={!quizLocked}" not in feed
     assert "withQuizBreaks(visibleItems" not in feed
-    assert "const displayItems = feed.items" in reels
-    assert "scrollEnabled={!quizLocked}" in reels
+    # Reel interruption is server-driven, non-dismissible, and hands directly
+    # to Quiz when the persisted latch becomes due.
+    assert "withQuizPromptRow(feed.items, showQuizPrompt)" in reels
+    assert "QuizPromptCard" in reels
+    assert "onDismiss=" not in reels
+    assert "setPaused(true)" in reels
+    assert "nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true })" in reels
     assert "if (result.quiz_required)" in reels
     assert "withQuizBreaks(feed.items" not in reels
 

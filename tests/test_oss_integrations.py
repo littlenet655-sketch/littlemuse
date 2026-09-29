@@ -32,7 +32,9 @@ def test_runtime_video_paths_use_scene_aware_service():
     server = text("ai_server.py")
     assert "from .video_service import check_video" in moderation
     assert "from safety.video_service import check_video" in server
-    assert '"sampling_strategy": "pyscenedetect_plus_uniform"' in text("safety/video_service.py")
+    assert '"sampling_strategy":"adaptive_first_later_then_scene_uniform_if_uncertain"' in text("safety/video_service.py")
+    assert "from .scene_sampler import combined_frame_indices" in text("safety/video_service.py")
+    assert "planned=combined_frame_indices(path,total,budget)" in text("safety/video_service.py")
 
 
 def test_presidio_is_local_optional_enrichment_with_fail_safe_rules():

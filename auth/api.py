@@ -176,25 +176,14 @@ def persist_child_media_to_r2(response):
 
 @api_bp.before_app_request
 def child_locked_onboarding_gate():
-    """Keep a child out of normal Kids Mode until the age quiz is complete."""
-    if session.get('role')!='CHILD' or not session.get('user_id'):
-        return None
-    path=request.path
-    allowed_prefixes=(
-        '/static/','/uploads/','/logout','/quiz/start','/quiz/submit',
-        '/api/language','/set-language',
-    )
-    if any(path.startswith(p) for p in allowed_prefixes):
-        return None
-    uid=int(session['user_id'])
-    try:
-        from quiz.service import needs_onboarding_quiz
-        if needs_onboarding_quiz(uid):
-            return redirect('/quiz/start/?onboarding=1')
-    except Exception:
-        created=fetch_one("SELECT 1 FROM activity_logs WHERE child_id=%s AND activity_type='ACCOUNT_CREATED_BY_PARENT' LIMIT 1",(uid,))
-        if created:
-            return redirect('/quiz/start/?onboarding=1')
+    """Retired gate (defect C1/C2): the mandatory onboarding quiz no longer
+    blocks Kids Mode. Children open directly to Home/Feed.
+
+    The /quiz/start/ endpoint is kept for voluntary quiz access, and the
+    periodic in-reels quiz latch (quiz/service.py) is untouched. The
+    needs_onboarding_quiz() helper is still used for non-gating purposes
+    (quiz-page defaults, discoverability in services/social.py).
+    """
     return None
 
 
@@ -213,7 +202,7 @@ def verified_parent_child_creation_gate():
             'approval_success.html',
             is_verified=True,
             title='Child account created safely',
-            message=f"{child['full_name']}'s age-{child['age']} Kids Mode account is linked to your verified Parent account. On first login, LittleNet will require the age-based onboarding quiz before Home or Reels can open.",
+            message=f"{child['full_name']}'s age-{child['age']} Kids Mode account is linked to your verified Parent account. It opens straight to Home/Feed — quizzes appear between reels, never blocking entry.",
             button_url='/parent/dashboard/',
             button_text='Go to Parent Dashboard',
         )

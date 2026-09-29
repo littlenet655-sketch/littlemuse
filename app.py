@@ -15,7 +15,6 @@ from admin.routes import admin_bp
 from mailg.webhooks import resend_webhook_bp
 from database.connection import fetch_one, execute
 from services.usage import lock_state,heartbeat,start_session
-from quiz.service import quiz_due, needs_onboarding_quiz
 from services.controls import controls_for_child, feature_allowed, effective_categories, quiet_hours_state
 from services.i18n import language_for_user, tr, LANGUAGES
 
@@ -135,8 +134,6 @@ def create_app():
             return None
         if path.startswith('/quiz/'):
             return None
-        if needs_onboarding_quiz(session['user_id']):
-            return redirect('/quiz/start/?onboarding=1')
 
         feature=None
         if path.startswith(('/reels/','/api/reels/')):feature='reels'
@@ -164,7 +161,7 @@ def create_app():
             heartbeat(key)
         locked,_=lock_state(session['user_id'])
         if locked:return render_template('time_limit_reached.html'),403
-        if quiz_due(session['user_id']):return redirect('/quiz/start/')
+        # The periodic quiz latch is a nudge, never a redirect lock.
         return None
 
     @app.route('/sw.js')

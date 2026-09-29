@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 import { fetchOwnProfile, updateOwnProfile } from '../../api/kidsProfiles';
+import { fetchKidsTimeLimitStatus } from '../../api/kidsFeed';
 import { fetchSaved } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import type { ChildScreenProps } from '../../navigation/types';
@@ -74,6 +76,14 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     enabled: Boolean(session),
     queryFn: () => fetchSaved(session!.token),
   });
+  // Read-only screen-time visibility for the child (existing backend
+  // endpoint; the client wrapper was never wired to any screen).
+  const timeLimitQuery = useQuery({
+    queryKey: [...kidsKeys.timeLimit, session?.token ?? 'signed-out'],
+    enabled: Boolean(session),
+    queryFn: () => fetchKidsTimeLimitStatus(session!.token),
+    staleTime: 60_000,
+  });
   const profile = profileQuery.data?.profile ?? null;
   const posts = profileQuery.data?.posts ?? [];
   const counts = profileQuery.data?.counts ?? {};
@@ -90,7 +100,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    Promise.allSettled([profileQuery.refetch(), savedQuery.refetch()]).finally(() =>
+    Promise.allSettled([profileQuery.refetch(), savedQuery.refetch(), timeLimitQuery.refetch()]).finally(() =>
       setRefreshing(false),
     );
   };
@@ -216,7 +226,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 onPress={() => nav.navigate('Connections', { mode: 'followers' })}
               >
                 <Text style={styles.statNum}>{Number(counts.followers ?? 0)}</Text>
-                <Text style={styles.statLabel}>Classmates</Text>
+                <Text style={styles.statLabel}>Followers</Text>
               </Pressable>
               <View style={styles.statItem}>
                 <Text style={styles.statNum}>{Number(counts.following ?? 0)}</Text>
@@ -283,6 +293,22 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             >
               <Text style={styles.greyBtnText}>Saved</Text>
             </Pressable>
+            {/* Read-only self visibility: the child's own controls and
+                activity. Nothing here can be changed. */}
+            <Pressable
+              style={styles.greyBtn}
+              onPress={() => nav.navigate('MyControls', {})}
+              accessibilityLabel="My Controls"
+            >
+              <Text style={styles.greyBtnText}>My Controls</Text>
+            </Pressable>
+            <Pressable
+              style={styles.greyBtn}
+              onPress={() => nav.navigate('MyActivity', {})}
+              accessibilityLabel="My Activity"
+            >
+              <Text style={styles.greyBtnText}>My Activity</Text>
+            </Pressable>
             <Pressable
               style={[styles.greyBtn, styles.logOutBtn]}
               onPress={() => void signOut()}
@@ -291,6 +317,26 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             </Pressable>
           </View>
         </View>
+
+        {/* Read-only screen-time visibility: the child sees their own daily
+            usage vs the parent-set limit. No controls here — limits stay
+            parent-managed and server-enforced. */}
+        {timeLimitQuery.data ? (
+          <View style={styles.timeLimitCard} accessibilityLabel="Your screen time today">
+            <View style={styles.timeLimitIcon}>
+              <Feather name="clock" size={20} color={colors.brand} />
+            </View>
+            <View style={styles.timeLimitText}>
+              <Text style={styles.timeLimitTitle}>Screen time today</Text>
+              <Text style={styles.timeLimitSub}>
+                {timeLimitQuery.data.minutes_today} of {timeLimitQuery.data.daily_limit_minutes} min used
+                {timeLimitQuery.data.remaining_minutes != null
+                  ? ` · ${timeLimitQuery.data.remaining_minutes} min left`
+                  : ''}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* Tab switcher: kit icon tabs, active tab has ink icon + top border indicator */}
         <View style={styles.tabBar}>
@@ -502,6 +548,29 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12,
   },
+  timeLimitCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+  },
+  timeLimitIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeLimitText: { flex: 1 },
+  timeLimitTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
+  timeLimitSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
   greyBtn: {
     flex: 1,
     backgroundColor: '#EFEFEF',

@@ -161,7 +161,7 @@ export function CreateChildScreen({ navigation }: ParentScreenProps<'CreateChild
             <View style={styles.infoBanner}>
               <Feather name="shield" size={18} color="#0284C7" style={styles.infoIcon} />
               <Text style={styles.infoText}>
-                The child will log in using this username and password, and take the welcome safety quiz.
+                The child will log in using this username and password and open straight to Home. A short safety quiz may pop up between reels and can be skipped anytime.
               </Text>
             </View>
 

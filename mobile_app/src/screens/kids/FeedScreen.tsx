@@ -122,40 +122,6 @@ type FeedTab = 'For You' | 'Friends' | 'Learn';
  * and every optimistic like/save, but the header subtree (stories tray, tabs)
  * only re-renders when its own inputs change.
  */
-/**
- * Polished voluntary quiz card shown at the top of the Learn section.
- * Children can practice age-tailored questions anytime without affecting Reel doom-scroll gates.
- */
-function QuizZoneCard({ onStart }: { onStart: () => void }) {
-  return (
-    <View style={styles.quizZoneCard} accessibilityRole="summary" accessibilityLabel="Quiz Zone">
-      <View style={styles.quizZoneContent}>
-        <View style={styles.quizZoneIconWrap}>
-          <Text style={styles.quizZoneEmoji}>🧠</Text>
-        </View>
-        <View style={styles.quizZoneTextWrap}>
-          <View style={styles.quizZoneBadge}>
-            <Text style={styles.quizZoneBadgeText}>AGE-BASED QUIZ</Text>
-          </View>
-          <Text style={styles.quizZoneTitle}>Quiz Zone</Text>
-          <Text style={styles.quizZoneSubtitle}>
-            Test yourself with a quiz made for your age. Earn XP whenever you want!
-          </Text>
-        </View>
-      </View>
-      <Pressable
-        style={({ pressed }) => [styles.quizZoneButton, pressed && styles.quizZoneButtonPressed]}
-        onPress={onStart}
-        accessibilityRole="button"
-        accessibilityLabel="Start Quiz"
-      >
-        <Feather name="play" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
-        <Text style={styles.quizZoneButtonText}>Start Quiz</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 const FeedListHeader = memo(function FeedListHeader({
   token,
   myId,
@@ -165,7 +131,6 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories,
   online,
   error,
-  onStartQuizZone,
 }: {
   token?: string;
   myId?: number;
@@ -175,7 +140,6 @@ const FeedListHeader = memo(function FeedListHeader({
   onOpenStories: (story?: TrayStory) => void;
   online: boolean;
   error: unknown;
-  onStartQuizZone?: () => void;
 }) {
   return (
     <>
@@ -196,7 +160,6 @@ const FeedListHeader = memo(function FeedListHeader({
       </View>
       <OfflineBanner online={online} />
       {error ? <GateNotice error={error} /> : null}
-      {tab === 'Learn' ? <QuizZoneCard onStart={() => onStartQuizZone?.()} /> : null}
     </>
   );
 });
@@ -223,6 +186,33 @@ const CaughtUpCard = memo(function CaughtUpCard() {
         You&apos;ve seen all new safe updates from friends and classmates today.
       </Text>
     </View>
+  );
+});
+
+/**
+ * Voluntary Safety Quiz entry point (defect follow-up: the old Quiz button was
+ * removed instead of repaired). Shown only at the top of the Learn tab — it
+ * opens the Quiz screen on demand and never blocks or forces anything.
+ */
+const QuizPromoCard = memo(function QuizPromoCard({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Open the safety quiz"
+      style={styles.quizPromoWrap}
+    >
+      <View style={styles.quizPromoIcon}>
+        <Feather name="award" size={22} color="#7C3AED" />
+      </View>
+      <View style={styles.quizPromoText}>
+        <Text style={styles.quizPromoTitle}>Safety Quiz</Text>
+        <Text style={styles.quizPromoSub}>
+          Sharpen your online safety skills — just for fun, never required.
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color="#9CA3AF" />
+    </Pressable>
   );
 });
 
@@ -325,6 +315,8 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     setTab(next);
   }, []);
   const onOpenStories = useCallback((story?: TrayStory) => nav.navigate('Stories', story ? { initialStoryId: story.post_id, initialChildId: story.child_id } : {}), [nav]);
+  // Voluntary Quiz entry: opens the Quiz hub on demand, never gates anything.
+  const openQuiz = useCallback(() => nav.navigate('Quiz', {}), [nav]);
   // A deleted post vanishes from the local list immediately (server already
   // confirmed the soft-delete; cache invalidation happens in the card).
   const deletedItem = useCallback((item: FeedItem) => {
@@ -369,18 +361,20 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [session]);
 
   const listHeader = useMemo(() => (
-    <FeedListHeader
-      token={session?.token}
-      myId={session?.user.user_id}
-      myName={session?.user.full_name}
-      tab={tab}
-      onTabChange={onTabChange}
-      onOpenStories={onOpenStories}
-      onStartQuizZone={() => nav.navigate('Quiz', { returnTo: 'KidsTabs' })}
-      online={online}
-      error={feed.error}
-    />
-  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error]);
+    <>
+      <FeedListHeader
+        token={session?.token}
+        myId={session?.user.user_id}
+        myName={session?.user.full_name}
+        tab={tab}
+        onTabChange={onTabChange}
+        onOpenStories={onOpenStories}
+        online={online}
+        error={feed.error}
+      />
+      {tab === 'Learn' ? <QuizPromoCard onPress={openQuiz} /> : null}
+    </>
+  ), [session?.token, session?.user.user_id, session?.user.full_name, tab, onTabChange, onOpenStories, nav, online, feed.error, openQuiz]);
 
   const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     const key = feedKey(item);
@@ -489,82 +483,28 @@ const styles = StyleSheet.create({
     maxWidth: 280,
     lineHeight: 18,
   },
-  quizZoneCard: {
+  quizPromoWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     marginHorizontal: spacing.md,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     marginBottom: spacing.xs,
     padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
     borderRadius: 16,
-    backgroundColor: '#F0F9FF',
-    borderWidth: 1.5,
-    borderColor: '#BAE6FD',
-    shadowColor: '#0284C7',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
   },
-  quizZoneContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  quizZoneIconWrap: {
+  quizPromoIcon: {
     width: 44,
     height: 44,
-    borderRadius: 14,
-    backgroundColor: '#E0F2FE',
+    borderRadius: 22,
+    backgroundColor: '#F5F3FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
   },
-  quizZoneEmoji: {
-    fontSize: 22,
-  },
-  quizZoneTextWrap: {
-    flex: 1,
-  },
-  quizZoneBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#E0F2FE',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  quizZoneBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#0284C7',
-    letterSpacing: 0.5,
-  },
-  quizZoneTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: colors.ink,
-    letterSpacing: -0.3,
-    marginBottom: 2,
-  },
-  quizZoneSubtitle: {
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 18,
-  },
-  quizZoneButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.brand,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
-    borderRadius: 12,
-  },
-  quizZoneButtonPressed: {
-    opacity: 0.85,
-  },
-  quizZoneButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  quizPromoText: { flex: 1 },
+  quizPromoTitle: { fontSize: 15, fontWeight: '800', color: colors.ink },
+  quizPromoSub: { fontSize: 12, color: colors.muted, marginTop: 2, lineHeight: 16 },
 });

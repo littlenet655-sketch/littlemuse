@@ -7,7 +7,7 @@ import { File } from 'expo-file-system';
 
 // Pure identity/size helpers live in the upload-pipeline API module so they are
 // unit-testable without native modules; re-exported here for compatibility.
-export { formatBytes, mediaKindFromMimeType, validateMediaIdentity } from '../api/kidsUpload';
+export { formatBytes, mediaKindFromMimeType, validateMediaIdentity, maxVideoDurationFor, validateVideoDuration } from '../api/kidsUpload';
 
 export interface PickedMedia {
   uri: string;
@@ -56,13 +56,17 @@ export async function pickGalleryMedia(kind: 'image' | 'video'): Promise<PickedM
   return toPicked(result.assets[0], kind);
 }
 
-export async function capturePostMedia(kind: 'image' | 'video'): Promise<PickedMedia | null> {
+export async function capturePostMedia(
+  kind: 'image' | 'video',
+  /** Client-side duration cap for camera recordings; the server still enforces its own limit. */
+  maxDurationSeconds = 60,
+): Promise<PickedMedia | null> {
   const camera = await ImagePicker.requestCameraPermissionsAsync();
   if (!camera.granted) throw new Error('Camera access is needed to take a photo or video.');
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: kind === 'video' ? ['videos'] : ['images'],
     quality: 0.9,
-    videoMaxDuration: 60,
+    videoMaxDuration: Math.max(1, Math.min(600, Math.floor(maxDurationSeconds))),
   });
   if (result.canceled || !result.assets?.[0]) return null;
   return toPicked(result.assets[0], kind);

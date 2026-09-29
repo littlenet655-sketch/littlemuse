@@ -1,8 +1,9 @@
 """Contract tests for the minimal GET /api/mobile/v1/me onboarding addition.
 
 Face/biometric verification was removed from LittleNet on 2026-09-22.
-CHILD responses now carry only the authoritative quiz gate state
-(``{"quiz_required": bool}``). PARENT/ADMIN responses omit onboarding.
+CHILD responses carry the authoritative Reel-quiz latch state
+(``{"quiz_required": bool}``). It is a Reels-only interruption signal, not a
+startup/Home route gate. PARENT/ADMIN responses omit onboarding.
 
 The mobile token revocation lookup is stubbed: it needs PostgreSQL, which
 is orthogonal to the onboarding payload contract under test.
@@ -76,11 +77,14 @@ def test_me_child_no_quiz_gates_clear(client):
     assert "face_required" not in payload["onboarding"]
 
 
-def test_me_child_with_onboarding_quiz(client):
+def test_me_child_onboarding_quiz_no_longer_gates(client):
+    # Defect C1/C2: the mandatory onboarding quiz was removed. Even when
+    # needs_onboarding_quiz() is true, it must not set quiz_required.
+    # Only the periodic Reel latch is exposed, and it does not gate startup/Home.
     with _ctx(202, "CHILD", onboarding_quiz=True):
         res = client.get("/api/mobile/v1/me", headers=_headers(202, "CHILD"))
     assert res.status_code == 200
-    assert res.get_json()["onboarding"] == {"quiz_required": True}
+    assert res.get_json()["onboarding"] == {"quiz_required": False}
 
 
 def test_me_child_with_feed_quiz(client):
