@@ -257,6 +257,11 @@ def review(event_id):
                 if blocked or not connected:effective='BLOCK'
         status='ALLOWED' if effective=='APPROVE' else 'BLOCKED'
         sanitize_failed=False
+        # Tracked for post-commit work that must mirror the mobile review path:
+        # quarantine bytes are deleted after the DB commits (never orphaned R2
+        # objects), and an effective APPROVE refreshes feed/reel visibility.
+        quarantine_key=None
+        approved_post=None
         if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:
             # Mirror the mobile review path: approving a post must sanitize and
             # promote its media out of quarantine (metadata stripped, published
@@ -264,18 +269,22 @@ def review(event_id):
             post_id=int(e['content_id'])
             cur.execute('SELECT post_id,child_id,media_type,is_reel,is_story,source_media_path FROM posts WHERE post_id=%s FOR UPDATE',(post_id,))
             p_row=cur.fetchone()
+            kind='reel' if p_row and p_row.get('is_reel') else ('story' if p_row and p_row.get('is_story') else 'post')
+            if p_row and p_row.get('source_media_path'):
+                quarantine_key=p_row['source_media_path']
             if p_row and effective=='APPROVE' and p_row.get('source_media_path'):
                 from services.media_processor import sanitize_and_promote_media
-                kind='reel' if p_row.get('is_reel') else ('story' if p_row.get('is_story') else 'post')
                 try:
                     pub_media,pub_poster=sanitize_and_promote_media(post_id,int(p_row['child_id']),p_row['source_media_path'],kind,p_row.get('media_type') or 'IMAGE')
                     cur.execute("UPDATE posts SET media_path=%s,poster_path=%s,moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(pub_media,pub_poster,post_id))
+                    approved_post=(post_id,int(p_row['child_id']),bool(p_row.get('is_reel')),kind)
                 except Exception as exc:
                     # Fail closed: never publish unsanitized media.
                     sanitize_failed=True;effective='BLOCK';status='BLOCKED'
                     cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='FAILED',is_safe=FALSE,processing_completed_at=NOW(),processing_error=%s WHERE post_id=%s",(f'sanitization_failed: {exc}',post_id))
             elif p_row and effective=='APPROVE':
                 cur.execute("UPDATE posts SET moderation_status='ALLOWED',processing_status='ALLOWED',is_safe=TRUE,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
+                approved_post=(post_id,int(p_row['child_id']),bool(p_row.get('is_reel')),kind)
             elif p_row:
                 cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='BLOCKED',is_safe=FALSE,media_path=NULL,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
         elif e['content_type']=='COMMENT' and e['content_id']:cur.execute('UPDATE comments SET moderation_status=%s WHERE comment_id=%s',(status,e['content_id']))
@@ -284,6 +293,24 @@ def review(event_id):
         if effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
         cur.execute('INSERT INTO moderation_reviews(event_id,reviewer_id,action,notes) VALUES(%s,%s,%s,%s)',(event_id,session['user_id'],effective,review_note))
         cur.execute("UPDATE moderation_events SET status='RESOLVED' WHERE event_id=%s",(event_id,));conn.commit()
+        # Post-commit storage/visibility work mirrors the mobile review path.
+        # Quarantine bytes must be deleted on BOTH approve and block — the
+        # review decision is terminal, so the quarantine object would otherwise
+        # strand an orphaned R2 object on every web review action.
+        if quarantine_key:
+            try:
+                from services.media_processor import block_and_cleanup_quarantine
+                block_and_cleanup_quarantine(int(e['content_id']),quarantine_key)
+            except Exception:
+                pass
+        if approved_post:
+            try:
+                from services.publication_lifecycle import refresh_publication_visibility
+                from services.media_processor import _notify_approved_followers
+                refresh_publication_visibility(approved_post[0],approved_post[1],is_reel=approved_post[2])
+                _notify_approved_followers(approved_post[0],approved_post[1],approved_post[3])
+            except Exception:
+                pass
         if e['content_type']=='MESSAGE' and e['content_id'] and effective=='APPROVE':
             msg=fetch_one('SELECT sender_child_id,receiver_child_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],))
             if msg:notify(msg['receiver_child_id'],'MESSAGE','A parent-reviewed message is now available',f'/chat/{msg["sender_child_id"]}/',msg['sender_child_id'])

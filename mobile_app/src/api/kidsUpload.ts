@@ -142,6 +142,49 @@ export function mediaKindFromMimeType(mimeType: string | null | undefined): 'ima
   return null;
 }
 
+/**
+ * Client-side video duration cap in seconds for a creation kind.
+ * Mirrors the server's authoritative Config limits (REEL_MAX_SECONDS=45,
+ * STORY_MAX_SECONDS=60, VIDEO_MAX_SECONDS=600); the server still rejects
+ * over-limit videos during processing, so this is a fast UX guard only.
+ */
+export function maxVideoDurationFor(contentKind: string): number {
+  switch ((contentKind ?? '').toLowerCase()) {
+    case 'reel':
+      return 45;
+    case 'story':
+      return 60;
+    case 'post':
+      return 600;
+    default:
+      return 600;
+  }
+}
+
+export interface PickedVideoLike {
+  mimeType: string;
+  duration?: number | null;
+}
+
+/**
+ * Reject an over-limit picked video before upload.
+ * expo-image-picker reports duration in seconds but it can be missing for
+ * gallery picks — when unavailable, skip the check and let the server enforce.
+ * Throws with a child-friendly message on violation.
+ */
+export function validateVideoDuration(media: PickedVideoLike, contentKind: string): void {
+  if (!media.mimeType.toLowerCase().startsWith('video/')) return;
+  const seconds = media.duration;
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return;
+  const max = maxVideoDurationFor(contentKind);
+  if (seconds > max) {
+    const label = contentKind === 'reel' ? 'a Reel' : contentKind === 'story' ? 'a Story' : 'a post';
+    throw new Error(
+      `That video is about ${Math.round(seconds)} seconds — please choose one under ${max} seconds for ${label}.`,
+    );
+  }
+}
+
 /** Human-friendly byte count for upload UI ("2.4 MB"). */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '0 B';

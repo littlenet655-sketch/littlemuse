@@ -8,7 +8,7 @@ import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
 import { clearCreateDraft, draftHasContent, loadCreateDraft, saveCreateDraft, type CreateDraft } from '../../kids/createDrafts';
-import { capturePostMedia, localMediaSize, pickGalleryMedia, validateMediaIdentity, type PickedMedia } from '../../kids/postMedia';
+import { capturePostMedia, localMediaSize, maxVideoDurationFor, pickGalleryMedia, validateMediaIdentity, validateVideoDuration, type PickedMedia } from '../../kids/postMedia';
 import type { ChildScreenProps } from '../../navigation/types';
 import { kidsKeys } from '../../query/keys';
 import { IgIcon } from '../../components/IgIcon';
@@ -356,6 +356,9 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
     try {
       const picked = await fn();
       if (picked) {
+        // Fast client-side guard: the server re-enforces the limit during
+        // processing, but rejecting here avoids a doomed upload.
+        validateVideoDuration(picked, kind);
         setMedia(picked);
         setError(null);
         resetPipelineState();
@@ -563,7 +566,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                   style={styles.pickOption}
                   accessibilityRole="button"
                   accessibilityLabel="Record a video with the camera"
-                  onPress={() => void choose(() => capturePostMedia('video'))}
+                  onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
                 >
                   <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
                     <Feather name="video" size={24} color={colors.ink} />
@@ -616,7 +619,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
                       style={styles.pickOption}
                       accessibilityRole="button"
                       accessibilityLabel="Record a video with the camera"
-                      onPress={() => void choose(() => capturePostMedia('video'))}
+                      onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
                     >
                       <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
                         <Feather name="video" size={24} color={colors.ink} />

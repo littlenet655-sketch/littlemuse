@@ -19,10 +19,12 @@ import {
   fetchProcessingStatus,
   fetchStoryViewers,
   formatBytes,
+  maxVideoDurationFor,
   mediaKindFromMimeType,
   redriveProcessing,
   requestUploadSession,
   validateMediaIdentity,
+  validateVideoDuration,
 } from '../src/api/kidsUpload';
 
 // ---------------------------------------------------------------------------
@@ -277,6 +279,44 @@ describe('formatBytes', () => {
     assert.equal(formatBytes(2048), '2 KB');
     assert.equal(formatBytes(5 * 1024 * 1024), '5 MB');
     assert.equal(formatBytes(Math.round(2.5 * 1024 * 1024)), '2.5 MB');
+  });
+});
+
+describe('maxVideoDurationFor', () => {
+  it('mirrors the server limits per creation kind', () => {
+    assert.equal(maxVideoDurationFor('reel'), 45);
+    assert.equal(maxVideoDurationFor('story'), 60);
+    assert.equal(maxVideoDurationFor('post'), 600);
+    assert.equal(maxVideoDurationFor('REEL'), 45);
+    assert.equal(maxVideoDurationFor('unknown'), 600);
+  });
+});
+
+describe('validateVideoDuration', () => {
+  it('rejects over-limit reels before upload', () => {
+    assert.throws(
+      () => validateVideoDuration({ mimeType: 'video/mp4', duration: 46 }, 'reel'),
+      /under 45 seconds/,
+    );
+  });
+
+  it('accepts reels within the 45s cap', () => {
+    validateVideoDuration({ mimeType: 'video/mp4', duration: 45 }, 'reel');
+    validateVideoDuration({ mimeType: 'video/mp4', duration: 30 }, 'reel');
+  });
+
+  it('ignores images and missing durations (server enforces)', () => {
+    validateVideoDuration({ mimeType: 'image/jpeg', duration: 999 }, 'reel');
+    validateVideoDuration({ mimeType: 'video/mp4', duration: null }, 'reel');
+    validateVideoDuration({ mimeType: 'video/mp4' }, 'reel');
+  });
+
+  it('applies the story/post caps', () => {
+    assert.throws(
+      () => validateVideoDuration({ mimeType: 'video/mp4', duration: 61 }, 'story'),
+      /under 60 seconds/,
+    );
+    validateVideoDuration({ mimeType: 'video/mp4', duration: 300 }, 'post');
   });
 });
 
