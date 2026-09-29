@@ -40,7 +40,6 @@ const KNOWN_QUIZ_DESTINATIONS: ReadonlySet<keyof ChildStackParamList> = new Set(
   'Quiz', 'KidsTabs', 'FeedTab', 'DiscoverTab', 'CreateTab', 'ReelsTab',
   'ProfileTab', 'Stories', 'NotificationsTab', 'Conversations',
   'NewMessage', 'SavedContent', 'EditProfile', 'Connections',
-  'SafetyCentre', 'ReportHistory',
 ]);
 
 /** Resolve a stored pending destination to a real route, else 'KidsTabs'. */
@@ -60,6 +59,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   const { session, refreshMe } = useAuth();
   const online = useIsOnline();
   const params = (route.params ?? {}) as QuizScreenParams;
+  const practiceMode = !params.autoStart && !params.returnTo;
   const [items, setItems] = useState<QuizItem[]>([]);
   const [reason, setReason] = useState('');
   const [required, setRequired] = useState(true);
@@ -104,7 +104,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     setError(null);
     setGateMessage('');
     try {
-      const response = await fetchQuiz(session.token);
+      const response = await fetchQuiz(session.token, undefined, practiceMode ? 'practice' : undefined);
       if (quizLoadStatus(response.quizzes.length) === 'unavailable') {
         setPhase('unavailable');
         return;
@@ -125,7 +125,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       setError(err);
       setPhase('ready');
     }
-  }, [session, params.returnTo]);
+  }, [session, params.returnTo, practiceMode]);
 
   useEffect(() => {
     void load();
@@ -172,7 +172,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     setRevealedCorrectAnswer(null);
     setFeedback('');
     try {
-      const result = await answerQuiz(session.token, current.quiz_id, option);
+      const result = await answerQuiz(session.token, current.quiz_id, option, practiceMode ? 'practice' : undefined);
       setLastCorrect(result.correct);
       setRevealedCorrectAnswer(result.correct ? null : result.correct_answer);
       if (result.correct) setCorrectCount((value) => value + 1);
@@ -298,7 +298,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             <View style={styles.heroIconBadge}>
               <Image source={require('../../assets/app_logo.png')} style={styles.heroLogoImg} />
             </View>
-            <Text style={styles.heroTitle}>Learning Hub 🚀</Text>
+            <Text style={styles.heroTitle}>Quiz Zone 🚀</Text>
             <Text style={styles.heroSubtitle}>Learn internet safety, earn XP, and level up your badges!</Text>
           </View>
 
@@ -331,7 +331,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             </View>
             <View style={styles.hubActionBox}>
               <Button
-                label="Start Safety Quest 🎮"
+                label="Start Quiz 🎮"
                 onPress={() => {
                   setIndex(0);
                   setSelectedOption(null);
