@@ -47,6 +47,8 @@ is enqueued if and only if the data delete commits.
 """
 from __future__ import annotations
 
+from psycopg2 import sql
+
 from database.connection import get_db_connection
 from services.object_storage import R2_REFERENCE_PREFIX
 
@@ -235,7 +237,13 @@ def clear_everything_for_child(child_id: int, parent_id: int) -> dict:
 
         # ---- 8. Everything else scoped to the child ----
         for table, column in _CHILD_SCOPED_TABLES:
-            cur.execute(f"DELETE FROM {table} WHERE {column}=%s", (child_id,))
+            cur.execute(
+                sql.SQL("DELETE FROM {} WHERE {}=%s").format(
+                    sql.Identifier(table),
+                    sql.Identifier(column),
+                ),
+                (child_id,),
+            )
             summary[table] = cur.rowcount
 
         # ---- 9. Settings back to defaults (same scope as Reset Settings) ----
