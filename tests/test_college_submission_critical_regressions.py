@@ -52,7 +52,7 @@ def test_mixed_video_frame_failure_routes_to_review(monkeypatch):
 
     monkeypatch.setattr(remote,'enabled',lambda:False)
     monkeypatch.setattr(video,'_video_sample_count',lambda path,max_frames=None:2)
-    monkeypatch.setattr(video,'timed_call',lambda name,fn,seconds:([safe,failed],[0],[1]))
+    monkeypatch.setattr(video,'timed_call',lambda name,fn,seconds:([safe,failed],[0,1],[1],False,[0]))
 
     signals=video.check_video('synthetic.mp4')
     assert signals['total_safety_failure'] is False
