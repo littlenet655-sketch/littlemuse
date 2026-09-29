@@ -59,9 +59,9 @@ def age_group(cid):
         return '6-8'
     if a <= 11:
         return '9-11'
-    if a <= 14:
-        return '12-14'
-    return '15-17'
+    if a <= 13:
+        return '12-13'
+    return '14-18'
 
 
 def learning_age_group(cid):
