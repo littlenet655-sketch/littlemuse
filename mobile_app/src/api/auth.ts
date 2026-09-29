@@ -17,6 +17,8 @@ export interface SessionUser {
   email: string;
   role: Role;
   age: number | null;
+  parent_paused?: boolean;
+  demo_unlimited?: boolean;
   profile: Record<string, unknown> | null;
   quiz_required: boolean;
   posts_seen: number;
