@@ -1,9 +1,9 @@
-"""Screen-time reset + extension flow (defect follow-up).
+"""Screen-time parent-control + extension flow.
 
 Covers by source assertion plus one functional lock_state test (monkeypatched
 DB layer, no live Postgres):
-1. ONE-RESET-ONLY: the kid self-reset endpoint rejects a second same-day
-   attempt server-side (used >= 1), and all reset counters report max 1.
+1. PARENT-ONLY RESET: the child reset endpoint is hard-disabled; only Parent
+   Mode may reset or extend usage.
 2. EXTENSION REQUEST FLOW: child POSTs a request (one PENDING at a time);
    parent approves/rejects from an owns()-scoped queue; approval writes a
    today-only bonus that services/usage.py lock_state() reads at check time
@@ -38,20 +38,18 @@ def test_extension_migration_follows_dbmate_convention():
     assert 'DROP TABLE IF EXISTS screen_time_extension_requests' in mig
 
 
-# ---------- one-reset-only ----------
+# ---------- parent-only reset ----------
 
-def test_self_reset_is_one_per_day_server_side():
+def test_child_self_reset_is_disabled_server_side():
     api = text('mobile/api.py')
     assert 'def mobile_kids_time_limit_self_reset():' in api
-    # Second same-day attempt is rejected by the API.
-    assert 'if used >= 1:' in api
-    assert 'error="self_resets_exhausted"' in api
-    # The old two-reset allowance is gone everywhere.
-    assert 'max(0, 2 - used_resets)' not in api
-    assert 'max(0, 2 - used)' not in api
-    assert 'max(0, 2 - new_count)' not in api
-    assert 'self_resets_remaining=max(0, 1 - used_resets)' in api
-    assert 'resets_remaining=max(0, 1 - used)' in api
+    block = api.split('def mobile_kids_time_limit_self_reset():', 1)[1].split(
+        '# ---- Screen-time extension requests', 1
+    )[0]
+    assert 'error="parent_action_required"' in block
+    assert 'Only your parent can reset or extend screen time.' in block
+    assert 'KID_SCREEN_TIME_SELF_RESET' not in block
+    assert 'DELETE FROM child_usage_logs' not in block
 
 
 # ---------- extension request flow: child ----------
