@@ -163,6 +163,13 @@ def quiet_hours_active(child_id, at=None):
     return bool(quiet_hours_state(child_id,at)['active'])
 
 
+def reset_controls_to_defaults(child_id):
+    """Restore LittleNet feature/category/quiet-hour controls to defaults."""
+    execute("DELETE FROM parent_control_settings WHERE child_id=%s", (child_id,))
+    _controls_cache.pop(child_id, None)
+    return controls_for_child(child_id)
+
+
 def save_controls(parent_id,child_id,form):
     allowed=[x for x in form.getlist('allowed_categories') if x in SAFE_CATEGORIES]
     qstart=_clock(form.get('quiet_start'),'21:00');qend=_clock(form.get('quiet_end'),'07:00')
