@@ -66,6 +66,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   const [index, setIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
+  const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>('loading');
@@ -114,6 +115,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       setIndex(0);
       setSelectedOption(null);
       setLastCorrect(null);
+      setRevealedCorrectAnswer(null);
       setFeedback('');
       if (params.returnTo) await savePendingDestination(secureStoreBackend, params.returnTo);
       setCorrectCount(0);
@@ -167,15 +169,34 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     setSubmittedKey(key);
     setBusy(true);
     setSelectedOption(option);
+    setRevealedCorrectAnswer(null);
     setFeedback('');
     try {
       const result = await answerQuiz(session.token, current.quiz_id, option);
       setLastCorrect(result.correct);
+      setRevealedCorrectAnswer(result.correct ? null : result.correct_answer);
       if (result.correct) setCorrectCount((value) => value + 1);
       setEarnedXp((value) => value + result.xp);
-      setFeedback(result.correct ? `🌟 Correct! +${result.xp} XP. ${result.explanation ?? ''}`.trim() : `💡 ${result.explanation ?? 'Keep trying!'}`.trim());
+
+      if (!result.correct) {
+        setFeedback(
+          `😔 Not quite. Correct answer: ${result.correct_answer}. ${result.explanation ?? 'Try once more!'}`.trim(),
+        );
+        if (required) {
+          // A Reel quiz stays on this question after a wrong answer. Feedback
+          // remains visible, then the choices are enabled for another attempt.
+          scheduleTimeout(() => {
+            submittedKeyRef.current = null;
+            setSubmittedKey(null);
+          }, 1500);
+          return;
+        }
+      } else {
+        setFeedback(`🎉 Correct! +${result.xp} XP. ${result.explanation ?? ''}`.trim());
+      }
+
       const lastItem = index + 1 >= items.length;
-      if (result.onboarding_complete || !result.required || lastItem) {
+      if (result.correct && (result.onboarding_complete || !result.required || lastItem)) {
         scheduleTimeout(() => {
           submittedKeyRef.current = null;
           setSubmittedKey(null);
@@ -184,14 +205,16 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
         }, 1100);
         return;
       }
+
       scheduleTimeout(() => {
         setIndex((value) => value + 1);
         setSelectedOption(null);
         setLastCorrect(null);
+        setRevealedCorrectAnswer(null);
         setFeedback('');
         submittedKeyRef.current = null;
         setSubmittedKey(null);
-      }, 1100);
+      }, result.correct ? 1100 : 1600);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return;
       setFeedback(err instanceof ApiError ? err.message : 'Could not check that answer. Try again.');
@@ -459,7 +482,8 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <View style={styles.optionsList}>
             {current.options.map((option, optIdx) => {
               const isSelected = selectedOption === option;
-              const isCorrectChoice = isSelected && lastCorrect === true;
+              const isRevealedCorrect = lastCorrect === false && revealedCorrectAnswer === option;
+              const isCorrectChoice = (isSelected && lastCorrect === true) || isRevealedCorrect;
               const isWrongChoice = isSelected && lastCorrect === false;
 
               return (
