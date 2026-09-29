@@ -410,7 +410,9 @@ def approve_follow_compat():
     try:a=int(d.get('child_id'));b=int(d.get('target_id'))
     except:return jsonify(error='invalid ids'),400
     if not owns(session['user_id'],a):return jsonify(error='forbidden'),403
-    execute('UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE',(a,b));return jsonify(ok=True)
+    changed=execute_count("UPDATE followers SET approved=TRUE WHERE child_id=%s AND following_child_id=%s AND approved=FALSE AND approval_stage IN ('REQUESTED','RECEIVER_PARENT_PENDING')",(a,b))
+    if not changed:return jsonify(error='request_not_found'),404
+    return jsonify(ok=True)
 @parent_bp.route('/parent/reject-follow/',methods=['POST'])
 @parent_required
 def reject_follow_compat():
