@@ -35,6 +35,7 @@ export const parentKeys = {
 
 export const adminKeys = {
   dashboard: ['admin', 'dashboard'],
+  demoBoost: ['demo-boost', 'status'],
   reviews: ['admin', 'reviews'],
   review: (eventId: number) => ['admin', 'review', eventId],
   users: (query: string) => ['admin', 'users', query],
