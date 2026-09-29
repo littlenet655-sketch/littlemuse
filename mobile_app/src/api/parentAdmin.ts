@@ -282,6 +282,10 @@ export function updateAdminUserStatus(token: string, userId: number, status: 'AC
   return apiRequest(routes.adminUserStatus(userId), body({ status }), token);
 }
 
+export function deactivateAdminUser(token: string, userId: number): Promise<{ ok: boolean; user_id: number; status: string }> {
+  return apiRequest(routes.adminDeleteUser(userId), { method: 'DELETE' }, token);
+}
+
 export function fetchAdminAudit(token: string): Promise<{ ok: boolean; events: AdminAuditEvent[] }> {
   return apiRequest(routes.adminAudit, {}, token);
 }
