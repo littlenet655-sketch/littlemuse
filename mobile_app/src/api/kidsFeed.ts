@@ -191,8 +191,6 @@ export interface HeartbeatResult {
   quiet_hours?: { enabled: boolean; active: boolean; start: string; end: string };
   server_time?: string;
   locked?: boolean;
-  self_resets_used?: number;
-  self_resets_remaining?: number;
 }
 
 export interface KidTimeLimitStatus {
@@ -202,8 +200,6 @@ export interface KidTimeLimitStatus {
   daily_limit_minutes: number;
   strict_mode: boolean;
   remaining_minutes: number | null;
-  resets_used: number;
-  resets_remaining: number;
 }
 
 export function sendHeartbeat(token: string, signal?: AbortSignal): Promise<HeartbeatResult> {
@@ -216,16 +212,6 @@ export function sendHeartbeat(token: string, signal?: AbortSignal): Promise<Hear
 
 export function fetchKidsTimeLimitStatus(token: string): Promise<KidTimeLimitStatus> {
   return get<KidTimeLimitStatus>(routes.kidsTimeLimitStatus, token);
-}
-
-export function resetKidsTimeLimitSelf(token: string): Promise<{
-  ok: boolean;
-  message: string;
-  resets_used: number;
-  resets_remaining: number;
-  minutes_today: number;
-}> {
-  return apiRequest(routes.kidsTimeLimitReset, { method: 'POST' }, token);
 }
 
 export type ExtensionRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
