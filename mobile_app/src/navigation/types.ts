@@ -10,7 +10,7 @@ export type AuthStackParamList = {
 };
 
 export type ChildStackParamList = {
-  Quiz: { returnTo?: string } | undefined;
+  Quiz: { returnTo?: string; autoStart?: boolean } | undefined;
   KidsTabs: { tab?: string } | undefined;
   FeedTab: undefined;
   DiscoverTab: undefined;
