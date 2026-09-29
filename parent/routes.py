@@ -381,10 +381,11 @@ def behavior():
 def activity():
     kids=children(session['user_id']);cid=int(request.args.get('child_id') or (kids[0]['user_id'] if kids else 0))
     if not owns(session['user_id'],cid):return ('Forbidden',403)
-    # Same liked/saved snapshot the mobile ParentActivityScreen shows; lazy
-    # import keeps the web blueprint free of mobile-api import-order coupling.
-    from mobile.api import _liked_saved_snapshot
-    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s ORDER BY created_at DESC LIMIT 100',(cid,)),liked_saved=_liked_saved_snapshot(cid),child_id=cid)
+    # Same liked snapshot the mobile ParentActivityScreen shows (saves excluded:
+    # saved content is private to the child); lazy import keeps the web
+    # blueprint free of mobile-api import-order coupling.
+    from mobile.api import _liked_saved_snapshot, _SAVE_ACTIVITY_SQL
+    return render_template('activity.html',rows=fetch_all('SELECT * FROM activity_logs WHERE child_id=%s AND '+_SAVE_ACTIVITY_SQL+' ORDER BY created_at DESC LIMIT 100',(cid,)),liked_saved=_liked_saved_snapshot(cid, include_saved=False),child_id=cid)
 
 @parent_bp.route('/parent/child/<int:child_id>/')
 @parent_required

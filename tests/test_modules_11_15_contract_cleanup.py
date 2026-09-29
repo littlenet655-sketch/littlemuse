@@ -70,7 +70,9 @@ def test_like_toggle_behavior(client):
          patch("mobile.api.execute") as mock_exec, \
          patch("mobile.api._child_gate", return_value=None), \
          patch("mobile.api.post_visible_to", return_value={"child_id": 202, "post_id": 10}), \
-         patch("mobile.api.can_interact", return_value=True):
+         patch("mobile.api.can_interact", return_value=True), \
+         patch("mobile.api.log"), \
+         patch("mobile.api.record_signal"):
         
         # 1st call: not yet liked -> inserts like -> liked=True
         mock_fetch.side_effect = [

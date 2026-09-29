@@ -4,8 +4,11 @@ Covers:
 - like/unlike on social posts writes POST_LIKED / POST_UNLIKED with metadata only
 - save/unsave on social posts writes POST_SAVED / POST_UNSAVED
 - like/save on curated reels writes CURATED_LIKED / CURATED_SAVED (and UNLIKE/UNSAVE)
-- parent activity endpoint exposes liked_saved for the own child and keeps the
-  parent-owns-child gate (404 for another parent's child)
+- parent activity endpoint exposes liked (never saved) items for the own child
+  and keeps the parent-owns-child gate (404 for another parent's child)
+- saved content is private to the child: parent snapshots and parent event
+  timelines exclude *_SAVED/*_UNSAVED rows; the child's own "my activity"
+  view keeps include_saved=True
 - _liked_saved_snapshot keeps the latest state per target (unlike removes the item)
 """
 from datetime import datetime
@@ -265,10 +268,12 @@ def test_parent_activity_gate_blocks_other_parents_child(client):
     spy.assert_not_called()
 
 
-def test_parent_activity_returns_liked_saved_for_own_child(client):
+def test_parent_activity_returns_liked_only_for_own_child(client):
     # Exercise the REAL _liked_saved_snapshot (not a canned patch): the DB
     # layer (fetch_all) is stubbed, but the snapshot logic — DISTINCT ON
     # parsing, latest-state-per-target, labels — runs for real.
+    # Mission rule: saved content is private to the child, so the parent
+    # endpoint must NOT surface the CURATED_SAVED row.
     rows = [
         {
             "log_id": 9,
@@ -303,10 +308,10 @@ def test_parent_activity_returns_liked_saved_for_own_child(client):
     payload = response.get_json()
     assert payload["ok"] is True
     liked_saved = payload["liked_saved"]
-    assert len(liked_saved) == 2
-    by_action = {it["action"]: it for it in liked_saved}
-    assert by_action["liked"]["target_label"] == "Post by @friend"
-    assert by_action["saved"]["target_label"] == "Ocean Wonders"
+    # Only the liked item is parent-visible; the saved item stays private.
+    assert len(liked_saved) == 1
+    assert liked_saved[0]["action"] == "liked"
+    assert liked_saved[0]["target_label"] == "Post by @friend"
     # existing shape untouched
     assert "events" in payload and "recent_chat_partners" in payload
 
@@ -327,7 +332,7 @@ def test_liked_saved_snapshot_keeps_latest_state_per_target():
         },
         {
             "log_id": 3,
-            "activity_type": "CURATED_SAVED",
+            "activity_type": "CURATED_LIKED",
             "activity_data": {"target_type": "CURATED", "target_id": CURATED_ID},
             "created_at": datetime(2026, 9, 25, 11, 0),
         },
@@ -345,10 +350,10 @@ def test_liked_saved_snapshot_keeps_latest_state_per_target():
     with patch("mobile.api.fetch_all", side_effect=fetch_all_router):
         snap = _liked_saved_snapshot(CHILD_ID)
 
-    # POST 5 was unliked after being liked -> excluded; CURATED 7 still saved
+    # POST 5 was unliked after being liked -> excluded; CURATED 7 still liked
     assert len(snap) == 1
     item = snap[0]
-    assert item["action"] == "saved"
+    assert item["action"] == "liked"
     assert item["target_type"] == "CURATED"
     assert item["target_id"] == CURATED_ID
     assert item["target_label"] == "Ocean Wonders"
@@ -358,7 +363,49 @@ def test_liked_saved_snapshot_keeps_latest_state_per_target():
     }
 
 
+def test_parent_snapshot_excludes_saved_items():
+    # Mission rule: saved content is private to the child. include_saved=False
+    # (used by both parent surfaces) drops saved bookmarks while keeping likes.
+    rows = [
+        {
+            "log_id": 4,
+            "activity_type": "POST_SAVED",
+            "activity_data": {"target_type": "POST", "target_id": POST_ID},
+            "created_at": datetime(2026, 9, 25, 12, 0),
+        },
+        {
+            "log_id": 5,
+            "activity_type": "CURATED_LIKED",
+            "activity_data": {"target_type": "CURATED", "target_id": CURATED_ID},
+            "created_at": datetime(2026, 9, 25, 13, 0),
+        },
+    ]
+
+    def fetch_all_router(sql, params=()):
+        if "DISTINCT ON" in sql:
+            return rows
+        if "FROM posts" in sql:
+            return [{"post_id": POST_ID, "username": "friend", "full_name": "Friend"}]
+        if "FROM curated_content" in sql:
+            return [{"content_id": CURATED_ID, "title": "Ocean Wonders"}]
+        return []
+
+    with patch("mobile.api.fetch_all", side_effect=fetch_all_router):
+        parent_snap = _liked_saved_snapshot(CHILD_ID, include_saved=False)
+        child_snap = _liked_saved_snapshot(CHILD_ID, include_saved=True)
+
+    assert len(parent_snap) == 1
+    assert parent_snap[0]["action"] == "liked"
+    assert parent_snap[0]["target_label"] == "Ocean Wonders"
+    # The child's own view still includes their saved bookmark.
+    assert len(child_snap) == 2
+    by_action = {it["action"]: it for it in child_snap}
+    assert by_action["saved"]["target_label"] == "Post by @friend"
+
+
 def test_liked_saved_snapshot_labels_post_author():
+    # Default include_saved=True (child's own "my activity" view): a saved
+    # post is labelled by its author.
     rows = [
         {
             "log_id": 4,

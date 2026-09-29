@@ -34,7 +34,6 @@ from child.service import (
     child_has_guardian,
     counts,
     create_child_profile,
-    discoverable_child_ids,
     discoverable_children,
     follow_child,
     get_child_profile,
@@ -394,14 +393,25 @@ _LIKE_SAVE_TYPES = (
     "CURATED_LIKED", "CURATED_UNLIKED", "CURATED_SAVED", "CURATED_UNSAVED",
 )
 _LIKE_SAVE_ACTIVE = {"POST_LIKED", "POST_SAVED", "CURATED_LIKED", "CURATED_SAVED"}
+# Save/unsave activity is the child's private bookmarking behaviour. These
+# rows must never appear on parent-facing surfaces (mission rule: saved
+# content is private to the child, no parent saved-content surveillance).
+_SAVE_ACTIVITY_SQL = "activity_type NOT IN ('POST_SAVED','POST_UNSAVED','CURATED_SAVED','CURATED_UNSAVED')"
+# Parent-visible subset: saves are private to the child (mission rule), so
+# parent supervision surfaces only public like engagement, never bookmarks.
+_LIKE_ACTIVE = {"POST_LIKED", "CURATED_LIKED"}
 
 
-def _liked_saved_snapshot(child_id, limit=30):
-    """Current liked/saved state per target for parent supervision.
+def _liked_saved_snapshot(child_id, limit=30, include_saved=True):
+    """Current liked/saved state per target.
 
     Supervision metadata only: target type/id, the action, when it happened,
     and a display label (post author's handle or curated content title).
     Captions, message text, and media bytes are never exposed.
+
+    Saved content is private to the child: pass include_saved=False on parent
+    surfaces so a parent never sees the child's bookmarks. The child's own
+    "my activity" view keeps include_saved=True.
     """
     rows = fetch_all(
         """SELECT DISTINCT ON ((activity_data->>'target_type'), (activity_data->>'target_id'))
@@ -420,7 +430,8 @@ def _liked_saved_snapshot(child_id, limit=30):
         key = (data.get("target_type"), str(data.get("target_id")))
         if key not in newest or r["log_id"] > newest[key]["log_id"]:
             newest[key] = r
-    latest = [r for r in newest.values() if r["activity_type"] in _LIKE_SAVE_ACTIVE]
+    latest = [r for r in newest.values()
+              if r["activity_type"] in (_LIKE_SAVE_ACTIVE if include_saved else _LIKE_ACTIVE)]
     latest.sort(key=lambda r: r["created_at"], reverse=True)
     latest = latest[:limit]
     parsed = []
@@ -3755,6 +3766,7 @@ def register_mobile_api(bp):
                 """SELECT log_id,activity_type,activity_data,created_at
                    FROM activity_logs
                    WHERE child_id=%s AND log_id < %s
+                     AND """ + _SAVE_ACTIVITY_SQL + """
                    ORDER BY log_id DESC
                    LIMIT %s""",
                 (child_id, before_id, limit + 1),
@@ -3764,6 +3776,7 @@ def register_mobile_api(bp):
                 """SELECT log_id,activity_type,activity_data,created_at
                    FROM activity_logs
                    WHERE child_id=%s
+                     AND """ + _SAVE_ACTIVITY_SQL + """
                    ORDER BY log_id DESC
                    LIMIT %s""",
                 (child_id, limit + 1),
@@ -3807,7 +3820,7 @@ def register_mobile_api(bp):
             has_more=has_more,
             next_cursor=next_cursor,
             recent_chat_partners=partners,
-            liked_saved=_clean(_liked_saved_snapshot(child_id)),
+            liked_saved=_clean(_liked_saved_snapshot(child_id, include_saved=False)),
         )
 
     @bp.route("/api/mobile/v1/demo-boost/status")
@@ -4876,9 +4889,11 @@ def register_mobile_api(bp):
             row.pop("profile_picture", None)
             out_kids.append(_clean(row))
 
-        allowed_author_ids = [uid] + discoverable_child_ids(uid)
+        # Content search uses the public safe pool (approved posts visible to
+        # every child, subject to age/category/block/mute). Person discovery
+        # above stays scoped to legitimate relationship context.
         if q:
-            posts = search_visible_posts(uid, q, 30, allowed_author_ids=allowed_author_ids)
+            posts = search_visible_posts(uid, q, 30)
         else:
             posts = discoverable_posts(uid, False, 30, 0)
 
@@ -4901,6 +4916,6 @@ def register_mobile_api(bp):
             pii_warning=False,
             children=out_kids,
             posts=[_post_json(p, uid) for p in posts],
-            hashtags=_clean(visible_hashtags(uid, q, 10, allowed_author_ids=allowed_author_ids)),
+            hashtags=_clean(visible_hashtags(uid, q, 10)),
             curated=_clean(curated),
         )

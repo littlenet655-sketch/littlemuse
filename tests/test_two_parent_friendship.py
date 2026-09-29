@@ -57,11 +57,23 @@ def test_child_helpers_treat_friendship_as_symmetric_active_state():
     assert "DELETE FROM followers WHERE (child_id=%s AND following_child_id=%s) OR" in service
 
 
-def test_social_interaction_and_content_require_active_friendship():
+def test_chat_and_sharing_require_active_friendship():
+    # One-to-one chat and internal sharing are gated on the ACTIVE two-parent
+    # handshake via can_interact (server-side). Public content visibility must
+    # NOT be gated on friendship (mission rule: approved content is visible to
+    # all children, subject to age/category/block/mute).
     social = text('services/social.py')
     assert "approved=TRUE AND approval_stage='ACTIVE'" in social
     assert "Both parents must approve this friendship before sharing or messaging." in social
-    assert social.count("approval_stage='ACTIVE'") >= 5
+    # The ACTIVE gate lives in can_interact (chat/sharing path); the public
+    # feed/reel/story/profile queries carry no friendship condition.
+    can_interact_body = social.split('def _can_interact_uncached')[1].split('def visible_posts')[0]
+    assert "approval_stage='ACTIVE'" in can_interact_body
+    for fn in ('def visible_posts', 'def discoverable_posts', 'def active_stories',
+               'def story_visible_to', 'def post_visible_to', 'def visible_profile_posts'):
+        body = social.split(fn)[1]
+        body = body.split('\ndef ')[0]
+        assert 'followers' not in body and 'approval_stage' not in body, fn
 
 
 def test_initial_request_is_not_notified_to_target_child_before_parent_one_approves():
