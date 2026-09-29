@@ -20,14 +20,17 @@ Scope is deliberate and documented here because this is destructive:
 
   CLEAR:
     - posts / reels / stories (with durable R2 media cleanup through
-      media_delete_outbox -- never strand R2 objects),
+      media_delete_outbox -- never strand R2 objects; this includes
+      media_assets variant keys, deleted_posts tombstone refs, and both
+      participants' chat media in wiped conversations),
     - the child's comments / likes / saves on anyone's content,
     - follows, blocks, mutes (both directions),
-    - chats: the child's sent messages (with R2 media cleanup) and every
-      1:1 conversation the child participates in, removed for both
-      participants so no half-conversation dangles,
+    - chats: every 1:1 conversation the child participates in, removed for
+      both participants so no half-conversation dangles (all message media
+      enqueued before the cascade),
     - quiz attempts/progress/pools, learning-challenge attempts,
-    - activity logs, notifications, parent notifications, usage logs/sessions,
+    - activity logs, parent weekly digests, notifications, parent
+      notifications, usage logs/sessions,
     - pending screen-time extension requests,
     - recommendation / feed-session / personalization state,
     - user preferences (language back to default).
@@ -99,6 +102,7 @@ _CHILD_SCOPED_TABLES = (
     ("chat_typing", "user_id"),
     ("message_reactions", "child_id"),
     ("deleted_posts", "child_id"),
+    ("parent_weekly_digests", "child_id"),
 )
 
 
@@ -150,15 +154,50 @@ def clear_everything_for_child(child_id: int, parent_id: int) -> dict:
             if _enqueue_ref(cur, (row or {}).get("object_key"), "chat_upload_sessions", None):
                 summary["media_enqueued"] += 1
 
-        # ---- 4. R2 media: the child's sent chat media ----
+        # ---- 4. R2 media: chat media in every conversation being wiped.
+        # Conversations are deleted for BOTH participants (step 6), so the
+        # peer's media messages would cascade-delete with their R2 objects
+        # stranded. Enqueue media from all messages where the child is either
+        # sender or receiver -- that covers every message in those 1:1
+        # conversations. ----
         cur.execute(
             """SELECT child_message_id, media_path FROM child_messages
-               WHERE sender_child_id=%s AND media_path IS NOT NULL""",
-            (child_id,),
+               WHERE media_path IS NOT NULL
+                 AND (sender_child_id=%s OR receiver_child_id=%s)""",
+            (child_id, child_id),
         )
         for row in cur.fetchall():
             if _enqueue_ref(cur, (row or {}).get("media_path"), "child_messages", (row or {}).get("child_message_id")):
                 summary["media_enqueued"] += 1
+
+        # ---- 4b. R2 media: media_assets rows (transcoded/sanitized variants).
+        # media_assets carries its own R2 keys (source_r2_key,
+        # published_reference, poster_reference) which can differ from the
+        # posts-table columns; the posts DELETE cascades these rows, so their
+        # keys must be enqueued first or the objects are stranded. ----
+        cur.execute(
+            """SELECT media_id, source_r2_key, published_reference, poster_reference
+               FROM media_assets
+               WHERE post_id IN (SELECT post_id FROM posts WHERE child_id=%s)""",
+            (child_id,),
+        )
+        for row in cur.fetchall():
+            for column in ("source_r2_key", "published_reference", "poster_reference"):
+                if _enqueue_ref(cur, (row or {}).get(column), "media_assets", (row or {}).get("media_id")):
+                    summary["media_enqueued"] += 1
+
+        # ---- 4c. R2 media: deleted_posts tombstones. These rows hold
+        # media_path/story_music_path from earlier deletes whose R2 objects
+        # were never queued (the web delete path unlinks local files only).
+        # Clear Everything wipes the tombstones, so enqueue first. ----
+        cur.execute(
+            "SELECT deleted_post_id, media_path, story_music_path FROM deleted_posts WHERE child_id=%s",
+            (child_id,),
+        )
+        for row in cur.fetchall():
+            for column in ("media_path", "story_music_path"):
+                if _enqueue_ref(cur, (row or {}).get(column), "deleted_posts", (row or {}).get("deleted_post_id")):
+                    summary["media_enqueued"] += 1
 
         # ---- 5. Content rows (posts delete cascades comments/likes/media_assets/
         # post_tags/saved_posts/story_reactions/story_views on the child's posts) ----
@@ -211,6 +250,13 @@ def clear_everything_for_child(child_id: int, parent_id: int) -> dict:
             "UPDATE users SET parent_paused=FALSE WHERE user_id=%s AND role='CHILD'",
             (child_id,),
         )
+        # ---- 9b. Invalidate the child's auth sessions inside the transaction
+        # so old tokens die atomically with the wipe (a post-transaction bump
+        # that silently fails would leave stale tokens valid). ----
+        cur.execute(
+            "UPDATE users SET session_version=COALESCE(session_version,1)+1 WHERE user_id=%s AND role='CHILD'",
+            (child_id,),
+        )
 
         # ---- 10. Audit + notify (same durable log other parent actions use) ----
         cur.execute(
@@ -226,8 +272,9 @@ def clear_everything_for_child(child_id: int, parent_id: int) -> dict:
         conn.close()
 
     # Notify outside the transaction so a notification failure cannot roll
-    # back the reset; also invalidate the child's auth sessions so the wiped
-    # device must sign in again against the clean state.
+    # back the reset. Auth sessions were already invalidated in-transaction
+    # via the session_version bump above; restart_child_sessions finalizes
+    # any usage-session bookkeeping defensively.
     try:
         from services.usage import restart_child_sessions
         from services.social import notify

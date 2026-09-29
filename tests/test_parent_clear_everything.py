@@ -283,3 +283,109 @@ def test_clear_everything_enqueues_r2_refs_transactionally(monkeypatch):
     assert "uploads/r2/quarantine/a.jpg" in sql
     assert "uploads/r2/published/b.jpg" in sql
     assert summary["media_enqueued"] == 2
+
+
+def test_clear_everything_enqueues_media_asset_variant_keys(monkeypatch):
+    """media_assets rows (transcoded/sanitized variants) carry their own R2
+    keys. The posts DELETE cascades these rows, so their keys must be
+    enqueued first or the variant objects are stranded."""
+    conn_holder = {}
+
+    class _VariantCursor(_FakeCursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "FROM media_assets" in sql:
+                self._select_result = [{
+                    "media_id": 5,
+                    "source_r2_key": "uploads/r2/quarantine/v.mp4",
+                    "published_reference": "uploads/r2/published/v-sanitized.mp4",
+                    "poster_reference": "uploads/r2/posters/v.jpg",
+                }]
+
+    class _VariantConn(_FakeConn):
+        def __init__(self):
+            super().__init__({"user_id": 7, "username": "kid7",
+                              "role": "CHILD", "account_status": "ACTIVE"})
+            self.cur = _VariantCursor(self.cur.user_row)
+
+    conn = _VariantConn()
+    conn_holder["conn"] = conn
+    monkeypatch.setattr(account_reset, "get_db_connection", lambda: conn)
+    monkeypatch.setattr("services.usage.restart_child_sessions", lambda _cid: True)
+    monkeypatch.setattr("services.social.notify", lambda *a, **k: None)
+    summary = account_reset.clear_everything_for_child(7, 42)
+    assert conn.committed
+    sql = "\n".join(conn.cur.statements)
+    assert "uploads/r2/quarantine/v.mp4" in sql
+    assert "uploads/r2/published/v-sanitized.mp4" in sql
+    assert "uploads/r2/posters/v.jpg" in sql
+    assert summary["media_enqueued"] == 3
+
+
+def test_clear_everything_enqueues_peer_chat_media_and_tombstones(monkeypatch):
+    """Conversations are deleted for BOTH participants, so the peer's media
+    messages must be enqueued too. deleted_posts tombstones also hold media
+    refs that were never queued by the web delete path."""
+    conn_holder = {}
+
+    class _PeerCursor(_FakeCursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if "FROM child_messages" in sql:
+                # Peer's image in a shared conversation (child 7 is receiver).
+                self._select_result = [{
+                    "child_message_id": 99,
+                    "media_path": "uploads/r2/chat/peer-img.jpg",
+                }]
+            elif "FROM deleted_posts" in sql and "media_path" in sql:
+                self._select_result = [{
+                    "deleted_post_id": 3,
+                    "media_path": "uploads/r2/published/old.jpg",
+                    "story_music_path": None,
+                }]
+
+    class _PeerConn(_FakeConn):
+        def __init__(self):
+            super().__init__({"user_id": 7, "username": "kid7",
+                              "role": "CHILD", "account_status": "ACTIVE"})
+            self.cur = _PeerCursor(self.cur.user_row)
+
+    conn = _PeerConn()
+    conn_holder["conn"] = conn
+    monkeypatch.setattr(account_reset, "get_db_connection", lambda: conn)
+    monkeypatch.setattr("services.usage.restart_child_sessions", lambda _cid: True)
+    monkeypatch.setattr("services.social.notify", lambda *a, **k: None)
+    summary = account_reset.clear_everything_for_child(7, 42)
+    assert conn.committed
+    sql = "\n".join(conn.cur.statements)
+    assert "uploads/r2/chat/peer-img.jpg" in sql
+    assert "uploads/r2/published/old.jpg" in sql
+    assert summary["media_enqueued"] == 2
+
+
+def test_clear_everything_bumps_session_version_in_transaction(monkeypatch):
+    """Old child tokens must die atomically with the wipe -- the
+    session_version bump happens inside the transaction, before commit."""
+    conn_holder = {}
+
+    class _SverConn(_FakeConn):
+        pass
+
+    conn = _SverConn({"user_id": 7, "username": "kid7",
+                      "role": "CHILD", "account_status": "ACTIVE"})
+    conn_holder["conn"] = conn
+    monkeypatch.setattr(account_reset, "get_db_connection", lambda: conn)
+    monkeypatch.setattr("services.usage.restart_child_sessions", lambda _cid: True)
+    monkeypatch.setattr("services.social.notify", lambda *a, **k: None)
+    account_reset.clear_everything_for_child(7, 42)
+    sql = "\n".join(conn.cur.statements)
+    assert "UPDATE users SET session_version=COALESCE(session_version,1)+1" in sql
+    # The bump runs on the same connection that then commits.
+    assert conn.committed and not conn.rolled_back
+
+
+def test_clear_everything_clears_weekly_digests(monkeypatch):
+    """Parent weekly digests hold activity summaries; they are stale after a
+    wipe and must be cleared with the rest of the activity history."""
+    src = text("services/account_reset.py")
+    assert '("parent_weekly_digests", "child_id")' in src
