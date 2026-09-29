@@ -329,23 +329,14 @@ def _require_mobile(*roles):
     return decorator
 
 def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
-    """Nudge-signal state: the periodic feed quiz latch never gates Kids Mode.
+    """Expose the server Reel-quiz latch without making it a global app gate.
 
-    quiz_required=True means a periodic quiz is due; the client renders a
-    dismissible prompt card between reels. No endpoint refuses on it.
-    The mandatory onboarding quiz was removed (defect C1/C2);
-    needs_onboarding_quiz() no longer contributes here.
+    quiz_required=True is consumed by the Reels screen, which performs the
+    compulsory interruption. Startup/home never route into a quiz.
     """
     if quiz_state is None:
         quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
     return {"quiz_required": bool(quiz_state.get("required"))}
-
-def _kid_self_resets_today(child_id: int) -> int:
-    row = fetch_one(
-        "SELECT COUNT(*) as cnt FROM activity_logs WHERE child_id=%s AND activity_type='KID_SCREEN_TIME_SELF_RESET' AND created_at::date=CURRENT_DATE",
-        (child_id,),
-    )
-    return int(row["cnt"]) if row else 0
 
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
@@ -361,13 +352,10 @@ def _child_gate(feature: str | None = None):
         return jsonify(error="quiet_hours", gate="quiet_hours", quiet=_clean(quiet)), 423
     locked, remaining = lock_state(uid)
     if locked:
-        used_resets = _kid_self_resets_today(uid)
         return jsonify(
             error="screen_time_limit",
             gate="screen_time",
             remaining=remaining,
-            self_resets_used=used_resets,
-            self_resets_remaining=max(0, 1 - used_resets),
         ), 423
     # The periodic Reel quiz is not a global app gate. Reels consumes the
     # quiz_required signal and performs the compulsory interruption there.
@@ -3871,7 +3859,6 @@ def register_mobile_api(bp):
         if gate:
             return gate
         locked, remaining = lock_state(uid)
-        used_resets = _kid_self_resets_today(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         controls = controls_for_child(uid)
         quiet = quiet_hours_state(uid)
@@ -3889,8 +3876,6 @@ def register_mobile_api(bp):
             },
             server_time=datetime.now(timezone.utc).isoformat(),
             locked=locked,
-            self_resets_used=used_resets,
-            self_resets_remaining=max(0, 1 - used_resets),
         )
 
     @bp.route("/api/mobile/v1/kids/time-limit/status")
@@ -3898,7 +3883,6 @@ def register_mobile_api(bp):
     def mobile_kids_time_limit_status():
         uid = int(g.mobile_user["user_id"])
         locked, remaining = lock_state(uid)
-        used = _kid_self_resets_today(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         return jsonify(
             ok=True,
@@ -3907,8 +3891,6 @@ def register_mobile_api(bp):
             daily_limit_minutes=int(limit_row["daily_limit_minutes"]) if limit_row else 60,
             strict_mode=bool(limit_row["strict_mode"]) if limit_row else True,
             remaining_minutes=remaining,
-            resets_used=used,
-            resets_remaining=max(0, 1 - used),
         )
 
     @bp.route("/api/mobile/v1/kids/my-controls")
