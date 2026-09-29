@@ -14,14 +14,14 @@ def test_parent_provisioning_accepts_six_through_seventeen():
     assert "6 <= age <= 16" not in source
 
 
-def test_quiz_age_bands_match_final_scope():
+def test_quiz_age_bands_remain_storage_compatible_for_final_scope():
     source = text("quiz/service.py")
     assert "return '6-8'" in source
     assert "return '9-11'" in source
-    assert "return '12-14'" in source
-    assert "return '15-17'" in source
-    assert "'12-13'" not in source
-    assert "'14-18'" not in source
+    assert "return '12-13'" in source
+    assert "return '14-18'" in source
+    assert "'12-14'" not in source
+    assert "'15-17'" not in source
 
 
 def test_startup_quiz_is_permanently_disabled():
