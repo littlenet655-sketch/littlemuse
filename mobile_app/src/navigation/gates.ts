@@ -7,7 +7,7 @@ export type ChildRoute =
   | 'FeedTab' | 'DiscoverTab' | 'CreateTab' | 'ReelsTab' | 'ProfileTab'
   | 'Stories' | 'NotificationsTab' | 'Conversations' | 'Chat'
   | 'ChatDetails' | 'NewMessage' | 'SavedContent' | 'EditProfile' | 'Connections'
-  | 'PostDetail' | 'OtherProfile' | 'ProcessingStatus' | 'SafetyCentre' | 'ReportHistory';
+  | 'PostDetail' | 'OtherProfile' | 'ProcessingStatus';
 
 /**
  * Quiz no longer gates routing: the periodic latch is a NUDGE (a dismissible
