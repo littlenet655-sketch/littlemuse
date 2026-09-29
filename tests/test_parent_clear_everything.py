@@ -84,9 +84,9 @@ def test_service_enqueues_r2_media_before_deleting():
 def test_service_resets_settings_to_defaults():
     src = text("services/account_reset.py")
     # Cleared through the child-scoped table loop.
-    assert '("parent_control_settings", "child_id")' in src
-    assert '("parent_quiz_settings", "child_id")' in src
-    assert '("screen_time_extension_requests", "child_id")' in src
+    assert '"DELETE FROM parent_control_settings WHERE child_id=%s"' in src
+    assert '"DELETE FROM parent_quiz_settings WHERE child_id=%s"' in src
+    assert '"DELETE FROM screen_time_extension_requests WHERE child_id=%s"' in src
     assert "daily_limit_minutes=60" in src
     assert "parent_paused=FALSE" in src
 
@@ -388,4 +388,4 @@ def test_clear_everything_clears_weekly_digests(monkeypatch):
     """Parent weekly digests hold activity summaries; they are stale after a
     wipe and must be cleared with the rest of the activity history."""
     src = text("services/account_reset.py")
-    assert '("parent_weekly_digests", "child_id")' in src
+    assert '"DELETE FROM parent_weekly_digests WHERE child_id=%s"' in src
