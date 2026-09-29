@@ -129,6 +129,7 @@ export interface AdminUser {
   role: 'CHILD' | 'PARENT' | 'ADMIN';
   age?: number | null;
   account_status: string;
+  demo_unlimited?: boolean;
   created_at?: string;
 }
 
@@ -280,6 +281,10 @@ export function fetchAdminUsers(token: string, query: string): Promise<{ ok: boo
 
 export function updateAdminUserStatus(token: string, userId: number, status: 'ACTIVE' | 'SUSPENDED'): Promise<{ ok: boolean; user_id: number; status: string }> {
   return apiRequest(routes.adminUserStatus(userId), body({ status }), token);
+}
+
+export function updateAdminDemoUnlimited(token: string, userId: number, enabled: boolean): Promise<{ ok: boolean; user_id: number; demo_unlimited: boolean }> {
+  return apiRequest(routes.adminDemoUnlimited(userId), body({ enabled }), token);
 }
 
 export function deactivateAdminUser(token: string, userId: number): Promise<{ ok: boolean; user_id: number; status: string }> {
