@@ -257,7 +257,7 @@ export function unlinkChild(token: string, childId: number): Promise<{ ok: boole
   return apiRequest(routes.parentChild(childId), { method: 'DELETE' }, token);
 }
 
-export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; open_reviews: number } }> {
+export function fetchAdminDashboard(token: string): Promise<{ ok: boolean; counts: { users: number; children: number; parents: number; signups_today: number } }> {
   return apiRequest(routes.adminDashboard, {}, token);
 }
 
