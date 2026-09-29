@@ -600,19 +600,7 @@ def _video_frames(path,max_frames):
 
 
 def check_video(path,max_frames=None):
-    from .remote_client import enabled,moderate_file
-    if enabled():
-        try:return normalize_signals(moderate_file('VIDEO',path),category='VIDEO')
-        except Exception:return normalize_signals({'category':'VIDEO','total_safety_failure':True,'errors':['remote_ai_unavailable']},category='VIDEO')
-    try:
-        requested=_video_sample_count(path,max_frames)
-        coverage=video_sampling_coverage(path,requested)
-        outs=timed_call('video_frames',lambda:_video_frames(path,requested),timeout_seconds('video_frames',240))
-        if not outs:return normalize_signals({'total_safety_failure':True,'category':'VIDEO','errors':['no_video_frames']},category='VIDEO')
-        keys=['adult_score','sexual_score','weapon_score','violence_score','general_score'];out={k:max(float(x.get(k,0)) for x in outs) for k in keys};out['toxicity_score']=0
-        out['partial_safety_failure']=(not coverage['coverage_complete']) or any(x.get('partial_safety_failure') for x in outs);out['total_safety_failure']=all(x.get('total_safety_failure') for x in outs);out['errors']=[err for x in outs for err in x.get('errors',[])]
-        if not coverage['coverage_complete']:out['errors'].append('video_temporal_coverage_incomplete')
-        out['model_signals']={'sampled_frames':len(outs),'requested_frames':requested,'sampling':'scene+uniform',**coverage,'frames':[x.get('model_signals',{}) for x in outs]}
-        out['category']='ADULT' if max(out['adult_score'],out['sexual_score'])>=.4 else ('WEAPON' if out['weapon_score']>=.45 else 'VIDEO')
-        return normalize_signals(out,category='VIDEO')
-    except Exception as exc:return normalize_signals({'total_safety_failure':True,'category':'VIDEO','errors':['video_timeout' if 'timeout' in str(exc) else 'video_processing']},category='VIDEO')
+    """Compatibility entry point; runtime implementation lives in video_service."""
+    from .video_service import check_video as adaptive_check_video
+    return adaptive_check_video(path,max_frames=max_frames)
+
