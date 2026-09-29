@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -249,7 +249,7 @@ export function RootNavigator() {
     );
   }
 
-  let signedInNavigator: React.ReactNode;
+  let signedInNavigator: ReactNode;
   if (session.user.role === 'PARENT') {
     signedInNavigator = (
       <ParentModeGate>
@@ -268,3 +268,4 @@ export function RootNavigator() {
       <DemoBoostNotice />
     </>
   );
+}
