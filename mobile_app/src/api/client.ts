@@ -49,7 +49,6 @@ export const routes = {
   quiz: '/api/mobile/v1/kids/quiz',
   quizAnswer: (quizId: number) => `/api/mobile/v1/kids/quiz/${quizId}/answer`,
   kidsTimeLimitStatus: '/api/mobile/v1/kids/time-limit/status',
-  kidsTimeLimitReset: '/api/mobile/v1/kids/time-limit/reset',
   kidsExtensionRequest: '/api/mobile/v1/kids/time-limit/extension-request',
   kidsMyControls: '/api/mobile/v1/kids/my-controls',
   kidsMyActivity: '/api/mobile/v1/kids/my-activity',
