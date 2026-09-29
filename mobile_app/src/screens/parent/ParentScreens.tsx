@@ -425,7 +425,7 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
           )}
         </View>
 
-        {/* VIEWING INSIGHTS SECTION — per-child read-only watch aggregates */}
+        {/* RECENT WATCH ACTIVITY SECTION — per-child read-only watch aggregates */}
         {children.length ? (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionHeaderLabel}>VIEWING INSIGHTS</Text>
@@ -488,31 +488,17 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
   );
 }
 
-function formatWatchDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 1) return '0m';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
-/** Per-child read-only watch summary, rendered inside the parent dashboard.
-    Data comes from GET /api/parent/child/<id>/viewing-insights (server
-    aggregates content_impressions; the parent-owns-child gate is enforced
-    server-side). States: loading / error / empty / data. */
+/** Last five watched Reels for one child. */
 function ViewingInsightsCard({ token, child }: { token?: string; child: ParentChild }) {
   const insights = useQuery({
     queryKey: parentKeys.insights(child.user_id),
     queryFn: () => fetchViewingInsights(token as string, child.user_id),
     enabled: !!token,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
   });
 
   const data: ViewingInsights | undefined = insights.data;
-  const top = (data?.by_category ?? []).slice(0, 3);
-  const maxViews = top.reduce((m, c) => Math.max(m, c.views), 0) || 1;
-  const topReel = data?.top_reels?.[0];
+  const recent = data?.recent_items ?? [];
 
   return (
     <Card style={styles.insightCard}>
@@ -520,7 +506,7 @@ function ViewingInsightsCard({ token, child }: { token?: string; child: ParentCh
         <Avatar uri={child.avatar_url} name={child.full_name ?? child.username} size={36} />
         <View style={styles.flex}>
           <Text style={styles.insightChildName}>{child.full_name ?? child.username}</Text>
-          <Text style={styles.muted}>Viewing insights</Text>
+          <Text style={styles.muted}>Last watched Reels</Text>
         </View>
         <Feather name="eye" size={16} color={colors.muted} />
       </View>
@@ -528,36 +514,21 @@ function ViewingInsightsCard({ token, child }: { token?: string; child: ParentCh
       {insights.isPending ? (
         <ActivityIndicator size="small" color={colors.muted} style={styles.insightPad} />
       ) : insights.isError || !data ? (
-        <Text style={[styles.muted, styles.insightPad]}>Watch insights unavailable right now.</Text>
-      ) : data.windows['30d'].views === 0 ? (
-        <Text style={[styles.muted, styles.insightPad]}>No watch activity recorded yet.</Text>
+        <Text style={[styles.muted, styles.insightPad]}>Recent watch activity unavailable right now.</Text>
+      ) : recent.length === 0 ? (
+        <Text style={[styles.muted, styles.insightPad]}>No watched Reels recorded yet.</Text>
       ) : (
-        <>
-          <View style={styles.insightStatRow}>
-            <View style={styles.insightStat}>
-              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['7d'].watch_seconds)}</Text>
-              <Text style={styles.muted}>This week</Text>
+        recent.map((item, index) => (
+          <View key={`${item.kind}-${item.id}`} style={[styles.rowBetween, index > 0 && { marginTop: spacing.sm }]}>
+            <View style={styles.flex}>
+              <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.muted} numberOfLines={1}>
+                {item.category}{item.watch_seconds > 0 ? ` · watched ${item.watch_seconds}s` : ''}
+              </Text>
             </View>
-            <View style={styles.insightStat}>
-              <Text style={styles.insightStatValue}>{formatWatchDuration(data.windows['30d'].watch_seconds)}</Text>
-              <Text style={styles.muted}>Last 30 days</Text>
-            </View>
+            <TimeAgo value={item.watched_at} />
           </View>
-          {top.map((c) => (
-            <View key={c.category} style={styles.insightBarRow}>
-              <Text style={styles.insightBarLabel} numberOfLines={1}>{c.category}</Text>
-              <View style={styles.insightBarTrack}>
-                <View style={[styles.insightBarFill, { width: `${Math.max(4, (c.views / maxViews) * 100)}%` }]} />
-              </View>
-              <Text style={styles.insightBarValue}>{c.views}</Text>
-            </View>
-          ))}
-          {topReel ? (
-            <Text style={styles.insightTopReel} numberOfLines={2}>
-              Most watched: {topReel.title} · {topReel.views} views
-            </Text>
-          ) : null}
-        </>
+        ))
       )}
     </Card>
   );
