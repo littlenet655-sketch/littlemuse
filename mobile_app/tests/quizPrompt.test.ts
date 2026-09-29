@@ -9,7 +9,7 @@ import {
   type QuizPromptRow,
 } from '../src/kids/quizPrompt';
 
-describe('quiz prompt placement (non-blocking nudge)', () => {
+describe('quiz prompt placement (compulsory Reel interruption)', () => {
   it('lands after the 2nd reel so the child sees content first', () => {
     assert.equal(quizPromptInsertAt(8), 2);
     assert.equal(quizPromptInsertAt(2), 2);
@@ -17,9 +17,9 @@ describe('quiz prompt placement (non-blocking nudge)', () => {
     assert.equal(quizPromptInsertAt(0), 0);
   });
 
-  it('shows only when a quiz is due and the card was not dismissed', () => {
+  it('stays visible whenever a quiz is due; dismissal state cannot hide it', () => {
     assert.equal(shouldShowQuizPrompt(true, false), true);
-    assert.equal(shouldShowQuizPrompt(true, true), false);
+    assert.equal(shouldShowQuizPrompt(true, true), true);
     assert.equal(shouldShowQuizPrompt(false, false), false);
     assert.equal(shouldShowQuizPrompt(false, true), false);
   });
@@ -51,10 +51,10 @@ describe('quiz prompt placement (non-blocking nudge)', () => {
     assert.ok(!rows.some(isQuizPromptRow));
   });
 
-  it('dismissal removes the card while the reels stay intact', () => {
+  it('removes the card only after the server latch clears', () => {
     const shown = withQuizPromptRow(['r1', 'r2', 'r3'], true);
-    const hidden = withQuizPromptRow(shown, false);
-    assert.deepEqual(hidden, ['r1', 'r2', 'r3']);
+    const cleared = withQuizPromptRow(shown, false);
+    assert.deepEqual(cleared, ['r1', 'r2', 'r3']);
   });
 
   it('recognizes only the sentinel row, not real feed items', () => {
