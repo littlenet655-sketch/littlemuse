@@ -21,8 +21,8 @@ def _age_group_uncached(viewer_id):
     except (TypeError,ValueError): return None
     if age<=8:return '6-8'
     if age<=11:return '9-11'
-    if age<=14:return '12-14'
-    return '15-17'
+    if age<=13:return '12-13'
+    return '14-18'
 
 
 def child_surface_open(viewer_id, feature=None):
