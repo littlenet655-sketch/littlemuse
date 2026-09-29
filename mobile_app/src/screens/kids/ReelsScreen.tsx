@@ -19,7 +19,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { recordImpressionBatch, type FeedItem, type FeedPage } from '../../api/kidsFeed';
 import { ApiError } from '../../api/client';
 import { submitRecommendationAction } from '../../api/recommendation';
-import { submitReport, toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
+import { toggleCuratedLike, toggleCuratedSave, toggleFollow, toggleLike, toggleSave } from '../../api/kidsSocial';
 import { useAuth } from '../../auth/AuthProvider';
 import { engagementTarget, feedKey, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../../kids/social';
 import { useFeed } from '../../kids/useFeed';
@@ -681,21 +681,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     );
   }, [activeIndex, foreground, focused, paused, session?.token, REEL_HEIGHT, windowWidth, insets.bottom, nav, handleLike, handleSave, handleShare, togglePause, handleMetricsFlush, handleDoubleTapLike]);
 
-  /** Same report action the old Alert menu ran — now invoked from the action sheet.
-   * Awaits the submission: the success confirmation must only show when the
-   * server actually accepted the report (fire-and-forget lied on failure). */
-  async function performReport(item: FeedItem) {
-    if (!session) return;
-    const post = socialPostTarget(item);
-    if (!post) return;
-    try {
-      await submitReport(session.token, 'post', post.postId, 'inappropriate');
-      Alert.alert('Reported', 'Thank you. Our safety team will review this video promptly.');
-    } catch {
-      Alert.alert('Could not report', 'Your report could not be sent. Check your connection and try again.');
-    }
-  }
-
   /** Same not-interested action the old Alert menu ran — now invoked from the action sheet. */
   function performNotInterested(item: FeedItem) {
     if (!session) return;
@@ -854,15 +839,6 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <View style={styles.sheet} accessibilityRole="menu">
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Reel Options</Text>
-            <Pressable
-              style={styles.sheetRow}
-              onPress={() => closeSheetAnd(performReport)}
-              accessibilityRole="menuitem"
-            >
-              <Feather name="flag" size={18} color={colors.danger} />
-              <Text style={[styles.sheetLabel, styles.sheetLabelDanger]}>Report to Safety Review</Text>
-            </Pressable>
-            <View style={styles.sheetDivider} />
             <Pressable
               style={styles.sheetRow}
               onPress={() => closeSheetAnd(performNotInterested)}
