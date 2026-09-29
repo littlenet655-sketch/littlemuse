@@ -17,6 +17,7 @@ export type GateKind =
   | 'email_verification'
   | 'quiet_hours'
   | 'screen_time'
+  | 'parent_pause'
   | null;
 
 export class ApiError extends Error {
@@ -44,6 +45,7 @@ const GATE_BY_CODE: Record<string, GateKind> = {
   email_verification_required: 'email_verification',
   quiet_hours: 'quiet_hours',
   screen_time_limit: 'screen_time',
+  parent_paused: 'parent_pause',
 };
 
 export function gateFor(status: number, code: string, payloadGate?: unknown): GateKind {
@@ -51,6 +53,7 @@ export function gateFor(status: number, code: string, payloadGate?: unknown): Ga
     if (payloadGate === 'quiz') return 'quiz';
     if (payloadGate === 'quiet_hours') return 'quiet_hours';
     if (payloadGate === 'screen_time') return 'screen_time';
+    if (payloadGate === 'parent_pause') return 'parent_pause';
   }
   const mapped = GATE_BY_CODE[code];
   if (mapped) return mapped;
