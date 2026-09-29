@@ -47,8 +47,6 @@ is enqueued if and only if the data delete commits.
 """
 from __future__ import annotations
 
-from psycopg2 import sql
-
 from database.connection import get_db_connection
 from services.object_storage import R2_REFERENCE_PREFIX
 
@@ -73,38 +71,40 @@ def _enqueue_ref(cur, reference, source_table, source_id) -> bool:
     return True
 
 
-# (table, column) pairs cleared with WHERE <column> = child_id.
-_CHILD_SCOPED_TABLES = (
-    ("child_quiz_attempts", "child_id"),
-    ("child_quiz_progress", "child_id"),
-    ("child_personalized_quiz_pool", "child_id"),
-    ("child_vocabulary_progress", "child_id"),
-    ("child_xp", "child_id"),
-    ("learning_challenge_attempts", "child_id"),
-    ("activity_logs", "child_id"),
-    ("child_usage_logs", "child_id"),
-    ("child_usage_sessions", "child_id"),
-    ("screen_time_extension_requests", "child_id"),
-    ("feed_sessions", "child_id"),
-    ("recommendation_signals", "child_id"),
-    ("parent_notifications", "child_id"),
-    ("notifications", "user_id"),
-    ("parent_control_settings", "child_id"),
-    ("parent_quiz_settings", "child_id"),
-    ("user_preferences", "user_id"),
-    ("comments", "child_id"),
-    ("likes", "child_id"),
-    ("saved_posts", "child_id"),
-    ("content_saves", "child_id"),
-    ("content_reactions", "child_id"),
-    ("content_shares", "child_id"),
-    ("content_impressions", "child_id"),
-    ("story_views", "child_id"),
-    ("story_reactions", "child_id"),
-    ("chat_typing", "user_id"),
-    ("message_reactions", "child_id"),
-    ("deleted_posts", "child_id"),
-    ("parent_weekly_digests", "child_id"),
+# Static allowlist of child-scoped delete statements.
+# Keep these as literal SQL strings: table/column identifiers are never built
+# from runtime values, while child_id remains a normal query parameter.
+_CHILD_SCOPED_DELETE_SQL = (
+    ("child_quiz_attempts", "DELETE FROM child_quiz_attempts WHERE child_id=%s"),
+    ("child_quiz_progress", "DELETE FROM child_quiz_progress WHERE child_id=%s"),
+    ("child_personalized_quiz_pool", "DELETE FROM child_personalized_quiz_pool WHERE child_id=%s"),
+    ("child_vocabulary_progress", "DELETE FROM child_vocabulary_progress WHERE child_id=%s"),
+    ("child_xp", "DELETE FROM child_xp WHERE child_id=%s"),
+    ("learning_challenge_attempts", "DELETE FROM learning_challenge_attempts WHERE child_id=%s"),
+    ("activity_logs", "DELETE FROM activity_logs WHERE child_id=%s"),
+    ("child_usage_logs", "DELETE FROM child_usage_logs WHERE child_id=%s"),
+    ("child_usage_sessions", "DELETE FROM child_usage_sessions WHERE child_id=%s"),
+    ("screen_time_extension_requests", "DELETE FROM screen_time_extension_requests WHERE child_id=%s"),
+    ("feed_sessions", "DELETE FROM feed_sessions WHERE child_id=%s"),
+    ("recommendation_signals", "DELETE FROM recommendation_signals WHERE child_id=%s"),
+    ("parent_notifications", "DELETE FROM parent_notifications WHERE child_id=%s"),
+    ("notifications", "DELETE FROM notifications WHERE user_id=%s"),
+    ("parent_control_settings", "DELETE FROM parent_control_settings WHERE child_id=%s"),
+    ("parent_quiz_settings", "DELETE FROM parent_quiz_settings WHERE child_id=%s"),
+    ("user_preferences", "DELETE FROM user_preferences WHERE user_id=%s"),
+    ("comments", "DELETE FROM comments WHERE child_id=%s"),
+    ("likes", "DELETE FROM likes WHERE child_id=%s"),
+    ("saved_posts", "DELETE FROM saved_posts WHERE child_id=%s"),
+    ("content_saves", "DELETE FROM content_saves WHERE child_id=%s"),
+    ("content_reactions", "DELETE FROM content_reactions WHERE child_id=%s"),
+    ("content_shares", "DELETE FROM content_shares WHERE child_id=%s"),
+    ("content_impressions", "DELETE FROM content_impressions WHERE child_id=%s"),
+    ("story_views", "DELETE FROM story_views WHERE child_id=%s"),
+    ("story_reactions", "DELETE FROM story_reactions WHERE child_id=%s"),
+    ("chat_typing", "DELETE FROM chat_typing WHERE user_id=%s"),
+    ("message_reactions", "DELETE FROM message_reactions WHERE child_id=%s"),
+    ("deleted_posts", "DELETE FROM deleted_posts WHERE child_id=%s"),
+    ("parent_weekly_digests", "DELETE FROM parent_weekly_digests WHERE child_id=%s"),
 )
 
 
@@ -236,14 +236,8 @@ def clear_everything_for_child(child_id: int, parent_id: int) -> dict:
         summary["mutes"] = cur.rowcount
 
         # ---- 8. Everything else scoped to the child ----
-        for table, column in _CHILD_SCOPED_TABLES:
-            cur.execute(
-                sql.SQL("DELETE FROM {} WHERE {}=%s").format(
-                    sql.Identifier(table),
-                    sql.Identifier(column),
-                ),
-                (child_id,),
-            )
+        for table, delete_sql in _CHILD_SCOPED_DELETE_SQL:
+            cur.execute(delete_sql, (child_id,))
             summary[table] = cur.rowcount
 
         # ---- 9. Settings back to defaults (same scope as Reset Settings) ----
