@@ -3132,7 +3132,10 @@ def register_mobile_api(bp):
             return jsonify(error="quiz_not_available"), 404
         correct, correct_answer, xp, explanation = record_feed_answer(uid, quiz_id, answer)
         state = feed_quiz_state(uid)
-        if state.get("required") and state.get("quiz_id") == quiz_id:
+        # A compulsory Reel quiz unlocks only after a correct answer.
+        # Wrong answers are recorded and the correct answer is returned for UI
+        # feedback, but the server-side latch remains active.
+        if correct and state.get("required") and state.get("quiz_id") == quiz_id:
             complete_required_feed_quiz(uid, quiz_id)
         after_state = feed_quiz_state(uid)
         return jsonify(
@@ -3863,72 +3866,15 @@ def register_mobile_api(bp):
     @csrf.exempt
     @_require_mobile("CHILD")
     def mobile_kids_time_limit_self_reset():
-        uid = int(g.mobile_user["user_id"])
-        quiet = quiet_hours_state(uid)
-        if quiet.get("active"):
-            return jsonify(error="quiet_hours_active", message="Cannot reset screen time during quiet hours bedtime."), 403
-
-        # Race guard: check-then-act runs inside one transaction under a
-        # per-child advisory lock, so two concurrent requests cannot both
-        # pass the count check. The reset counter itself is the activity_logs
-        # row, so its INSERT must happen inside the locked transaction too.
-        from database.connection import get_db_connection
-        import json as _json
-        conn = get_db_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842104, uid))
-                cur.execute(
-                    "SELECT COUNT(*) AS cnt FROM activity_logs WHERE child_id=%s "
-                    "AND activity_type='KID_SCREEN_TIME_SELF_RESET' AND created_at::date=CURRENT_DATE",
-                    (uid,),
-                )
-                used = int(cur.fetchone()["cnt"] or 0)
-                if used >= 1:
-                    conn.rollback()
-                    return jsonify(
-                        error="self_resets_exhausted",
-                        message="You have already used your 1 daily self-reset today. Ask your parent for more time.",
-                        resets_used=used,
-                        resets_remaining=0,
-                    ), 403
-
-                # Clear today's logged usage logs and active session durations
-                cur.execute("DELETE FROM child_usage_logs WHERE child_id=%s AND usage_date=CURRENT_DATE", (uid,))
-                cur.execute("DELETE FROM child_usage_sessions WHERE child_id=%s AND ended_at IS NOT NULL AND started_at::date=CURRENT_DATE", (uid,))
-                cur.execute("UPDATE child_usage_sessions SET started_at=NOW(), last_seen_at=NOW() WHERE child_id=%s AND ended_at IS NULL", (uid,))
-                cur.execute("DELETE FROM activity_logs WHERE child_id=%s AND activity_type IN ('SCREEN_TIME_LIMIT_REACHED', 'SCREEN_TIME_WARNING') AND created_at::date=CURRENT_DATE", (uid,))
-
-                new_count = used + 1
-                remaining = max(0, 1 - new_count)
-                cur.execute(
-                    "INSERT INTO activity_logs(child_id, activity_type, activity_data) VALUES(%s, 'KID_SCREEN_TIME_SELF_RESET', %s::jsonb)",
-                    (uid, _json.dumps({"reset_number": new_count, "remaining_resets": remaining}, default=str)),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-        notify(uid, "SCREEN_TIME_RESET", f"You used your daily self-reset. You have {remaining} reset(s) left today.", "/child/dashboard/")
-
-        # Notify parents of child self-reset
-        execute(
-            """INSERT INTO parent_notifications(parent_id, child_id, notification_type, notification_message, target_url)
-               SELECT parent_id, %s, 'SCREEN_TIME', 'Your child used their daily screen-time self-reset (' || %s || ' remaining today).', '/parent/time-limit/?child_id=' || %s
-               FROM parent_child_map WHERE child_id=%s AND parent_id IS NOT NULL""",
-            (uid, str(remaining), str(uid), uid),
-        )
-
+        # Final college-demo rule: children cannot reset or extend their own
+        # allowance. They may request more time, but only the linked parent can
+        # grant/reset it from Parent Mode.
         return jsonify(
-            ok=True,
-            message=f"Screen time reset! You have {remaining} reset(s) left today.",
-            resets_used=new_count,
-            resets_remaining=remaining,
-            minutes_today=0,
-        )
+            error="parent_action_required",
+            message="Only your parent can reset or extend screen time.",
+            resets_used=0,
+            resets_remaining=0,
+        ), 403
 
     # ---- Screen-time extension requests (child asks, parent decides) ----
     # A child creates a PENDING request; a parent approves (granting a
