@@ -1,6 +1,7 @@
 from datetime import datetime,time,date
 import json
 from database.connection import fetch_one,fetch_all,execute,get_db_connection
+from services.demo_accounts import is_demo_unlimited
 
 
 def _log_session(row,end_at):
@@ -109,6 +110,8 @@ def _notice_once(child_id, activity_type, parent_type, message, remaining):
 
 
 def lock_state(child_id):
+    if is_demo_unlimited(child_id):
+        return False,None
     lim=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(child_id,))
     if not lim:return False,None
     used=minutes_today(child_id)
@@ -130,6 +133,8 @@ def lock_state(child_id):
 
 def effective_daily_limit(child_id):
     """Today's enforceable allowance: base limit plus any same-day bonus."""
+    if is_demo_unlimited(child_id):
+        return 24 * 60
     lim=fetch_one('SELECT * FROM child_time_limits WHERE child_id=%s',(child_id,))
     if not lim:return 60
     bonus=int(lim.get('bonus_minutes') or 0) if lim.get('bonus_date')==date.today() else 0
