@@ -229,7 +229,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     })),
     [reelsQuery.data],
   );
-  const reelsLoading = reelsQuery.isPending;
+  const reelsLoading = reelsQuery.isFetching && !reelsQuery.data;
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -325,8 +325,14 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       ? filteredPosts
       : exploreFallback;
   const reelsError = showReelsFeed ? reelsQuery.error : null;
+  const activeLoading = showReelsFeed ? reelsLoading : loading;
+  const activeError = showReelsFeed ? reelsError : error;
   const hasAnyContent =
-    kids.length > 0 || posts.length > 0 || curated.length > 0 || (showReelsFeed && reels.length > 0);
+    kind === 'People'
+      ? kids.length > 0
+      : kind === 'Learn'
+        ? curated.length > 0 || filteredPosts.length > 0
+        : gridItems.length > 0;
 
   const renderPerson = useCallback(({ item }: { item: KidSummary }) => (
     <PersonRow
@@ -432,13 +438,12 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         </Pressable>
       </View>
 
-      {error ? <GateNotice error={error} /> : null}
-      {reelsError ? <GateNotice error={reelsError} /> : null}
+      {activeError ? <GateNotice error={activeError} /> : null}
       {pii ? (
         <GateNotice error={new ApiError(200, 'pii_warning', 'That search cannot be shown. Try different words.')} />
       ) : null}
 
-      {(loading && !kids.length && !posts.length) || (showReelsFeed && reelsLoading && !reels.length) ? (
+      {activeLoading && !hasAnyContent ? (
         <View style={styles.skeletonGrid} accessibilityRole="progressbar">
           {Array.from({ length: 9 }).map((_, i) => (
             <View key={i} style={styles.skeletonCell} />
@@ -446,7 +451,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         </View>
       ) : null}
 
-      {!loading && !reelsLoading && !error && !hasAnyContent && kind !== 'Learn' ? (
+      {!activeLoading && !activeError && !hasAnyContent && kind !== 'Learn' && !showReelsFeed ? (
         <View>
           <EmptyState
             icon="search"
@@ -471,7 +476,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         </View>
       ) : null}
 
-      {kind === 'Reels' && showReelsFeed && !reelsLoading && !reelsError && reels.length === 0 ? (
+      {kind === 'Reels' && showReelsFeed && !activeLoading && !activeError && reels.length === 0 ? (
         <EmptyState
           icon="film"
           title="No reels yet"
@@ -479,7 +484,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         />
       ) : null}
 
-      {kind === 'Learn' && !loading && !error && curated.length === 0 && filteredPosts.length === 0 ? (
+      {kind === 'Learn' && !activeLoading && !activeError && curated.length === 0 && filteredPosts.length === 0 ? (
         <EmptyState
           icon="book-open"
           title="Nothing to learn yet"
@@ -487,12 +492,11 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         />
       ) : null}
 
-      {error && !hasAnyContent ? (
+      {activeError && !hasAnyContent ? (
         <ErrorState
           message="Search is currently unavailable."
           onRetry={() => {
-            void query.refetch();
-            void reelsQuery.refetch();
+            void (showReelsFeed ? reelsQuery.refetch() : query.refetch());
           }}
         />
       ) : null}
@@ -729,6 +733,9 @@ const styles = StyleSheet.create({
   },
   chipsStrip: {
     backgroundColor: colors.surface,
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 52,
   },
   chipsRow: {
     paddingHorizontal: 16,

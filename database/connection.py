@@ -167,29 +167,44 @@ class PooledConnectionWrapper:
             self.close()
 
 
+class PoolExhaustedError(RuntimeError):
+    """Raised when the connection pool cannot serve a connection.
+
+    Fail closed: the pool is the ONLY connection path. The previous code fell
+    back to an unrestricted psycopg2.connect() here, silently bypassing
+    DB_POOL_MAX_CONNECTIONS and defeating the pool under load.
+    """
+
+
 def get_db_connection():
-    try:
-        pool=_get_pool()
-        for _ in range(2):
+    pool = _get_pool()
+    maxconn = max(1, int(os.getenv("DB_POOL_MAX_CONNECTIONS", "20")))
+    last_error: Exception | None = None
+    for _ in range(2):
+        try:
             started = time.monotonic()
-            raw_conn=pool.getconn()
-            _metric("pool_checkouts", time.monotonic() - started)
-            if raw_conn.closed:
-                _discard_connection(pool, raw_conn)
-                continue
-            if _validation_is_recent(raw_conn):
-                _metric("validation_skips")
-                return PooledConnectionWrapper(pool,raw_conn)
-            if _connection_is_usable(raw_conn):return PooledConnectionWrapper(pool,raw_conn)
-            _discard_connection(pool,raw_conn)
-        raise RuntimeError('pooled database connections failed validation')
-    except Exception:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        started = time.monotonic()
-        conn = psycopg2.connect(_database_url(), cursor_factory=RealDictCursor, options=f"-c timezone={_database_timezone()}")
-        _metric("connection_creations", time.monotonic() - started)
-        return conn
+            raw_conn = pool.getconn()
+        except Exception as exc:
+            # Pool exhausted (psycopg2.pool.PoolError) or pool broken: never
+            # bypass the pool with a direct connection; fail closed instead.
+            last_error = exc
+            _metric("pool_checkout_failures")
+            break
+        _metric("pool_checkouts", time.monotonic() - started)
+        if raw_conn.closed:
+            _discard_connection(pool, raw_conn)
+            continue
+        if _validation_is_recent(raw_conn):
+            _metric("validation_skips")
+            return PooledConnectionWrapper(pool, raw_conn)
+        if _connection_is_usable(raw_conn):
+            return PooledConnectionWrapper(pool, raw_conn)
+        _discard_connection(pool, raw_conn)
+        last_error = RuntimeError("pooled database connections failed validation")
+    detail = f"{type(last_error).__name__}: {last_error}" if last_error else "no usable connection"
+    raise PoolExhaustedError(
+        f"database connection pool exhausted (DB_POOL_MAX_CONNECTIONS={maxconn}): {detail}"
+    ) from last_error
 
 
 def fetch_one(sql, params=()):

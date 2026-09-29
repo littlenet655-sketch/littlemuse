@@ -73,15 +73,24 @@ def validate_and_normalize_tags(
     return cleaned_tags, None
 
 
-def save_post_tags(post_id: int, validated_tags: List[Tuple[str, str]]) -> None:
-    """Insert validated tags into post_tags table."""
+def save_post_tags(post_id: int, validated_tags: List[Tuple[str, str]], cursor=None) -> None:
+    """Insert validated tags into post_tags table.
+
+    When ``cursor`` is given, the inserts run on the caller's cursor inside the
+    caller's transaction (used by the upload-complete endpoint so a tag failure
+    rolls back the post row instead of stranding a committed post with its
+    upload consumed and moderation never dispatched). Otherwise each insert
+    commits on its own connection, preserving the legacy behavior.
+    """
+    sql = """INSERT INTO post_tags(post_id, tag, normalized_tag)
+             VALUES(%s, %s, %s)
+             ON CONFLICT(post_id, normalized_tag) DO NOTHING"""
+    if cursor is not None:
+        for display, normalized in validated_tags:
+            cursor.execute(sql, (post_id, display, normalized))
+        return
     for display, normalized in validated_tags:
-        execute(
-            """INSERT INTO post_tags(post_id, tag, normalized_tag)
-               VALUES(%s, %s, %s)
-               ON CONFLICT(post_id, normalized_tag) DO NOTHING""",
-            (post_id, display, normalized),
-        )
+        execute(sql, (post_id, display, normalized))
 
 
 def get_post_tags(post_id: int) -> List[str]:
