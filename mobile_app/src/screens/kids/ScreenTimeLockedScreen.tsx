@@ -61,9 +61,15 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
     try {
       const res = await sendHeartbeat(session.token);
       if (!res.locked) {
-        Alert.alert('Unlocked! 🎉', 'Your parent granted more time or quiet hours ended. Welcome back!', [
-          { text: 'Let’s Go!', onPress: onUnlock },
-        ]);
+        Alert.alert(
+          'Unlocked! 🎉',
+          isParentPaused
+            ? 'Your parent resumed LittleNet. Welcome back!'
+            : isQuiet
+              ? 'Quiet hours ended. Welcome back!'
+              : 'Your parent granted more time. Welcome back!',
+          [{ text: 'Let’s Go!', onPress: onUnlock }],
+        );
         return;
       }
       Alert.alert(
@@ -175,15 +181,15 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
       >
         {/* Visual Badge / Icon */}
         <View style={styles.badgeShell}>
-          <View style={[styles.iconCircle, isQuiet ? styles.quietCircle : styles.screenTimeCircle]}>
+          <View style={[styles.iconCircle, isQuiet ? styles.quietCircle : isParentPaused ? styles.parentPauseCircle : styles.screenTimeCircle]}>
             <Feather
               name={isQuiet ? 'moon' : isParentPaused ? 'pause-circle' : 'clock'}
               size={44}
               color={isQuiet ? '#A78BFA' : isParentPaused ? '#2563EB' : '#F59E0B'}
             />
           </View>
-          <View style={[styles.statusTag, isQuiet ? styles.quietTag : styles.screenTimeTag]}>
-            <Text style={[styles.statusTagText, isQuiet ? styles.quietTagText : styles.screenTimeTagText]}>
+          <View style={[styles.statusTag, isQuiet ? styles.quietTag : isParentPaused ? styles.parentPauseTag : styles.screenTimeTag]}>
+            <Text style={[styles.statusTagText, isQuiet ? styles.quietTagText : isParentPaused ? styles.parentPauseTagText : styles.screenTimeTagText]}>
               {isQuiet ? 'QUIET HOURS BEDTIME' : isParentPaused ? 'PAUSED BY PARENT' : 'DAILY TIME LIMIT REACHED'}
             </Text>
           </View>
@@ -251,7 +257,7 @@ export function ScreenTimeLockedScreen({ lockType, onUnlock, onSignOut }: Screen
             onPress={() => void handleCheckForTime()}
             disabled={checking}
             accessibilityRole="button"
-            accessibilityLabel="Check for extra time"
+            accessibilityLabel={isParentPaused ? 'Check if parent resumed LittleNet' : 'Check for extra time'}
           >
             {checking ? (
               <ActivityIndicator color={isQuiet ? '#E2E8F0' : colors.ink} size="small" />
@@ -318,6 +324,11 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#312E81',
   },
+  parentPauseCircle: {
+    backgroundColor: '#DBEAFE',
+    borderWidth: 3,
+    borderColor: '#93C5FD',
+  },
   statusTag: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -329,6 +340,9 @@ const styles = StyleSheet.create({
   quietTag: {
     backgroundColor: '#312E81',
   },
+  parentPauseTag: {
+    backgroundColor: '#DBEAFE',
+  },
   statusTagText: {
     fontSize: 11,
     fontWeight: '800',
@@ -339,6 +353,9 @@ const styles = StyleSheet.create({
   },
   quietTagText: {
     color: '#C4B5FD',
+  },
+  parentPauseTagText: {
+    color: '#1D4ED8',
   },
   title: {
     fontSize: 25,
