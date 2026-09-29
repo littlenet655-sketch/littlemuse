@@ -10,8 +10,8 @@
 -- cooking keywords that triggered the original assignment.
 
 UPDATE curated_content cc
-SET creator_key = 'ait_star_student'
-WHERE cc.creator_key = 'aarav_cooking'
+SET creator_id = (SELECT creator_id FROM curated_creators WHERE creator_key = 'ait_star_student')
+WHERE cc.creator_id = (SELECT creator_id FROM curated_creators WHERE creator_key = 'aarav_cooking')
   AND LOWER(COALESCE(cc.title,'') || ' ' || COALESCE(cc.caption,'')) ~
       '(family|grandfather|grandmother|grandpa|grandma|mom\y|dad\y|mother|father|sister|brother|uncle|aunt|cousin)';
 
