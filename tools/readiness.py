@@ -41,7 +41,7 @@ mobile_api = (R / 'mobile/api.py').read_text(encoding='utf-8')
 visual = (R / 'safety/visual_service.py').read_text(encoding='utf-8')
 
 deps = package.get('dependencies', {})
-add('Expo SDK 57 declared', str(deps.get('expo', '')).startswith('57.'))
+add('Expo SDK 57 declared', str(deps.get('expo', '')).lstrip('~^<>= ').startswith('57.'))
 add('React Native 0.86 declared', str(deps.get('react-native', '')).startswith('0.86.'))
 add('Android package contract', app.get('expo', {}).get('android', {}).get('package') == 'com.littlenet.app')
 add('Public mobile env only', 'EXPO_PUBLIC_API_BASE_URL' in client)
