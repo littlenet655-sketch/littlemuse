@@ -9,8 +9,11 @@ def text(path):
 def test_react_native_expo_is_only_mobile_source():
     pkg=json.loads(text("mobile_app/package.json"))
     app=json.loads(text("mobile_app/app.json"))
-    assert str(pkg["dependencies"]["expo"]).startswith("57.")
-    assert str(pkg["dependencies"]["react-native"]).startswith("0.86.")
+    # Strip npm version prefixes (^, ~, >=, etc.) before checking
+    expo_ver = str(pkg["dependencies"]["expo"]).lstrip("^~>=< ")
+    rn_ver = str(pkg["dependencies"]["react-native"]).lstrip("^~>=< ")
+    assert expo_ver.startswith("57.")
+    assert rn_ver.startswith("0.86.")
     assert app["expo"]["android"]["package"] == "com.littlenet.app"
     assert not (ROOT / "mobile_flutter").exists()
     assert not (ROOT / "android").exists()
