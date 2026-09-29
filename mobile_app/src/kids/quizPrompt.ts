@@ -1,10 +1,9 @@
 /**
- * Pure helpers for the non-blocking periodic quiz nudge.
+ * Pure helpers for the compulsory periodic Reel quiz.
  *
- * The periodic latch is a NUDGE, never a session lock: when the server signals
- * quiz_due, the reels feed inserts one dismissible prompt card between reels.
- * A child who ignores or dismisses the card keeps full access. Tapping the
- * card opens the Quiz screen voluntarily.
+ * The server latches quiz_due after a randomized 2-5 Reel interval. The feed
+ * inserts one full-height prompt and the Reels screen immediately hands off to
+ * Quiz; there is no dismiss/skip path while the latch is active.
  */
 
 /** Sentinel row rendered as the prompt card inside the reels FlatList. */
@@ -32,9 +31,9 @@ export function quizPromptInsertAt(itemCount: number): number {
   return Math.min(2, itemCount);
 }
 
-/** True when the prompt card should be in the feed right now. */
-export function shouldShowQuizPrompt(quizDue: boolean, dismissed: boolean): boolean {
-  return quizDue && !dismissed;
+/** True when the compulsory prompt should be in the feed right now. */
+export function shouldShowQuizPrompt(quizDue: boolean, _dismissed = false): boolean {
+  return quizDue;
 }
 
 /**
