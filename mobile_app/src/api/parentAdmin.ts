@@ -229,18 +229,18 @@ export function fetchParentActivity(token: string, childId: number, beforeId?: n
   return apiRequest(`${routes.parentActivity(childId)}${query ? `?${query}` : ''}`, {}, token);
 }
 
-/** Read-only per-child viewing insights: watch totals (7d/30d), per-category
-    breakdown, and top reels. Served by parent/api.py; the server enforces the
-    parent-owns-child gate. */
+/** Small parent supervision snapshot: the last five distinct Reels watched. */
 export interface ViewingInsights {
   success: boolean;
   child_id: number;
-  windows: {
-    '7d': { views: number; watch_seconds: number };
-    '30d': { views: number; watch_seconds: number };
-  };
-  by_category: { category: string; views: number; watch_seconds: number }[];
-  top_reels: { kind: string; id: number; title: string; category: string; views: number; watch_seconds: number }[];
+  recent_items: {
+    kind: 'curated' | 'social' | string;
+    id: number;
+    title: string;
+    category: string;
+    watch_seconds: number;
+    watched_at?: string;
+  }[];
 }
 
 export function fetchViewingInsights(token: string, childId: number): Promise<ViewingInsights> {
