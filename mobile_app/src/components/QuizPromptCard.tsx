@@ -3,39 +3,26 @@ import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../ui/tokens';
 
 /**
- * Dismissible non-blocking quiz prompt rendered inline between reels.
- * Tapping "Take the quiz" opens the Quiz screen voluntarily; the X dismisses
- * the card for the session. Content is never blocked by this card.
+ * Compulsory Reel quiz hand-off. Once the server latches a quiz, this card has
+ * no dismiss/skip action: the child answers the quiz before continuing Reels.
  */
 export function QuizPromptCard({
   height,
   onTakeQuiz,
-  onDismiss,
 }: {
   height: number;
   onTakeQuiz: () => void;
-  onDismiss: () => void;
 }) {
   return (
     <View style={[styles.cell, { height }]} testID="quiz-prompt-card">
       <View style={styles.card} accessible accessibilityLabel="Brain break quiz prompt">
-        <Pressable
-          onPress={onDismiss}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss quiz prompt"
-          testID="quiz-prompt-dismiss"
-          hitSlop={10}
-          style={styles.dismiss}
-        >
-          <Feather name="x" size={20} color="#94A3B8" />
-        </Pressable>
         <View style={styles.badge}>
           <Feather name="zap" size={12} color="#FFFFFF" />
           <Text style={styles.badgeText}>BRAIN BREAK</Text>
         </View>
         <Text style={styles.title}>Time for a quick brain break!</Text>
         <Text style={styles.sub}>
-          A short quiz is ready for you. Your reels keep playing — no rush.
+          Answer this quick age-matched quiz correctly to continue watching Reels.
         </Text>
         <Pressable
           onPress={onTakeQuiz}
@@ -44,16 +31,7 @@ export function QuizPromptCard({
           testID="quiz-prompt-take-quiz"
           style={styles.primary}
         >
-          <Text style={styles.primaryText}>Take the quiz</Text>
-        </Pressable>
-        <Pressable
-          onPress={onDismiss}
-          accessibilityRole="button"
-          accessibilityLabel="Not now"
-          testID="quiz-prompt-not-now"
-          style={styles.secondary}
-        >
-          <Text style={styles.secondaryText}>Not now</Text>
+          <Text style={styles.primaryText}>Answer to Continue</Text>
         </Pressable>
       </View>
     </View>
