@@ -1870,11 +1870,17 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v2/kids/chat/uploads/mock-put/<upload_id>", methods=["PUT"])
     @csrf.exempt
+    @_require_mobile("CHILD")
     def mobile_kids_chat_mock_put(upload_id):
         if Config._PRODUCTION or os.environ.get("ENABLE_MOCK_PUT", "0") != "1":
             return jsonify(error="not_found"), 404
         row = fetch_one("SELECT * FROM chat_upload_sessions WHERE upload_id=%s", (upload_id,))
         if not row:
+            return jsonify(error="session_not_found"), 404
+        # The upload session is bound to its owning child: a different child
+        # (or a tokenless caller) must not be able to overwrite the pending
+        # bytes that will be sent under the owner's name.
+        if int(row["child_id"]) != int(g.mobile_user["user_id"]):
             return jsonify(error="session_not_found"), 404
         mock_dir = Path("uploads/mock_chat_quarantine") / str(row["child_id"]) / str(upload_id)
         mock_dir.mkdir(parents=True, exist_ok=True)
@@ -2713,6 +2719,7 @@ def register_mobile_api(bp):
 
     @bp.route("/api/mobile/v2/uploads/mock-put/<upload_id>", methods=["PUT"])
     @csrf.exempt
+    @_require_mobile("CHILD")
     def mobile_v2_mock_put(upload_id):
         # PRODUCTION GUARD: mock-PUT is a dev/CI convenience only.
         # Disabled whenever the server runs under HTTPS or when the explicit
@@ -2723,6 +2730,11 @@ def register_mobile_api(bp):
             return jsonify(error="not_found"), 404
         session_row = fetch_one("SELECT * FROM upload_sessions WHERE upload_id=%s", (upload_id,))
         if not session_row:
+            return jsonify(error="session_not_found"), 404
+        # Bind the PUT to the session owner: otherwise anyone holding the
+        # upload_id could substitute the bytes published under another
+        # child's name at complete time.
+        if int(session_row["child_id"]) != int(g.mobile_user["user_id"]):
             return jsonify(error="session_not_found"), 404
         mock_dir = Path("uploads/mock_quarantine") / str(session_row["child_id"]) / upload_id
         mock_dir.mkdir(parents=True, exist_ok=True)
@@ -3710,7 +3722,11 @@ def register_mobile_api(bp):
     def mobile_parent_review(event_id):
         action = str((_json_dict()).get("action") or "").upper()
         ok, result = _resolve_parent_review(int(g.mobile_user["user_id"]), event_id, action)
-        status = 200 if ok else 403 if result == "forbidden" else 404 if result == "not_found" else 400
+        # Map "forbidden" to 404 as well: a 403 would tell a probing parent
+        # that the event_id exists but belongs to another family (enumeration
+        # oracle). The sibling post-delete path already 404s on failed
+        # ownership for the same reason.
+        status = 200 if ok else 404 if result in ("forbidden", "not_found") else 400
         return jsonify(ok=ok, result=result), status
 
     @bp.route("/api/mobile/v1/parent/follow-requests")

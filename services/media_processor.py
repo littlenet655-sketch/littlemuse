@@ -472,16 +472,17 @@ def _process_media_job_impl(
                 if kind.lower() == "story"
                 else Config.VIDEO_MAX_SECONDS
             )
-            if duration > limit:
+            if duration <= 0 or duration > limit:
                 execute(
                     """UPDATE posts
-                       SET processing_status='FAILED', processing_error='video_duration_exceeded',
+                       SET processing_status='FAILED', processing_error=%s,
                            processing_completed_at=NOW(), processing_lease_token=NULL,
                            processing_lease_expires_at=NULL
                        WHERE post_id=%s AND processing_lease_token=%s""",
-                    (post_id, worker_exec_token),
+                    ('video_duration_unreadable' if duration <= 0 else 'video_duration_exceeded',
+                     post_id, worker_exec_token),
                 )
-                return {"ok": False, "error": "video_duration_exceeded"}
+                return {"ok": False, "error": 'video_duration_unreadable' if duration <= 0 else 'video_duration_exceeded'}
 
             final_media_local, final_poster_local = _make_video_derivatives(source_local, temp_dir)
             _renew_worker_lease(post_id, worker_exec_token, 300)
