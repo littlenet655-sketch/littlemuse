@@ -21,10 +21,15 @@ def is_demo_unlimited(child_id: int) -> bool:
 
 
 def _is_demo_unlimited_uncached(child_id: int) -> bool:
-    row = fetch_one(
-        """SELECT demo_unlimited
-           FROM users
-           WHERE user_id=%s AND role='CHILD' AND account_status='ACTIVE'""",
-        (child_id,),
-    )
+    try:
+        row = fetch_one(
+            """SELECT demo_unlimited
+               FROM users
+               WHERE user_id=%s AND role='CHILD' AND account_status='ACTIVE'""",
+            (child_id,),
+        )
+    except Exception:
+        # Demo mode is an optional exception. Missing migration/DB trouble must
+        # fail closed to normal parent limits, never accidentally unlock them.
+        return False
     return bool((row or {}).get("demo_unlimited"))
