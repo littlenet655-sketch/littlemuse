@@ -43,7 +43,7 @@ class Config:
     WTF_CSRF_TIME_LIMIT = None
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
     ADULT_HARD_BLOCK_THRESHOLD = min(float(os.getenv("ADULT_HARD_BLOCK_THRESHOLD", "0.40")), 0.40)
-    REEL_MAX_SECONDS = int(os.getenv("REEL_MAX_SECONDS", "180"))
+    REEL_MAX_SECONDS = int(os.getenv("REEL_MAX_SECONDS", "45"))
     STORY_MAX_SECONDS = int(os.getenv("STORY_MAX_SECONDS", "60"))
     VIDEO_MAX_SECONDS = int(os.getenv("VIDEO_MAX_SECONDS", "600"))
     MESSAGE_MEDIA_MAX_MB = int(os.getenv("MESSAGE_MEDIA_MAX_MB", "40"))
