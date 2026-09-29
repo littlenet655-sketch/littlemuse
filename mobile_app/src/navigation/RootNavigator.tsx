@@ -132,7 +132,9 @@ function ChildGateSync() {
 
 function ChildNavigator() {
   const { session, signOut } = useAuth();
-  const [activeLock, setActiveLock] = useState<string | null>(null);
+  const [activeLock, setActiveLock] = useState<string | null>(() =>
+    session?.user?.parent_paused && !session?.user?.demo_unlimited ? 'parent_pause' : null,
+  );
   const handleGateChange = useCallback((gate: string | null) => setActiveLock(gate), []);
   useScreenTimeHeartbeat(handleGateChange);
 
