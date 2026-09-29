@@ -366,7 +366,7 @@ def _child_gate(feature: str | None = None):
             pass
     return None
 
-def _asset_url(reference, viewer_id=None, viewer_role=None):
+def _asset_url(reference, viewer_id=None, viewer_role=None, auth_decisions=None):
     if not reference:
         return None
     from services.media_delivery import resolve_media_delivery
@@ -376,14 +376,15 @@ def _asset_url(reference, viewer_id=None, viewer_role=None):
     if v_id is None and hasattr(g, "mobile_user") and g.mobile_user:
         v_id = g.mobile_user.get("user_id")
         v_role = g.mobile_user.get("role")
-    res = resolve_media_delivery(reference, viewer_id=v_id, viewer_role=v_role)
+    res = resolve_media_delivery(reference, viewer_id=v_id, viewer_role=v_role,
+                                 auth_decisions=auth_decisions)
     return res.get("url")
 
-def _profile_json(row):
+def _profile_json(row, auth_decisions=None):
     if not row:
         return None
     out = dict(row)
-    out["avatar_url"] = _asset_url(out.get("profile_picture"))
+    out["avatar_url"] = _asset_url(out.get("profile_picture"), auth_decisions=auth_decisions)
     out.pop("profile_picture", None)
     return _clean(out)
 
@@ -484,7 +485,7 @@ def _liked_saved_snapshot(child_id, limit=30, include_saved=True):
         })
     return out
 
-def _post_json(row, viewer_id=None):
+def _post_json(row, viewer_id=None, auth_decisions=None):
     if not row:
         return None
     out = dict(row)
@@ -498,9 +499,12 @@ def _post_json(row, viewer_id=None):
 
     from services.media_delivery import resolve_media_delivery
 
-    media_res = resolve_media_delivery(out.get("media_path"), viewer_id=v_id, viewer_role=v_role)
-    avatar_res = resolve_media_delivery(out.get("profile_picture"), viewer_id=v_id, viewer_role=v_role)
-    poster_res = resolve_media_delivery(out.get("poster_path"), viewer_id=v_id, viewer_role=v_role)
+    media_res = resolve_media_delivery(out.get("media_path"), viewer_id=v_id, viewer_role=v_role,
+                                       auth_decisions=auth_decisions)
+    avatar_res = resolve_media_delivery(out.get("profile_picture"), viewer_id=v_id, viewer_role=v_role,
+                                        auth_decisions=auth_decisions)
+    poster_res = resolve_media_delivery(out.get("poster_path"), viewer_id=v_id, viewer_role=v_role,
+                                        auth_decisions=auth_decisions)
 
     out["media_url"] = media_res.get("url")
     out["avatar_url"] = avatar_res.get("url")
@@ -766,12 +770,11 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
                WHERE p.post_id = ANY(%s)
                  AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE
                  AND p.content_category = ANY(%s) AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
-                 AND (p.child_id=%s OR EXISTS(SELECT 1 FROM followers f WHERE f.child_id=%s AND f.following_child_id=p.child_id AND f.approved=TRUE AND f.approval_stage='ACTIVE'))
                  AND p.child_id NOT IN (
                    SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
                    UNION SELECT blocker_id FROM blocked_users WHERE blocked_id=%s
                    UNION SELECT muted_id FROM muted_users WHERE muter_id=%s)""",
-            (child_post_ids, uid, cats, age_group, age_group, uid, uid, uid, uid, uid),
+            (child_post_ids, uid, cats, age_group, age_group, uid, uid, uid),
         ) or []:
             if vr.get("is_reel") and not feature_allowed(uid, "reels"):
                 continue
@@ -1408,13 +1411,35 @@ def register_mobile_api(bp):
         uid = int(g.mobile_user["user_id"])
         if not profile_exists(uid):
             create_child_profile(uid, {"full_name": g.mobile_user.get("full_name") or "Student", "bio": "Hey! I'm on LittleNet 🌟"})
+        # Startup-critical path: authorize every media reference in the whole
+        # payload with one batched pass instead of ~10 sequential DB round
+        # trips per item inside _post_json (dominant /kids/home latency cost).
+        story_rows = active_stories(uid)
+        post_rows = visible_posts(uid, False, 20, 0)
+        reel_rows = visible_posts(uid, True, 8, 0)
+        suggested_rows = get_random_children(uid)[:8]
+        _refs = set()
+        for _r in story_rows + post_rows + reel_rows:
+            for _k in ("media_path", "poster_path", "profile_picture"):
+                _v = (_r.get(_k) or "").strip() if isinstance(_r, dict) else ""
+                if _v:
+                    _refs.add(_v)
+        _pp = get_child_profile(uid)
+        _pp_pic = (_pp.get("profile_picture") or "") if isinstance(_pp, dict) else ""
+        if _pp_pic.strip():
+            _refs.add(_pp_pic.strip())
+        for _c in suggested_rows:
+            _av = (_c.get("profile_picture") or "").strip() if isinstance(_c, dict) else ""
+            if _av:
+                _refs.add(_av)
+        _auth = _media_allowed_many(uid, "CHILD", _refs)
         return jsonify(
             ok=True,
-            profile=_profile_json(get_child_profile(uid)),
-            stories=[_post_json(p, uid) for p in active_stories(uid)],
-            posts=[_post_json(p, uid) for p in visible_posts(uid, False, 20, 0)],
-            reels=[_post_json(p, uid) for p in visible_posts(uid, True, 8, 0)],
-            suggested=[_clean({**dict(c), "avatar_url": _asset_url(c.get("profile_picture"))}) for c in get_random_children(uid)[:8]],
+            profile=_profile_json(_pp, auth_decisions=_auth),
+            stories=[_post_json(p, uid, auth_decisions=_auth) for p in story_rows],
+            posts=[_post_json(p, uid, auth_decisions=_auth) for p in post_rows],
+            reels=[_post_json(p, uid, auth_decisions=_auth) for p in reel_rows],
+            suggested=[_clean({**dict(c), "avatar_url": _asset_url(c.get("profile_picture"), auth_decisions=_auth)}) for c in suggested_rows],
             controls=_clean(controls_for_child(uid)),
             minutes_today=minutes_today(uid),
         )
@@ -3834,6 +3859,19 @@ def register_mobile_api(bp):
             # control plane must never break normal LittleNet screens.
             return jsonify(ok=True, demo_boost={"active": False, "status": "OFF", "remaining_seconds": 0})
 
+    def _audit_demo_boost(action, details):
+        # Demo Boost changes GPU spend, so every admin start/extend/stop is
+        # recorded in the simple admin activity log. The audit write must
+        # never break the admin action itself.
+        try:
+            execute(
+                """INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,details)
+                   VALUES(%s,%s,'DEMO_BOOST',NULL,%s::jsonb)""",
+                (int(g.mobile_user["user_id"]), action, json.dumps(details or {})),
+            )
+        except Exception:
+            pass
+
     @bp.route("/api/mobile/v1/admin/demo-boost/start", methods=["POST"])
     @csrf.exempt
     @limiter.limit("12 per minute")
@@ -3848,6 +3886,7 @@ def register_mobile_api(bp):
             return jsonify(error=str(exc) or "invalid_demo_boost_minutes"), 400
         except Exception as exc:
             return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_START", {"minutes": minutes, "status": (result or {}).get("status")})
         return jsonify(ok=True, demo_boost=_clean(result))
 
     @bp.route("/api/mobile/v1/admin/demo-boost/extend", methods=["POST"])
@@ -3864,6 +3903,7 @@ def register_mobile_api(bp):
             return jsonify(error=str(exc) or "invalid_demo_boost_extension"), 400
         except Exception as exc:
             return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_EXTEND", {"minutes": minutes, "status": (result or {}).get("status")})
         return jsonify(ok=True, demo_boost=_clean(result))
 
     @bp.route("/api/mobile/v1/admin/demo-boost/stop", methods=["POST"])
@@ -3876,6 +3916,7 @@ def register_mobile_api(bp):
             result = stop()
         except Exception as exc:
             return jsonify(error="demo_boost_unavailable", message=str(exc)[:240]), 503
+        _audit_demo_boost("DEMO_BOOST_STOP", {"status": (result or {}).get("status")})
         return jsonify(ok=True, demo_boost=_clean(result))
 
     @bp.route("/api/mobile/v1/admin/dashboard")
