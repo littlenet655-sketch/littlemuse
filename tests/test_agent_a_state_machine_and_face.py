@@ -226,6 +226,7 @@ def test_resolve_parent_review_approval_promotes_media(client):
         mock_cur = MagicMock()
         mock_cur.fetchone.side_effect = [
             {"event_id": event_id, "child_id": 202, "content_type": "IMAGE", "content_id": post_id, "decision": "REVIEW", "status": "OPEN"},
+            {"moderation_status": "REVIEW"},
             {"post_id": post_id, "child_id": 202, "source_media_path": "uploads/r2/quarantine/202/pic.jpg", "media_type": "IMAGE"},
         ]
         mock_conn.return_value.cursor.return_value = mock_cur
@@ -248,6 +249,7 @@ def test_resolve_parent_review_sanitization_failure_fails_closed_to_blocked(clie
         mock_cur = MagicMock()
         mock_cur.fetchone.side_effect = [
             {"event_id": event_id, "child_id": 202, "content_type": "IMAGE", "content_id": post_id, "decision": "REVIEW", "status": "OPEN"},
+            {"moderation_status": "REVIEW"},
             {"post_id": post_id, "child_id": 202, "source_media_path": "uploads/r2/quarantine/202/pic.jpg", "media_type": "IMAGE"},
         ]
         mock_conn.return_value.cursor.return_value = mock_cur
