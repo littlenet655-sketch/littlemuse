@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { addComment, blockUser, deleteComment, deletePost, fetchComments, fetchConnections, fetchPostDetail, muteUser, setPostCommentsEnabled, submitReport, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
+import { addComment, blockUser, deleteComment, deletePost, fetchComments, fetchConnections, fetchPostDetail, muteUser, setPostCommentsEnabled, toggleLike, toggleSave, type CommentItem, type PostDetail } from '../../api/kidsSocial';
 import { sharePostToChat } from '../../api/kidsChat';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
@@ -32,14 +32,12 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [hidden, setHidden] = useState(false);
-  const [reason, setReason] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   const [shareError, setShareError] = useState('');
   const [recipients, setRecipients] = useState<Array<{ user_id?: number; child_id?: number; full_name?: string; username?: string; avatar_url?: string | null }>>([]);
   const [sharing, setSharing] = useState<number | null>(null);
   const requestedShareRef = useRef(false);
   const nav = navigation as unknown as { goBack: () => void };
-  const reasons = ['Unsafe or unkind', 'Personal information', 'Something else'];
 
   async function load() {
     if (!session || !postId) return;
@@ -173,14 +171,11 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
-  async function commentSafetyAction(comment: CommentItem, action: 'report' | 'mute' | 'block') {
+  async function commentSafetyAction(comment: CommentItem, action: 'mute' | 'block') {
     if (!session || commentActionBusy || comment.child_id === session.user.user_id) return;
     setCommentActionBusy(comment.comment_id);
     try {
-      if (action === 'report') {
-        await submitReport(session.token, 'COMMENT', comment.comment_id, 'Unsafe or unkind');
-        setInfo('Comment reported for safety review.');
-      } else if (action === 'mute') {
+      if (action === 'mute') {
         await muteUser(session.token, comment.child_id, 'MUTE');
         setComments((current) => current.filter((item) => item.child_id !== comment.child_id));
         setInfo('Commenter muted. Their content will be hidden from your surfaces.');
@@ -205,7 +200,6 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
       'Choose a safety action for this commenter.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Report comment', onPress: () => void commentSafetyAction(comment, 'report') },
         { text: 'Mute account', onPress: () => void commentSafetyAction(comment, 'mute') },
         { text: 'Block account', style: 'destructive', onPress: () => void commentSafetyAction(comment, 'block') },
       ],
@@ -228,17 +222,12 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
     }
   }
 
-  async function safetyAction(action: 'report' | 'block' | 'mute') {
+  async function safetyAction(action: 'block' | 'mute') {
     const creatorId = post?.child_id;
     if (!session || !creatorId) return;
-    if (action === 'report' && !reason) {
-      setSafetyError('Choose a report reason before sending.');
-      return;
-    }
     setSafetyBusy(true);
     setSafetyError('');
     try {
-      if (action === 'report') await submitReport(session.token, 'POST', postId, reason);
       if (action === 'block') await blockUser(session.token, creatorId, 'BLOCK');
       if (action === 'mute') await muteUser(session.token, creatorId, 'MUTE');
       await invalidateSocialCaches([postId]);
@@ -249,7 +238,7 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
         nav.goBack();
         return;
       }
-      setInfo(action === 'report' ? 'Report sent for safety review.' : 'Creator muted. Their posts will not appear in your feed.');
+      setInfo('Creator muted. Their posts will not appear in your feed.');
     } catch (err) {
       setSafetyError(err instanceof Error ? err.message : 'Safety action failed. Try again.');
     } finally {
@@ -345,9 +334,6 @@ export function PostDetailScreen({ route, navigation }: ChildScreenProps<'PostDe
           <Button label="Hide this post" variant="secondary" disabled={safetyBusy} onPress={() => { setHidden(true); setSafetyOpen(false); }} />
           <Button label="Block creator" variant="secondary" disabled={safetyBusy} onPress={() => void safetyAction('block')} />
           <Button label="Mute creator" variant="secondary" disabled={safetyBusy} onPress={() => void safetyAction('mute')} />
-          <Text style={styles.reasonLabel}>Report reason</Text>
-          {reasons.map((item) => <Button key={item} label={reason === item ? `Selected: ${item}` : item} variant={reason === item ? 'primary' : 'secondary'} disabled={safetyBusy} onPress={() => setReason(item)} />)}
-          <Button label={safetyBusy ? 'Sending…' : 'Send report'} disabled={safetyBusy || !reason} onPress={() => void safetyAction('report')} />
           {safetyError ? <Notice message={safetyError} /> : null}
         </Card> : null}
         {error ? <GateNotice error={error} /> : null}
