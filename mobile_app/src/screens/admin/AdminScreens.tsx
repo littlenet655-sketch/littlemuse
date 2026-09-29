@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deactivateAdminUser,
   fetchAdminAudit,
   fetchAdminDashboard,
   fetchAdminReview,
@@ -202,7 +203,7 @@ export function AdminReviewScreen({ navigation, route }: AdminScreenProps<'Admin
   const { event, preview } = query.data;
   const isVideo = (preview?.media_type ?? '').toUpperCase() === 'VIDEO';
   const previewImage = !isVideo ? preview?.media_url : preview?.poster_url;
-  return <Screen><ScrollView><BrandHeader title="Moderation detail" subtitle="Final actions are confirmed by the backend and recorded in the audit history." /><Card><View style={styles.rowBetween}><CategoryBadge label={event.content_type} /><TimeAgo value={event.created_at} /></View><Text style={styles.title}>{event.full_name ?? event.username ?? `Child ${event.child_id}`}</Text>{isVideo && preview?.media_url ? <View style={styles.videoPreviewWrapper}><VideoMedia source={preview.media_url} posterUrl={preview.poster_url} height={300} /><View style={styles.quarantineBadge}><Feather name="shield" size={12} color="#FFFFFF" /><Text style={styles.quarantineBadgeText}>QUARANTINE PREVIEW • LittleNet Safety Review</Text></View></View> : null}{previewImage && !isVideo ? <Image source={{ uri: previewImage, headers: { Authorization: `Bearer ${session?.token ?? ''}` } }} resizeMode="cover" style={styles.preview} /> : null}{preview?.caption ? <Text style={styles.body}>{preview.caption}</Text> : null}{preview?.comment_text ? <Text style={styles.body}>{preview.comment_text}</Text> : null}{preview?.message_text ? <Text style={styles.body}>{preview.message_text}</Text> : null}<Text style={styles.body}>{event.reason || 'No public-facing reason supplied.'}</Text><Text style={styles.muted}>Status: {event.status} · decision: {event.decision} · risk: {String(event.risk_score ?? 'not provided')}</Text><Field label="Moderator notes (optional)" value={notes} onChangeText={setNotes} multiline />{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}{mutation.isSuccess && mutation.data.status === 'OPEN' ? <Notice tone="ok" message="Escalation recorded. This event remains open for a final decision." /> : null}<Button label="Approve" loading={mutation.isPending} onPress={() => mutation.mutate('APPROVE')} /><Button label="Block" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate('BLOCK')} /><Button label="Escalate" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate('ESCALATE')} /></Card></ScrollView></Screen>;
+  return <Screen><ScrollView><BrandHeader title="Moderation detail" subtitle="Final actions are confirmed by the backend and recorded in the audit history." /><Card><View style={styles.rowBetween}><CategoryBadge label={event.content_type} /><TimeAgo value={event.created_at} /></View><Text style={styles.title}>{event.full_name ?? event.username ?? `Child ${event.child_id}`}</Text>{isVideo && preview?.media_url ? <View style={styles.videoPreviewWrapper}><VideoMedia source={preview.media_url} posterUrl={preview.poster_url} height={300} /><View style={styles.quarantineBadge}><Feather name="shield" size={12} color="#FFFFFF" /><Text style={styles.quarantineBadgeText}>QUARANTINE PREVIEW • LittleNet Safety Review</Text></View></View> : null}{previewImage && !isVideo ? <Image source={{ uri: previewImage, headers: { Authorization: `Bearer ${session?.token ?? ''}` } }} resizeMode="cover" style={styles.preview} /> : null}{preview?.caption ? <Text style={styles.body}>{preview.caption}</Text> : null}{preview?.comment_text ? <Text style={styles.body}>{preview.comment_text}</Text> : null}{preview?.message_text ? <Text style={styles.body}>{preview.message_text}</Text> : null}<Text style={styles.body}>{event.reason || 'No public-facing reason supplied.'}</Text><Text style={styles.muted}>Status: {event.status} · decision: {event.decision} · risk: {String(event.risk_score ?? 'not provided')}</Text><Field label="Moderator notes (optional)" value={notes} onChangeText={setNotes} multiline />{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}{deleteMutation.error ? <Notice message={errorText(deleteMutation.error)} /> : null}{mutation.isSuccess && mutation.data.status === 'OPEN' ? <Notice tone="ok" message="Escalation recorded. This event remains open for a final decision." /> : null}<Button label="Approve" loading={mutation.isPending} onPress={() => mutation.mutate('APPROVE')} /><Button label="Block" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate('BLOCK')} /><Button label="Escalate" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate('ESCALATE')} /></Card></ScrollView></Screen>;
 }
 
 export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
@@ -211,19 +212,79 @@ export function AdminUsersScreen(_props: AdminScreenProps<'AdminUsers'>) {
   const [input, setInput] = useState('');
   const [queryText, setQueryText] = useState('');
   const query = useQuery({ queryKey: adminKeys.users(queryText), queryFn: () => fetchAdminUsers(session?.token ?? '', queryText), enabled: Boolean(session) });
-  const mutation = useMutation({ mutationFn: ({ userId, status }: { userId: number; status: 'ACTIVE' | 'SUSPENDED' }) => updateAdminUserStatus(session?.token ?? '', userId, status), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: ['admin', 'users'] }), client.invalidateQueries({ queryKey: adminKeys.audit })]); } });
+  const mutation = useMutation({
+    mutationFn: ({ userId, status }: { userId: number; status: 'ACTIVE' | 'SUSPENDED' }) =>
+      updateAdminUserStatus(session?.token ?? '', userId, status),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.dashboard }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (userId: number) => deactivateAdminUser(session?.token ?? '', userId),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['admin', 'users'] }),
+        client.invalidateQueries({ queryKey: adminKeys.dashboard }),
+        client.invalidateQueries({ queryKey: adminKeys.audit }),
+      ]);
+    },
+  });
   const users = query.data?.users ?? [];
   /** Only ACTIVE/SUSPENDED are togglable from mobile. Activating a pending or
       deactivated account could bypass its verification flow, so those stay read-only. */
-  function accountAction(user: { user_id: number; role: string; account_status: string }) {
+  function confirmDelete(user: { user_id: number; full_name?: string }) {
+    Alert.alert(
+      'Delete account?',
+      `This will deactivate ${user.full_name || 'this account'} and sign it out on all devices.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMutation.mutate(user.user_id),
+        },
+      ],
+    );
+  }
+
+  function accountAction(user: { user_id: number; full_name?: string; role: string; account_status: string }) {
     if (user.role === 'ADMIN') return <Notice tone="info" message="Admin accounts cannot be changed from mobile lookup." />;
-    if (user.account_status === 'ACTIVE') {
-      return <Button label="Suspend account" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate({ userId: user.user_id, status: 'SUSPENDED' })} />;
+    if (user.account_status === 'DEACTIVATED') {
+      return <Notice tone="info" message="This account is deleted/deactivated." />;
     }
-    if (user.account_status === 'SUSPENDED') {
-      return <Button label="Activate account" variant="secondary" disabled={mutation.isPending} onPress={() => mutation.mutate({ userId: user.user_id, status: 'ACTIVE' })} />;
-    }
-    return <Notice tone="info" message="This account is still in verification or has been deactivated. Status changes must be completed by the user in-app; they cannot be activated from here." />;
+    return (
+      <>
+        {user.account_status === 'ACTIVE' ? (
+          <Button
+            label="Pause account"
+            variant="secondary"
+            disabled={mutation.isPending || deleteMutation.isPending}
+            onPress={() => mutation.mutate({ userId: user.user_id, status: 'SUSPENDED' })}
+          />
+        ) : user.account_status === 'SUSPENDED' ? (
+          <Button
+            label="Resume account"
+            variant="secondary"
+            disabled={mutation.isPending || deleteMutation.isPending}
+            onPress={() => mutation.mutate({ userId: user.user_id, status: 'ACTIVE' })}
+          />
+        ) : (
+          <Notice tone="info" message="This account is still in verification and cannot be changed here yet." />
+        )}
+        {(user.account_status === 'ACTIVE' || user.account_status === 'SUSPENDED') ? (
+          <Button
+            label="Delete account"
+            variant="secondary"
+            disabled={mutation.isPending || deleteMutation.isPending}
+            onPress={() => confirmDelete(user)}
+          />
+        ) : null}
+      </>
+    );
   }
   const header = <><BrandHeader title="User lookup" subtitle="Search by name, username or email. Passwords, tokens and biometric data are never returned." /><Card><Field label="Search accounts" value={input} onChangeText={setInput} autoCapitalize="none" autoCorrect={false} /><Button label="Search" onPress={() => setQueryText(input.trim())} /></Card>{mutation.error ? <Notice message={errorText(mutation.error)} /> : null}</>;
   return <Screen><FlatList keyboardShouldPersistTaps="handled" data={users} keyExtractor={(user) => String(user.user_id)} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />} ListHeaderComponent={header} ListEmptyComponent={query.isPending ? <LoadingState message="Loading accounts…" /> : query.isError ? <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} /> : <EmptyState title="No accounts found" body="Try a different name, username or email." />} renderItem={({ item: user }) => <Card><View style={styles.rowBetween}><CategoryBadge label={user.role} /><Text style={[styles.status, user.account_status !== 'ACTIVE' && styles.statusAlert]}>{user.account_status}</Text></View><Text style={styles.title}>{user.full_name}</Text><Text style={styles.muted}>@{user.username} · {user.email}</Text>{accountAction(user)}</Card>} /></Screen>;
