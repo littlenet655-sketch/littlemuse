@@ -11,6 +11,12 @@ import {
   resolveAdminReview,
   updateAdminUserStatus,
 } from '../../api/parentAdmin';
+import {
+  extendDemoBoost,
+  fetchDemoBoostStatus,
+  startDemoBoost,
+  stopDemoBoost,
+} from '../../api/demoBoost';
 import { useAuth } from '../../auth/AuthProvider';
 import { VideoMedia } from '../../kids/VideoMedia';
 import type { AdminScreenProps } from '../../navigation/types';
@@ -24,12 +30,148 @@ function Metric({ value, label, alert = false }: { value: number; label: string;
   return <View style={[styles.metric, alert && styles.alertMetric]}><Text style={styles.metricValue}>{value}</Text><Text style={styles.muted}>{label}</Text></View>;
 }
 
+function DemoBoostCard() {
+  const { session } = useAuth();
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: adminKeys.demoBoost,
+    queryFn: () => fetchDemoBoostStatus(session?.token ?? ''),
+    enabled: Boolean(session),
+    refetchInterval: 15_000,
+  });
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: adminKeys.demoBoost });
+  };
+  const startBoost = useMutation({
+    mutationFn: (minutes: 15 | 30 | 60) => startDemoBoost(session?.token ?? '', minutes),
+    onSuccess: refresh,
+  });
+  const extendBoost = useMutation({
+    mutationFn: (minutes: 5 | 15 | 30) => extendDemoBoost(session?.token ?? '', minutes),
+    onSuccess: refresh,
+  });
+  const stopBoost = useMutation({
+    mutationFn: () => stopDemoBoost(session?.token ?? ''),
+    onSuccess: refresh,
+  });
+  const boost = query.data?.demo_boost;
+  const busy = startBoost.isPending || extendBoost.isPending || stopBoost.isPending;
+  const remainingMinutes = Math.max(0, Math.ceil((boost?.remaining_seconds ?? 0) / 60));
+  const actionError = startBoost.error || extendBoost.error || stopBoost.error;
+
+  return (
+    <Card>
+      <View style={styles.rowBetween}>
+        <View style={styles.flex}>
+          <Text style={styles.title}>Demo Boost</Text>
+          <Text style={styles.muted}>Temporarily warms one capped AI worker for a smoother college demo.</Text>
+        </View>
+        <View style={[styles.boostBadge, boost?.active && styles.boostBadgeActive]}>
+          <Text style={[styles.boostBadgeText, boost?.active && styles.boostBadgeTextActive]}>
+            {boost?.status ?? 'OFF'}
+          </Text>
+        </View>
+      </View>
+
+      {query.isPending ? <LoadingState message="Checking Demo Boost…" /> : null}
+      {query.isError ? <Notice message={errorText(query.error, 'Demo Boost status unavailable.')} /> : null}
+
+      {boost?.active ? (
+        <>
+          <Text style={styles.boostTime}>{remainingMinutes} min remaining</Text>
+          <Text style={styles.muted}>
+            {boost.status === 'READY' ? 'AI warmup is ready.' : 'AI models are warming in the background.'}
+          </Text>
+          {boost.last_error ? <Notice message="Warmup is still retryable. Normal LittleNet remains available." /> : null}
+          {boost.remaining_seconds <= 300 ? (
+            <>
+              <Text style={styles.boostSectionLabel}>EXTEND DEMO</Text>
+              <View style={styles.boostActionRow}>
+                {([5, 15, 30] as const).map((minutes) => (
+                  <Pressable
+                    key={minutes}
+                    style={styles.boostMiniButton}
+                    disabled={busy}
+                    onPress={() => extendBoost.mutate(minutes)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Extend Demo Boost by ${minutes} minutes`}
+                  >
+                    <Text style={styles.boostMiniButtonText}>+{minutes}m</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+          <Button label="Stop Demo Boost" variant="secondary" disabled={busy} onPress={() => stopBoost.mutate()} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.boostSectionLabel}>START FOR</Text>
+          <View style={styles.boostActionRow}>
+            {([15, 30, 60] as const).map((minutes) => (
+              <Pressable
+                key={minutes}
+                style={styles.boostMiniButton}
+                disabled={busy || !session}
+                onPress={() => startBoost.mutate(minutes)}
+                accessibilityRole="button"
+                accessibilityLabel={`Start Demo Boost for ${minutes} minutes`}
+              >
+                <Text style={styles.boostMiniButtonText}>{minutes}m</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
+      {actionError ? <Notice message={errorText(actionError, 'Could not change Demo Boost.')} /> : null}
+    </Card>
+  );
+}
+
 export function AdminHomeScreen({ navigation }: AdminScreenProps<'AdminHome'>) {
   const { session, signOut } = useAuth();
   const online = useIsOnline();
-  const query = useQuery({ queryKey: adminKeys.dashboard, queryFn: () => fetchAdminDashboard(session?.token ?? ''), enabled: Boolean(session) });
+  const query = useQuery({
+    queryKey: adminKeys.dashboard,
+    queryFn: () => fetchAdminDashboard(session?.token ?? ''),
+    enabled: Boolean(session),
+  });
   const counts = query.data?.counts;
-  return <Screen><ScrollView refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}><OfflineBanner online={online} /><BrandHeader title="Safety operations" subtitle="Review safety events, account state and an append-only action history." />{query.isPending ? <LoadingState message="Loading moderation totals…" /> : query.isError ? <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} /> : <><View style={styles.priority}><Text style={styles.priorityKicker}>TODAY'S PRIORITY</Text><Text style={styles.priorityTitle}>{counts?.open_reviews ?? 0} open safety decisions</Text><Text style={styles.muted}>Every action below is server-authoritative and audit logged.</Text></View><View style={styles.metrics}><Metric value={counts?.open_reviews ?? 0} label="Open reviews" alert={Boolean(counts?.open_reviews)} /><Metric value={counts?.children ?? 0} label="Children" /><Metric value={counts?.parents ?? 0} label="Parents" /></View></>}<Menu label="Moderation queue" body="Inspect open REVIEW events" onPress={() => navigation.navigate('AdminReviews')} /><Menu label="User lookup" body="Search account role and status" onPress={() => navigation.navigate('AdminUsers')} /><Menu label="Audit history" body="See moderator and account actions" onPress={() => navigation.navigate('AdminAudit')} /><Button label="Log out" variant="secondary" onPress={() => void signOut()} /></ScrollView></Screen>;
+
+  return (
+    <Screen>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={query.isRefetching}
+            onRefresh={() => void Promise.all([query.refetch()])}
+          />
+        }
+      >
+        <OfflineBanner online={online} />
+        <BrandHeader
+          title="Admin dashboard"
+          subtitle="Lightweight account overview and demo controls."
+        />
+        {query.isPending ? (
+          <LoadingState message="Loading account totals…" />
+        ) : query.isError ? (
+          <ErrorState message={errorText(query.error)} onRetry={() => void query.refetch()} />
+        ) : (
+          <View style={styles.metrics}>
+            <Metric value={counts?.signups_today ?? 0} label="Signups today" />
+            <Metric value={counts?.children ?? 0} label="Children" />
+            <Metric value={counts?.parents ?? 0} label="Parents" />
+          </View>
+        )}
+
+        <DemoBoostCard />
+        <Menu label="Manage accounts" body="Search, pause or reactivate accounts" onPress={() => navigation.navigate('AdminUsers')} />
+        <Menu label="Admin activity" body="See recent account actions" onPress={() => navigation.navigate('AdminAudit')} />
+        <Button label="Log out" variant="secondary" onPress={() => void signOut()} />
+      </ScrollView>
+    </Screen>
+  );
 }
 
 function Menu({ label, body, onPress }: { label: string; body: string; onPress: () => void }) {
@@ -146,4 +288,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
+  boostBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: '#F1F5F9',
+  },
+  boostBadgeActive: { backgroundColor: '#DCFCE7' },
+  boostBadgeText: { color: '#64748B', fontWeight: '900', fontSize: 11 },
+  boostBadgeTextActive: { color: '#166534' },
+  boostTime: { color: colors.ink, fontSize: type.title, fontWeight: '900', marginBottom: 4 },
+  boostSectionLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    marginTop: spacing.sm,
+    marginBottom: 6,
+  },
+  boostActionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  boostMiniButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.md,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  boostMiniButtonText: { color: '#1D4ED8', fontWeight: '900' },
 });
