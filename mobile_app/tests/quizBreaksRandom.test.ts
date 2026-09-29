@@ -9,11 +9,11 @@ function text(relative: string): string {
   return fs.readFileSync(path.join(root, relative), 'utf8');
 }
 
-test('Learn tab has no pinned Quiz Zone card (quizzes surface randomly between reels)', () => {
+test('Learn tab exposes an optional Quiz Zone without creating a feed gate', () => {
   const feed = text('src/screens/kids/FeedScreen.tsx');
-  assert.doesNotMatch(feed, /Quiz Zone/);
-  assert.doesNotMatch(feed, /QuizZoneCard/);
-  assert.doesNotMatch(feed, /onStartQuizZone/);
+  assert.match(feed, /QuizPromoCard/);
+  assert.match(feed, /tab === 'Learn'/);
+  assert.match(feed, /openQuiz/);
   assert.doesNotMatch(feed, /withQuizBreaks\(visibleItems/);
   assert.doesNotMatch(feed, /scrollEnabled=\{!quizLocked\}/);
 });
@@ -39,4 +39,14 @@ test('meaningful Reel impression is flushed immediately, not in fixed batches of
   const reels = text('src/screens/kids/ReelsScreen.tsx');
   assert.match(reels, /void flushBatch\(\);/);
   assert.doesNotMatch(reels, /impressionBatchRef\.current\.length >= 5/);
+});
+
+
+test('Quiz Zone practice mode cannot consume the compulsory Reel latch', () => {
+  const quiz = text('src/screens/Quiz.tsx');
+  const api = text('src/api/auth.ts');
+  assert.match(quiz, /practiceMode/);
+  assert.match(quiz, /fetchQuiz\(session\.token, undefined, practiceMode \? 'practice' : undefined\)/);
+  assert.match(quiz, /answerQuiz\(session\.token, current\.quiz_id, option, practiceMode \? 'practice' : undefined\)/);
+  assert.match(api, /mode\?: 'practice'/);
 });
