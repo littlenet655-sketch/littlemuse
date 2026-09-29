@@ -26,14 +26,13 @@ test('Reels rely on server latch instead of local marker placement', () => {
   assert.doesNotMatch(reels, /withQuizBreaks\(feed\.items/);
   assert.match(reels, /if \(result\.quiz_required\)/);
   assert.match(reels, /error\.code === 'quiz_required'/);
-  // Non-blocking: no scroll lock, no forced pause, no full-screen lock card.
+  // The due signal becomes a compulsory Reel interruption.
   assert.doesNotMatch(reels, /scrollEnabled=\{!quizLocked\}/);
-  assert.doesNotMatch(reels, /paused=\{paused \|\| quizLocked\}/);
   assert.doesNotMatch(reels, /QuizBreakCard/);
-  // The nudge: one dismissible inline card; tapping opens Quiz voluntarily.
   assert.match(reels, /QuizPromptCard/);
-  assert.match(reels, /onDismiss=\{\(\) => setQuizPromptDismissed\(true\)\}/);
-  assert.match(reels, /onTakeQuiz=\{\(\) => nav\.navigate\('Quiz', \{\}\)\}/);
+  assert.doesNotMatch(reels, /onDismiss=/);
+  assert.match(reels, /setPaused\(true\)/);
+  assert.match(reels, /nav\.navigate\('Quiz', \{ returnTo: 'ReelsTab', autoStart: true \}\)/);
 });
 
 test('meaningful Reel impression is flushed immediately, not in fixed batches of five', () => {
