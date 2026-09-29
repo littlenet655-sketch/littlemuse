@@ -61,3 +61,23 @@ def test_admin_can_toggle_only_explicit_demo_child_flag():
     assert "Enable unlimited demo" in ui
     assert "Disable unlimited demo" in ui
     assert "Safety rules still apply." in ui
+
+
+def test_demo_unlimited_does_not_bypass_parent_pause():
+    # Rule 23: demo_unlimited bypasses ONLY screen-time and quiet hours.
+    # Parent Pause is an explicit parent action and must always block,
+    # even for demo_unlimited children.
+    api = text("mobile/api.py")
+    # Find the _child_gate function
+    gate_start = api.find("def _child_gate(")
+    gate_end = api.find("\ndef ", gate_start + 1)
+    gate_code = api[gate_start:gate_end]
+
+    # Parent pause check must NOT be conditional on demo_unlimited
+    assert 'if bool(g.mobile_user.get("parent_paused")):' in gate_code
+    # The old buggy pattern must not exist
+    assert 'and not demo_unlimited' not in gate_code.split('if bool(g.mobile_user.get("parent_paused")):')[1].split('\n')[0]
+
+    # Quiet hours and screen-time CAN be bypassed by demo_unlimited
+    assert 'if quiet.get("active") and not demo_unlimited:' in gate_code
+    assert 'if locked and not demo_unlimited:' in gate_code

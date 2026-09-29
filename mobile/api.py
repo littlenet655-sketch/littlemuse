@@ -339,18 +339,20 @@ def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
 
 def _child_gate(feature: str | None = None):
     uid = int(g.mobile_user["user_id"])
-    # Demo/testing children may bypass only parent timing locks. Moderation,
-    # relationship checks and feature permissions still execute normally.
+    # Demo/testing children may bypass only parent timing locks (screen-time,
+    # quiet hours). Parent Pause is an explicit parent action and always blocks,
+    # even for demo_unlimited children. Moderation, relationship checks and
+    # feature permissions still execute normally.
     demo_unlimited = bool(g.mobile_user.get("demo_unlimited"))
-    if bool(g.mobile_user.get("parent_paused")) and not demo_unlimited:
+    if bool(g.mobile_user.get("parent_paused")):
         return jsonify(error="parent_paused", gate="parent_pause"), 423
     if feature and not feature_allowed(uid, feature):
         return jsonify(error="disabled_by_parent", feature=feature), 403
     quiet = quiet_hours_state(uid)
-    if quiet.get("active"):
+    if quiet.get("active") and not demo_unlimited:
         return jsonify(error="quiet_hours", gate="quiet_hours", quiet=_clean(quiet)), 423
     locked, remaining = lock_state(uid)
-    if locked:
+    if locked and not demo_unlimited:
         return jsonify(
             error="screen_time_limit",
             gate="screen_time",
