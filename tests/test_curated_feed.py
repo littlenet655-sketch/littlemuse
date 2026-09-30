@@ -648,24 +648,33 @@ def test_social_candidates_filter_final_processing_and_durable_media_before_limi
     monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
     monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
 
-    seen_sql = []
+    seen = []
 
-    def fake_fetch_all(sql, _params):
-        seen_sql.append(sql)
-        return [_dummy_social_row(900 + len(seen_sql), is_reel="p.is_reel = TRUE" in sql)]
+    def fake_fetch_all(sql, params):
+        seen.append((sql, params))
+        return [_dummy_social_row(900 + len(seen), is_reel="p.is_reel = TRUE" in sql)]
 
     monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
 
     assert len(cf.fetch_social_candidates(7, "FEED", limit=60)) == 1
     assert len(cf.fetch_social_candidates(7, "REELS", limit=60)) == 1
-    assert len(seen_sql) == 2
+    assert len(seen) == 2
 
-    for sql in seen_sql:
+    for sql, params in seen:
         eligibility_sql = sql.split("ORDER BY", 1)[0]
         assert "p.processing_status = 'ALLOWED'" in eligibility_sql
         assert "p.media_type = 'TEXT'" in eligibility_sql
         assert "p.media_path LIKE 'uploads/r2/%%'" in eligibility_sql
         assert sql.index("p.processing_status = 'ALLOWED'") < sql.index("LIMIT %s")
+        # Exactly one local-media boolean belongs in each query; it must not
+        # shift the child-id/category parameters that follow it.
+        assert sql.count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
+        assert params[2] is False
+        if "p.is_reel = TRUE" in sql:
+            assert params[3] == [42]
+        else:
+            assert params[3] == [42]
+            assert params[4] == [42]
 
 def test_materialized_session_rechecks_processing_state_and_renderability(monkeypatch):
     """A stale feed session must not resurrect a post that is no longer publishable."""
@@ -719,10 +728,10 @@ def test_social_candidates_keep_valid_local_media_in_local_mode(monkeypatch):
         "processing_status": "ALLOWED",
         "media_path": "uploads/posts/valid.jpg",
     }
-    seen_params = []
+    seen = []
 
     def fake_fetch_all(sql, params):
-        seen_params.append(params)
+        seen.append((sql, params))
         return [local_row]
 
     monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
@@ -730,6 +739,44 @@ def test_social_candidates_keep_valid_local_media_in_local_mode(monkeypatch):
     items = cf.fetch_social_candidates(7, "FEED", limit=10)
 
     assert [item["source_id"] for item in items] == [901]
-    assert seen_params
-    assert seen_params[0][-1] > 10
+    assert seen
+    sql, params = seen[0]
+    assert sql.count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
+    assert params[2] is True
+    assert params[3] == [42]
+    assert params[4] == [42]
+    assert params[-1] > 10
+
+def test_social_reel_local_media_parameter_alignment(monkeypatch):
+    """Reel SQL keeps the local-media flag separate from relationship/category parameters."""
+    import child.service as cs
+    import services.curated_feed as cf
+    from services import object_storage
+
+    monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
+    monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
+    monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
+    monkeypatch.setattr(object_storage, "enabled", lambda: False)
+    monkeypatch.setattr(cf.os.path, "exists", lambda _path: True)
+
+    row = {
+        **_dummy_social_row(post_id=902, is_reel=True),
+        "processing_status": "ALLOWED",
+        "media_path": "uploads/reels/local.mp4",
+    }
+    captured = {}
+
+    def fake_fetch_all(sql, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [row]
+
+    monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
+    items = cf.fetch_social_candidates(7, "REELS", limit=10)
+
+    assert [item["source_id"] for item in items] == [902]
+    assert captured["sql"].count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
+    assert captured["params"][2] is True
+    assert captured["params"][3] == [42]
+    assert captured["params"][4] == ["Nature & Animals"]
 
