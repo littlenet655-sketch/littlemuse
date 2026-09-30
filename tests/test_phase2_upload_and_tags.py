@@ -192,6 +192,34 @@ def test_upload_session_creation(client, app):
     assert session_row["status"] == "PENDING"
 
 
+def test_upload_session_presign_failure_does_not_leak_pending_row(client, app):
+    with app.app_context():
+        _setup_child_and_parent(997, "upload_presign_fail")
+        before = fetch_one("SELECT COUNT(*) AS n FROM upload_sessions WHERE child_id=%s", (997,))["n"]
+
+    token = _issue_token({"user_id": 997, "role": "CHILD"})
+    with patch("services.object_storage.enabled", return_value=True), patch(
+        "services.object_storage.signed_upload_url", side_effect=RuntimeError("presign unavailable")
+    ):
+        resp = client.post(
+            "/api/mobile/v2/uploads/session",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "kind": "post",
+                "media_type": "IMAGE",
+                "size_bytes": 1024,
+                "extension": "jpg",
+                "mime_type": "image/jpeg",
+            },
+        )
+
+    assert resp.status_code == 503
+    assert resp.json["error"] == "upload_target_unavailable"
+    with app.app_context():
+        after = fetch_one("SELECT COUNT(*) AS n FROM upload_sessions WHERE child_id=%s", (997,))["n"]
+    assert after == before
+
+
 def test_upload_complete_and_ownership_security(client, app):
     with app.app_context():
         # Upload completion is a gated child action. Provision both children
