@@ -174,6 +174,7 @@ def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
         "max_age": 18,
         "is_safe": bool(row.get("is_safe", True)),
         "moderation_status": str(row.get("moderation_status") or "ALLOWED"),
+        "processing_status": str(row.get("processing_status") or "ALLOWED"),
         "likes": int(row.get("likes") or 0),
         "comments_count": int(row.get("comments_count") or 0),
         "comments_enabled": bool(row.get("comments_enabled", True)) and bool(row.get("owner_allows_comments", True)),
@@ -729,6 +730,12 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
         except (TypeError, ValueError):
             return False
         if item.get("source_type") == "SOCIAL":
+            # A feed-session row is not a publication grant. Re-check the
+            # finalized processing state and renderable media reference on
+            # every hydration so stale sessions cannot resurrect a broken or
+            # re-processing post after it was originally selected.
+            if item.get("processing_status") != "ALLOWED" or not _social_media_renderable(item):
+                return False
             creator_id = int((item.get("ranking_metadata") or {}).get("child_id") or 0)
             if creator_id in blocked_ids or creator_id not in discoverable_ids:
                 return False
