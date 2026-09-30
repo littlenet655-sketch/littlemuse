@@ -309,7 +309,8 @@ export function useReelPlayback({
   // First-frame watchdog: an active reel that never renders a frame must not
   // sit on a black screen forever — surface the retry UI with a clear message.
   useEffect(() => {
-    if (!active || firstFrameRendered || errorMessage) return;
+    // Signing has its own request timeout. Only time an attached, playing source.
+    if (!active || !nearby || paused || !currentSource || firstFrameRendered || errorMessage) return;
     const t = setTimeout(() => {
       if (!isMountedRef.current) return;
       setIsDebouncedBuffering(false);
@@ -319,7 +320,7 @@ export function useReelPlayback({
       setErrorMessage('This reel is taking too long to load. Check your connection and try again.');
     }, FIRST_FRAME_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, [active, firstFrameRendered, errorMessage, itemKey]);
+  }, [active, nearby, paused, currentSource, firstFrameRendered, errorMessage, itemKey]);
 
   // Window loading logic: only load source if active or immediate neighbor (nearby)
   useEffect(() => {

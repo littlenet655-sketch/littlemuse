@@ -189,15 +189,21 @@ function ChildNavigator() {
 }
 
 /** Mounts the gate sync inside the active child screen (navigators accept only Screens). */
+const gatedScreens = new WeakMap<React.ComponentType<any>, React.ComponentType<any>>();
 function withGateSync(Component: React.ComponentType<any>): React.ComponentType<any> {
-  return function GatedScreen(props: any) {
+  const existing = gatedScreens.get(Component);
+  if (existing) return existing;
+  // Session refreshes must not replace screen identities and remount their state.
+  function GatedScreen(props: any) {
     return (
       <>
         <ChildGateSync />
         <Component {...props} />
       </>
     );
-  };
+  }
+  gatedScreens.set(Component, GatedScreen);
+  return GatedScreen;
 }
 
 function ParentNavigator() {

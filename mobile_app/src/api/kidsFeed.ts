@@ -1,5 +1,5 @@
 /** Kids feed/discover API (Agent C). Maps to mobile/api.py v2 routes. */
-import { apiRequest, routes } from './client';
+import { ApiError, apiRequest, routes } from './client';
 
 export interface FeedItem {
   source_type: 'SOCIAL' | 'CURATED';
@@ -92,7 +92,7 @@ export function fetchFeedV2(
   return get<FeedPage>(`${routes.feedV2}?${p.toString()}`, token, activeSignal);
 }
 
-export function fetchReelsV2(
+export async function fetchReelsV2(
   token: string,
   cursor: number,
   limit = 10,
@@ -103,10 +103,13 @@ export function fetchReelsV2(
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
   if (sessionId) p.set('session_id', sessionId);
   if (refillFrom) p.set('refill_from', refillFrom);
-  return apiRequest<FeedPage>(`${routes.reelsV2}?${p.toString()}`, {
+  const page = await apiRequest<FeedPage & { quiz_required?: boolean }>(`${routes.reelsV2}?${p.toString()}`, {
     signal,
     timeoutMs: 30_000,
   }, token);
+  // A quiz interruption is not an empty feed: rejecting preserves the cached list.
+  if (page?.quiz_required) throw new ApiError(428, 'quiz_required', 'Complete your Brain Break to continue.', 'quiz');
+  return page;
 }
 
 export function refreshReelPlayback(

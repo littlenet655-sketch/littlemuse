@@ -363,6 +363,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [quizDue, setQuizDue] = useState(false);
   const quizNavigationRef = useRef(false);
   const feed = useFeed('reels', 8);
+  useEffect(() => {
+    if (feed.error instanceof ApiError && feed.error.code === 'quiz_required') {
+      void refreshMe().catch(() => {});
+    }
+  }, [feed.error, refreshMe]);
   const displayItems: Array<FeedItem> = useMemo(
     () => feed.items,
     [feed.items],
@@ -797,7 +802,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       </View>
 
       {/* Non-blocking error banner when items already loaded */}
-      {feed.error ? <GateNotice error={feed.error} /> : null}
+      {feed.error && !(feed.error instanceof ApiError && feed.error.code === 'quiz_required') ? <GateNotice error={feed.error} /> : null}
 
       <FlatList<FeedItem>
         ref={flatListRef}
