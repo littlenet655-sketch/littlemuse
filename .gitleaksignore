@@ -6,3 +6,5 @@
 9b645c494513e64ba584d41cc87e228ef8547eeb:tests/test_qstash_security.py:generic-api-key:171
 ae431f6444e91b6a8788120848d30e63511262c0:mobile_flutter/test/face_biometrics_test.dart:generic-api-key:276
 18066cc3f89bd3a29ac337a183c1a052c34ad5a9:tests/test_smtp_readiness.py:generic-api-key:132
+# Environment-variable names in the test isolation tuple; not a credential value.
+65a8fc74aa8751eb8a7c9436b141f7c14e97a1c5:tests/conftest.py:generic-api-key:23

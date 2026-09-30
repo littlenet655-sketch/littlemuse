@@ -46,6 +46,7 @@ Starting state: clean `main`, HEAD and `origin/main` both `3618d562d219c5f9186ce
 | `mobile_app/src/screens/kids/CreateScreen.tsx`, `mobile_app/src/kids/postMedia.ts` | Two source actions, all photo/video capabilities, optional metadata disclosure | Picker/create regression and draft/upload suites |
 | `modal_web.py`, `modal_ai.py` | Exclude local env/venv/logs from deployment; enable existing worker timings without warming GPU | Deployment source contracts |
 | `requirements-core.txt` | PyJWT 2.13.0 has nine audited vulnerabilities, patched in 2.14.0 | Core dependency audit and backend auth suite |
+| `.gitleaksignore`, test-isolation variable-name comment | Gitleaks misidentified the tuple of environment variable names as an API key; one exact historical finding is excluded and the variable-name line is marked | GitHub secret-scan; no credential value is allowlisted |
 | `tests/conftest.py`, `tests/test_agent_a_disposable_postgres.py`, `tests/test_real_app_acceptance_e2e.py`, `tests/test_message_review_visibility.py`, `tests/test_chat_realtime.py`, `tests/test_video_push_feed_modes.py` | Explicit disposable DB isolation; no production email/media/AI calls; correct fixture encoding, module restoration, CSRF setup, sender identity, bounded reaper isolation and unit-only feed mode refill stub | Full backend suite; focused fixture run: 16 passed |
 | `tests/test_final_device_stabilization.py`, `mobile_app/tests/stabilization.test.ts`, `tests/test_release_experience_contracts.py`, `mobile_app/tests/quizBreaksRandom.test.ts` | New root-cause regressions and update old prompt-row assumptions | Focused and complete suites |
 
@@ -61,7 +62,7 @@ Two temporary Neon test branches were created because the first retained test sn
 
 Final Git commit: pending.
 
-- Backend: full local diagnostic run 763 passed / 1 failed / 1 skipped in 19m33s. The failure was duplicate Post Detail route registration from this change; it was fixed by adding GET to the existing DELETE route. Fresh focused route/OCR checks: 34 passed. Final complete green run/CI pending. Earlier focused root-cause/safety run: 51 passed; corrected fixture run: 16 passed.
+- Backend: complete GitHub CI suite 763 passed / 0 failed / 2 skipped in 24s on commit `65a8fc7`. The prior local diagnostic run had 763 passed / 1 failed / 1 skipped in 19m33s because it had loaded the earlier duplicate Post Detail registration; adding GET to the existing DELETE route fixes it. Fresh focused route/OCR checks: 34 passed; route/feed mode checks: 33 passed. Earlier focused root-cause/safety run: 51 passed; corrected fixture run: 16 passed. Final head checks pending the narrowly scoped scanner false-positive correction.
 - Mobile: 260 passed, 0 failed. Typecheck PASS. Android export PASS. Expo install compatibility PASS. npm ci completed with zero reported vulnerabilities.
 - Source scope/readiness/routes/dynamic SQL: PASS.
 - Security: core, text, safety and AI dependency scans PASS. Standard CI Bandit scope PASS. Broader scan additionally reports the intentional all-interface development bind and two fixed-HTTPS Resend URL open sites; these are not user-supplied URL sinks.

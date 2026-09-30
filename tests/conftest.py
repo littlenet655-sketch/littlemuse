@@ -20,7 +20,7 @@ elif not local:
     os.environ['DATABASE_URL'] = 'postgresql://invalid:invalid@127.0.0.1:1/invalid?connect_timeout=1'
 
 # A database clone must not send real email or touch production media/models.
-for key in ('RESEND_API_KEY', 'SMTP_HOST', 'AI_SERVICE_URL', 'POSTHOG_API_KEY', 'K2_HORIZON_API_KEY',
+for key in ('RESEND_API_KEY', 'SMTP_HOST', 'AI_SERVICE_URL', 'POSTHOG_API_KEY', 'K2_HORIZON_API_KEY',  # gitleaks:allow — variable names, no credential values
             'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'):
     os.environ[key] = ''
 for key in ('LITTLENET_USE_MODAL_IMAGE_CPU', 'LITTLENET_USE_MODAL_TEXT_CPU',
