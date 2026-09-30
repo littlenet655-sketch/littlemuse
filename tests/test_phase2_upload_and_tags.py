@@ -310,6 +310,7 @@ def test_upload_complete_and_ownership_security(client, app):
     assert post["is_safe"] is False
     assert post["moderation_status"] == "PENDING"
     assert post["source_media_path"] == obj_key
+    assert get_post_tags(post_id) == ["Coding", "Tech"]
 
     # Idempotency: second call returns same post
     resp_repeat = client.post(
