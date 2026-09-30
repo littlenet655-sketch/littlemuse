@@ -14,8 +14,10 @@ export interface SessionControllerDeps {
  * no matter how it was triggered (including a 401 handler).
  */
 export async function invalidateLocalSession(deps: Pick<SessionControllerDeps, 'storage' | 'clearQueries'>): Promise<void> {
-  await clearSession(deps.storage);
+  // Stop query observers/network work first so no stale request can race the
+  // token removal and trigger another unauthorized cascade during sign-out.
   await deps.clearQueries();
+  await clearSession(deps.storage);
 }
 
 /**
