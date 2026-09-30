@@ -82,3 +82,67 @@ def test_merge_keeps_trained_image_hard_block_behavior():
 
     decision = decide(_merge_signals({}, media), "STRICT")
     assert decision.action == "BLOCK"
+
+def test_merge_preserves_deterministic_ocr_pii_even_when_visual_category_wins():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "TEXT",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+        "deterministic_ocr_pii": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["text_category"] == "TEXT"
+    assert merged["media_category"] == "IMAGE"
+    assert merged["deterministic_ocr_pii"] is True
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "pii" in decision.reason.lower()
+
+
+def test_merge_preserves_true_deterministic_text_abuse_flags():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "SEVERE_ABUSE",
+        "violence_score": 1.0,
+        "toxicity_score": 1.0,
+        "general_score": 1.0,
+        "deterministic_severe_abuse": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+    }
+
+    merged = _merge_signals(text, media)
+
+    # Visual category stays available for visual-model policy, while the
+    # deterministic text flag remains authoritative for hard safety rules.
+    assert merged["category"] == "IMAGE"
+    assert merged["deterministic_severe_abuse"] is True
+    assert decide(merged, "STRICT").action == "BLOCK"
+
