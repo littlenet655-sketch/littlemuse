@@ -2753,21 +2753,19 @@ def register_mobile_api(bp):
         else:
             upload_url = f"{Config.BASE_URL}/api/mobile/v2/uploads/mock-put/{upload_id}"
 
-        # upload_sessions uses legacy TIMESTAMP (without timezone) columns,
-        # while every DB connection is explicitly configured to APP_TIMEZONE.
-        # Derive both timestamps from PostgreSQL LOCALTIMESTAMP in one statement
-        # so expiry checks using the same DB clock/timezone cannot drift by the
-        # Asia/Kolkata offset. Also return a timezone-aware representation for
-        # the mobile client.
+        # upload_sessions uses legacy TIMESTAMP (without timezone) columns.
+        # Store a canonical UTC-naive value so rows remain comparable even when
+        # they are created/read through connections using different session
+        # timezones (app pool, disposable tests, admin tooling).
         upload_times = execute(
             """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
                                           expected_size_bytes, mime_type, extension, status,
                                           created_at, expires_at)
                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING',
-                      LOCALTIMESTAMP,
-                      LOCALTIMESTAMP + (%s * INTERVAL '1 second'))
+                      CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+                      (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + (%s * INTERVAL '1 second'))
                RETURNING created_at, expires_at,
-                         expires_at AT TIME ZONE current_setting('TIMEZONE') AS expires_at_aware""",
+                         expires_at AT TIME ZONE 'UTC' AS expires_at_aware""",
             (
                 upload_id,
                 uid,
@@ -2834,7 +2832,8 @@ def register_mobile_api(bp):
         try:
             cur = conn.cursor()
             cur.execute(
-                """SELECT us.*, (us.expires_at < LOCALTIMESTAMP) AS is_expired
+                """SELECT us.*,
+                          (us.expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')) AS is_expired
                    FROM upload_sessions us
                    WHERE us.upload_id=%s
                    FOR UPDATE""",
@@ -2941,6 +2940,25 @@ def register_mobile_api(bp):
                     status=existing["processing_status"],
                     idempotent=True,
                 )
+
+            session_status = str(session_row.get("status") or "").upper()
+            if session_status == "CONSUMED":
+                # CONSUMED without its durable post is an inconsistent state;
+                # never create a second post from the same upload session.
+                conn.rollback()
+                return jsonify(
+                    error="upload_session_inconsistent",
+                    status=session_status,
+                ), 409
+            if session_status == "EXPIRED":
+                conn.rollback()
+                return jsonify(error="upload_session_expired"), 400
+            if session_status not in {"PENDING", "UPLOADED"}:
+                conn.rollback()
+                return jsonify(
+                    error="upload_session_not_completable",
+                    status=session_status,
+                ), 409
 
             if bool(session_row.get("is_expired")):
                 cur.execute("UPDATE upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
