@@ -2,10 +2,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { QueryClient } from '@tanstack/react-query';
 
 process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
-import { setUnauthorizedHandler } from '../src/api/client';
+import { ApiError, setUnauthorizedHandler } from '../src/api/client';
 import { fetchFeedV2, fetchReelsV2, refreshCuratedReelPlayback, refreshReelPlayback } from '../src/api/kidsFeed';
 import { addComment, toggleLike, toggleSave } from '../src/api/kidsSocial';
 import { dedupeFeed, feedKey, isPubliclyVisible, isTerminalStage, processingStage, runSocialPostAction, shouldLoadReel, shouldPlayReel, socialPostTarget, socialProfileTarget } from '../src/kids/social';
@@ -23,6 +24,21 @@ function stub() {
 }
 
 describe('agentC feed pagination/dedupe/refresh', () => {
+  it('rejects HTTP 200 Reel quiz interruptions instead of caching them as an empty feed', async () => {
+    stub();
+    nextStatus = 200;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const options = { queryKey: ['reels'], initialPageParam: 0, queryFn: () => fetchReelsV2('tok', 0, 8) };
+    nextPayload = { ok: true, items: [{ source_type: 'CURATED', source_id: 2 }], session_id: 'retained', has_more: false };
+    const retained = await client.fetchInfiniteQuery(options);
+    nextPayload = { ok: true, items: [], quiz_required: true, message: 'quiz_required' };
+    await assert.rejects(client.fetchInfiniteQuery(options), (error: unknown) =>
+      error instanceof ApiError && error.code === 'quiz_required' && error.gate === 'quiz');
+    assert.deepEqual(client.getQueryData(['reels']), retained);
+    client.clear();
+    nextPayload = { ok: true, items: [], has_more: false, next_cursor: null, session_id: 'empty' };
+    assert.deepEqual((await fetchReelsV2('tok', 0, 8)).items, []);
+  });
   it('fetches cursor pages and dedupes by source identity', async () => {
     stub();
     setUnauthorizedHandler(null);
