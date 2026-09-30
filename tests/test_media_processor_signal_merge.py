@@ -189,3 +189,43 @@ def test_explicit_text_still_hard_blocks_when_visual_evidence_is_benign():
     assert decision.action == "BLOCK"
     assert "text" in decision.reason.lower()
 
+def test_deterministic_sexual_flag_survives_media_merge_and_hard_blocks():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "TEXT",
+        "adult_score": 1.0,
+        "sexual_score": 1.0,
+        "general_score": 1.0,
+        "deterministic_sexual": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.05,
+        "sexual_score": 0.05,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.05,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.05,
+                    "sexual": 0.05,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.05,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["deterministic_sexual"] is True
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "sexual" in decision.reason.lower()
+
