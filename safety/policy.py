@@ -35,8 +35,11 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
     text_adult = max(
         float(signals.get("text_adult_score", 0)),
         float(signals.get("text_sexual_score", 0)),
+        float(signals.get("ocr_adult_score", 0)),
+        float(signals.get("ocr_sexual_score", 0)),
     )
     text_category = str(signals.get("text_category", "")).upper()
+    ocr_category = str(signals.get("ocr_category", "")).upper()
     legacy_weapon = float(signals.get("weapon_score", 0))
     violence = float(signals.get("violence_score", 0))
     toxicity = float(signals.get("toxicity_score", 0))
@@ -74,7 +77,11 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
     # independent from visual-model calibration. A clean image must not dilute
     # an explicit/sexual caption, while a borderline visual score must still
     # use its model-specific NSFW thresholds instead of the generic 0.40 line.
-    if text_adult >= float(adult_threshold) or text_category in ADULT_CATEGORIES:
+    if (
+        text_adult >= float(adult_threshold)
+        or text_category in ADULT_CATEGORIES
+        or ocr_category in ADULT_CATEGORIES
+    ):
         return Decision("BLOCK", max(text_adult * 100, 90), "18+ text content hard blocked")
 
     visual_nsfw = None
