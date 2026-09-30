@@ -1312,14 +1312,13 @@ def reconcile_abandoned_upload_sessions(stale_seconds: int = 86400) -> dict[str,
     stale_seconds = max(3600, min(int(stale_seconds), 7 * 86400))
 
     # upload_sessions.expires_at is a legacy TIMESTAMP (without timezone).
-    # Every DB connection is configured to APP_TIMEZONE, so compare it against
-    # PostgreSQL LOCALTIMESTAMP instead of mixing it with a timezone-aware
-    # Python datetime (which would shift the boundary by the session offset).
+    # Values are canonical UTC-naive, so cleanup compares against the same
+    # UTC-naive database clock regardless of the connection session timezone.
     rows = fetch_all(
         """SELECT upload_id, child_id, object_key, extension
            FROM upload_sessions
            WHERE status IN ('PENDING', 'EXPIRED')
-             AND expires_at < LOCALTIMESTAMP - (%s * INTERVAL '1 second')
+             AND expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - (%s * INTERVAL '1 second')
            ORDER BY expires_at ASC LIMIT 50""",
         (str(stale_seconds),),
     )
