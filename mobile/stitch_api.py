@@ -6,7 +6,7 @@ from child.service import can_discover_child, counts, is_follow_pending, is_foll
 from childMessage.service import conversation
 from database.connection import execute, fetch_all, fetch_one
 from extensions import csrf, limiter
-from mobile.api import _child_gate, _clean, _post_json, _profile_json, _require_mobile
+from mobile.api import _child_gate, _clean, _media_allowed_many, _post_json, _profile_json, _require_mobile
 from services.social import can_interact, notify, parent_notify, post_visible_to, visible_profile_posts
 from services.recommendation_signals import record_signal
 
@@ -176,13 +176,17 @@ def register_mobile_stitch_api(bp):
             'pending': is_follow_pending(uid, target_id) if uid != target_id else False,
             'can_message': can_interact(uid, target_id) if uid != target_id else False,
         }
+        posts = visible_profile_posts(uid, target_id, 30)
+        refs = {str(row[key]).strip() for row in posts + [target]
+                for key in ('media_path', 'poster_path', 'profile_picture') if row.get(key)}
+        auth = _media_allowed_many(uid, 'CHILD', refs)
         return jsonify(
             ok=True,
-            profile=_profile_json(target),
+            profile=_profile_json(target, auth_decisions=auth),
             counts=_clean(counts(target_id)),
             interests=[row['interest_name'] for row in interests],
             relationship=relationship,
-            posts=[_post_json(row, uid) for row in visible_profile_posts(uid, target_id, 30)],
+            posts=[_post_json(row, uid, auth_decisions=auth) for row in posts],
         )
 
     @bp.route('/api/mobile/v1/kids/profiles/<int:target_id>/actions', methods=['POST'], endpoint='stitch_kids_profile_action')

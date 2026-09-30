@@ -522,9 +522,11 @@ def _post_json(row, viewer_id=None, auth_decisions=None):
         out["comments_enabled"] = bool(out.pop("comments_enabled_effective"))
     if viewer_id and out.get("post_id"):
         pid = int(out["post_id"])
-        out["viewer_liked"] = bool(fetch_one("SELECT 1 FROM likes WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
-        out["viewer_saved"] = bool(fetch_one("SELECT 1 FROM saved_posts WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
-    if out.get("post_id"):
+        if "viewer_liked" not in out:
+            out["viewer_liked"] = bool(fetch_one("SELECT 1 FROM likes WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
+        if "viewer_saved" not in out:
+            out["viewer_saved"] = bool(fetch_one("SELECT 1 FROM saved_posts WHERE post_id=%s AND child_id=%s", (pid, viewer_id)))
+    if out.get("post_id") and "tags" not in out:
         from services.tag_service import get_post_tags
 
         out["tags"] = get_post_tags(int(out["post_id"]))
@@ -1542,11 +1544,15 @@ def register_mobile_api(bp):
                 replace_profile_tags(uid, data.get("skills") or [], data.get("interests") or [], data.get("ambitions") or [])
                 parent_notify(uid, "PROFILE_APPROVAL", "Skills/interests/ambitions need approval", "/parent/content-approval/")
         profile = get_child_profile(uid)
+        posts = visible_profile_posts(uid, uid)
+        refs = {str(row[key]).strip() for row in posts + [profile or {}]
+                for key in ("media_path", "poster_path", "profile_picture") if row.get(key)}
+        auth = _media_allowed_many(uid, "CHILD", refs)
         return jsonify(
             ok=True,
-            profile=_profile_json(profile),
+            profile=_profile_json(profile, auth_decisions=auth),
             counts=_clean(counts(uid)),
-            posts=[_post_json(p, uid) for p in visible_profile_posts(uid, uid)],
+            posts=[_post_json(p, uid, auth_decisions=auth) for p in posts],
             controls=_clean(controls_for_child(uid)),
             minutes_today=minutes_today(uid),
         )

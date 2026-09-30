@@ -82,6 +82,22 @@ def _auth_headers(user):
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_profile_query_returns_viewer_metadata_without_changing_visibility(db):
+    from services.social import visible_profile_posts
+    user = _random_user(db)
+    uid = user['user_id']
+    cur = db.cursor()
+    cur.execute("""INSERT INTO posts(child_id,media_type,caption,moderation_status,processing_status,is_safe)
+                   VALUES(%s,'IMAGE','Profile metadata fixture','ALLOWED','ALLOWED',TRUE) RETURNING post_id""", (uid,))
+    pid = cur.fetchone()['post_id']
+    cur.execute('INSERT INTO likes(post_id,child_id) VALUES(%s,%s)', (pid,uid))
+    cur.execute("INSERT INTO post_tags(post_id,tag,normalized_tag) VALUES(%s,'Art','art')", (pid,))
+    row = next(p for p in visible_profile_posts(uid,uid) if p['post_id']==pid)
+    assert row['viewer_liked'] is True
+    assert row['viewer_saved'] is False
+    assert row['tags'] == ['Art']
+
+
 # ============================================================================
 # 3. CONCURRENT /COMPLETE CALLS (EXACTLY ONE POST AND ONE LOGICAL JOB)
 # ============================================================================

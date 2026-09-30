@@ -186,3 +186,17 @@ def test_connection_request_lists_execute_with_real_follower_key(app, monkeypatc
         assert payload['incoming'][0]['id'] == 2
         assert payload['outgoing'][0]['id'] == 1
     conn.close()
+
+
+def test_post_serializer_reuses_profile_metadata_without_per_post_queries(app, monkeypatch):
+    from mobile import api
+    from services import media_delivery, tag_service
+    monkeypatch.setattr(media_delivery, 'resolve_media_delivery', lambda *_, **__: {'url': None})
+    monkeypatch.setattr(api, 'fetch_one', lambda *_: pytest.fail('unexpected per-post engagement query'))
+    monkeypatch.setattr(tag_service, 'get_post_tags', lambda *_: pytest.fail('unexpected per-post tag query'))
+    with app.test_request_context('/'):
+        g.mobile_user = {'user_id': 7, 'role': 'CHILD'}
+        result = api._post_json({'post_id': 9, 'viewer_liked': True, 'viewer_saved': False, 'tags': ['Art']}, 7, auth_decisions={})
+        assert result['viewer_liked'] is True
+        assert result['viewer_saved'] is False
+        assert result['tags'] == ['Art']
