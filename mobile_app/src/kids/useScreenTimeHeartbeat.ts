@@ -26,7 +26,9 @@ export function useScreenTimeHeartbeat(onGateChange?: (gate: string | null) => v
   const token = session?.token;
   const childId = session?.user?.user_id;
   const isChild = session?.user?.role === 'CHILD';
-  const parentPaused = Boolean(session?.user?.parent_paused && !session?.user?.demo_unlimited);
+  // Demo Unlimited bypasses timing limits only. Parent Pause is an explicit
+  // guardian action and remains authoritative online and offline.
+  const parentPaused = Boolean(session?.user?.parent_paused);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const snapshotRef = useRef<OfflineTimeSnapshot | null>(null);
   const offlineAnchorRef = useRef<number | null>(null);
