@@ -2872,7 +2872,8 @@ def register_mobile_api(bp):
                             )
                         return jsonify(
                             ok=False,
-                            error="job_dispatch_claim_failed",
+                            error="job_dispatch_failed",
+                            failure_stage="claim",
                             retryable=True,
                             post_id=existing["post_id"],
                             upload_id=upload_id,
@@ -3110,7 +3111,8 @@ def register_mobile_api(bp):
                 )
             return jsonify(
                 ok=False,
-                error="job_dispatch_claim_failed",
+                error="job_dispatch_failed",
+                failure_stage="claim",
                 retryable=True,
                 post_id=post_id,
                 upload_id=upload_id,
