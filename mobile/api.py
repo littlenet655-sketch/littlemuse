@@ -2723,11 +2723,6 @@ def register_mobile_api(bp):
             f"quarantine/{uid}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
-        # upload_sessions.created_at/expires_at are legacy timestamp-without-time-zone
-        # columns. Store both from the same explicit UTC-naive anchor so their
-        # relative ordering is correct regardless of the database/session timezone.
-        created_at_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-        expires_at = created_at_utc + timedelta(seconds=expires_seconds)
 
         # Do not persist a PENDING session until an upload target can actually
         # be issued. Previously presign/config failures leaked abandoned rows.
@@ -2758,11 +2753,21 @@ def register_mobile_api(bp):
         else:
             upload_url = f"{Config.BASE_URL}/api/mobile/v2/uploads/mock-put/{upload_id}"
 
-        execute(
+        # upload_sessions uses legacy TIMESTAMP (without timezone) columns,
+        # while every DB connection is explicitly configured to APP_TIMEZONE.
+        # Derive both timestamps from PostgreSQL LOCALTIMESTAMP in one statement
+        # so expiry checks using the same DB clock/timezone cannot drift by the
+        # Asia/Kolkata offset. Also return a timezone-aware representation for
+        # the mobile client.
+        upload_times = execute(
             """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
                                           expected_size_bytes, mime_type, extension, status,
                                           created_at, expires_at)
-               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s, %s)""",
+               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING',
+                      LOCALTIMESTAMP,
+                      LOCALTIMESTAMP + (%s * INTERVAL '1 second'))
+               RETURNING created_at, expires_at,
+                         expires_at AT TIME ZONE current_setting('TIMEZONE') AS expires_at_aware""",
             (
                 upload_id,
                 uid,
@@ -2772,17 +2777,18 @@ def register_mobile_api(bp):
                 size_bytes,
                 mime_type,
                 ext,
-                created_at_utc,
-                expires_at,
+                expires_seconds,
             ),
+            returning=True,
         )
+        expires_at_aware = upload_times["expires_at_aware"]
 
         return jsonify(
             ok=True,
             upload_id=upload_id,
             upload_url=upload_url,
             object_key=object_key,
-            expires_at=expires_at.isoformat() + "Z",
+            expires_at=expires_at_aware.isoformat(),
             required_headers={"Content-Type": mime_type},
             content_category=category,
         )
@@ -2827,7 +2833,13 @@ def register_mobile_api(bp):
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM upload_sessions WHERE upload_id=%s FOR UPDATE", (upload_id,))
+            cur.execute(
+                """SELECT us.*, (us.expires_at < LOCALTIMESTAMP) AS is_expired
+                   FROM upload_sessions us
+                   WHERE us.upload_id=%s
+                   FOR UPDATE""",
+                (upload_id,),
+            )
             session_row = cur.fetchone()
             if not session_row:
                 conn.rollback()
@@ -2924,17 +2936,10 @@ def register_mobile_api(bp):
                     idempotent=True,
                 )
 
-            exp = session_row.get("expires_at")
-            if exp:
-                now = datetime.now(timezone.utc)
-                if hasattr(exp, "tzinfo") and exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-                elif not hasattr(exp, "tzinfo"):
-                    exp = datetime.fromisoformat(str(exp)).replace(tzinfo=timezone.utc)
-                if exp < now:
-                    cur.execute("UPDATE upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
-                    conn.commit()
-                    return jsonify(error="upload_session_expired"), 400
+            if bool(session_row.get("is_expired")):
+                cur.execute("UPDATE upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
+                conn.commit()
+                return jsonify(error="upload_session_expired"), 400
 
             from services import object_storage
 
