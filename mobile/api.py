@@ -2848,19 +2848,43 @@ def register_mobile_api(bp):
                 if existing["processing_status"] == "UPLOADED":
                     conn.rollback()
                     from services.job_queue import enqueue_media_job
+                    from services.media_processor import claim_media_job_lease
+                    acquired, lease_token, claimed_post = claim_media_job_lease(
+                        existing["post_id"], lease_seconds=300, is_reap=True
+                    )
+                    if not acquired:
+                        latest_status = (claimed_post or {}).get("processing_status")
+                        if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
+                            return jsonify(
+                                ok=True,
+                                post_id=existing["post_id"],
+                                status=latest_status,
+                                idempotent=True,
+                            )
+                        return jsonify(
+                            ok=False,
+                            error="job_dispatch_claim_failed",
+                            retryable=True,
+                            post_id=existing["post_id"],
+                            upload_id=upload_id,
+                        ), 503
                     try:
-                        job_id = enqueue_media_job(existing["post_id"], uid, session_row["object_key"], session_row["kind"].upper())
-                        execute(
-                            """UPDATE posts
-                               SET job_id=%s,
-                                   processing_status=CASE WHEN processing_status='UPLOADED' THEN 'PROCESSING' ELSE processing_status END,
-                                   processing_started_at=COALESCE(processing_started_at,NOW()),
-                                   processing_error=CASE WHEN processing_status='UPLOADED' THEN NULL ELSE processing_error END
-                               WHERE post_id=%s""",
-                            (job_id, existing["post_id"]),
+                        job_id = enqueue_media_job(
+                            existing["post_id"], uid, session_row["object_key"],
+                            session_row["kind"].upper(), lease_token=lease_token
                         )
+                        execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, existing["post_id"]))
                         return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
                     except Exception as exc:
+                        execute(
+                            """UPDATE posts
+                               SET processing_status='UPLOADED',
+                                   processing_lease_token=NULL,
+                                   processing_lease_expires_at=NULL,
+                                   processing_error=%s
+                               WHERE post_id=%s AND processing_lease_token=%s""",
+                            (f"dispatch_failed: {exc}", existing["post_id"], lease_token),
+                        )
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
 
                 conn.rollback()
@@ -3059,18 +3083,35 @@ def register_mobile_api(bp):
             conn.close()
 
         from services.job_queue import enqueue_media_job
+        from services.media_processor import claim_media_job_lease
+
+        acquired, lease_token, claimed_post = claim_media_job_lease(
+            post_id, lease_seconds=300, is_reap=True
+        )
+        if not acquired:
+            latest_status = (claimed_post or {}).get("processing_status")
+            if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
+                return jsonify(
+                    ok=True,
+                    post_id=post_id,
+                    status=latest_status,
+                    idempotent=True,
+                    moderation_queued=True,
+                    publication_state="PRIVATE_PROCESSING",
+                )
+            return jsonify(
+                ok=False,
+                error="job_dispatch_claim_failed",
+                retryable=True,
+                post_id=post_id,
+                upload_id=upload_id,
+            ), 503
 
         try:
-            job_id = enqueue_media_job(post_id, uid, session_row["object_key"], kind)
-            execute(
-                """UPDATE posts
-                   SET job_id=%s,
-                       processing_status=CASE WHEN processing_status='UPLOADED' THEN 'PROCESSING' ELSE processing_status END,
-                       processing_started_at=COALESCE(processing_started_at,NOW()),
-                       processing_error=CASE WHEN processing_status='UPLOADED' THEN NULL ELSE processing_error END
-                   WHERE post_id=%s""",
-                (job_id, post_id),
+            job_id = enqueue_media_job(
+                post_id, uid, session_row["object_key"], kind, lease_token=lease_token
             )
+            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
             return jsonify(
                 ok=True,
                 post_id=post_id,
@@ -3080,8 +3121,13 @@ def register_mobile_api(bp):
             )
         except Exception as exc:
             execute(
-                "UPDATE posts SET processing_status='UPLOADED', processing_error=%s WHERE post_id=%s",
-                (f"dispatch_failed: {exc}", post_id),
+                """UPDATE posts
+                   SET processing_status='UPLOADED',
+                       processing_lease_token=NULL,
+                       processing_lease_expires_at=NULL,
+                       processing_error=%s
+                   WHERE post_id=%s AND processing_lease_token=%s""",
+                (f"dispatch_failed: {exc}", post_id, lease_token),
             )
             return jsonify(
                 ok=False,
