@@ -19,9 +19,10 @@ export async function invalidateLocalSession(deps: Pick<SessionControllerDeps, '
   // Cache cleanup is best-effort; a cache failure must never preserve auth.
   try {
     await deps.clearQueries();
-  } finally {
-    await clearSession(deps.storage);
+  } catch {
+    // Query-cache cleanup is advisory; auth cleanup below is authoritative.
   }
+  await clearSession(deps.storage);
 }
 
 /**
