@@ -203,6 +203,14 @@ def _make_image_moderation_proxy(source_path: Path, temp_dir: Path) -> Path:
 
 
 def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dict:
+    """Merge text + media evidence without losing visual-policy provenance.
+
+    The policy layer needs the media category plus sexual/general scores to
+    apply model-specific NSFW thresholds. Dropping those fields caused image
+    uploads to fall through to the generic adult >= 0.40 hard-block rule,
+    allowing a single CLIP score to override otherwise-clean trained-image
+    evidence.
+    """
     t = text_signals or {}
     m = media_signals or {}
     merged_models = {}
@@ -212,10 +220,13 @@ def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dic
         merged_models.update(m["model_signals"])
 
     return {
+        "category": str(m.get("category") or t.get("category") or "").upper(),
         "adult_score": max(float(t.get("adult_score") or 0.0), float(m.get("adult_score") or 0.0)),
+        "sexual_score": max(float(t.get("sexual_score") or 0.0), float(m.get("sexual_score") or 0.0)),
         "violence_score": max(float(t.get("violence_score") or 0.0), float(m.get("violence_score") or 0.0)),
         "weapon_score": max(float(t.get("weapon_score") or 0.0), float(m.get("weapon_score") or 0.0)),
         "toxicity_score": max(float(t.get("toxicity_score") or 0.0), float(m.get("toxicity_score") or 0.0)),
+        "general_score": max(float(t.get("general_score") or 0.0), float(m.get("general_score") or 0.0)),
         "risk_score": max(float(t.get("risk_score") or 0.0), float(m.get("risk_score") or 0.0)),
         "partial_safety_failure": bool(t.get("partial_safety_failure") or m.get("partial_safety_failure")),
         "total_safety_failure": bool(t.get("total_safety_failure") or m.get("total_safety_failure")),
