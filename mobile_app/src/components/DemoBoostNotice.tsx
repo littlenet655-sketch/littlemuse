@@ -20,8 +20,11 @@ export function DemoBoostNotice() {
     queryKey: adminKeys.demoBoost,
     queryFn: () => fetchDemoBoostStatus(session?.token ?? ''),
     enabled: Boolean(session?.token),
-    refetchInterval: 30_000,
-    staleTime: 10_000,
+    // Boost is normally OFF. Poll slowly while inactive, then tighten the
+    // cadence only for the short active window so clients can show expiry
+    // warnings without turning this status endpoint into background traffic.
+    refetchInterval: (q) => q.state.data?.demo_boost?.active ? 30_000 : 5 * 60_000,
+    staleTime: 30_000,
   });
 
   function show(text: string) {
