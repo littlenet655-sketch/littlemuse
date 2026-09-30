@@ -288,7 +288,6 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                        OR p.media_path LIKE 'http://%%'
                        OR p.media_path LIKE 'https://%%'
                        OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
-                       OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
                      )
                    )
                  )
@@ -329,6 +328,7 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                    OR p.media_path LIKE 'static/%%'
                    OR p.media_path LIKE 'http://%%'
                    OR p.media_path LIKE 'https://%%'
+                   OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
                  )
                )
              )
