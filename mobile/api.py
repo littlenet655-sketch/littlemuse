@@ -337,7 +337,7 @@ def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
         quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
     return {"quiz_required": bool(quiz_state.get("required"))}
 
-def _child_gate(feature: str | None = None):
+def _child_gate(feature: str | None = None, *, record_usage: bool = True):
     uid = int(g.mobile_user["user_id"])
     # Demo/testing children may bypass only parent timing locks (screen-time,
     # quiet hours). Parent Pause is an explicit parent action and always blocks,
@@ -360,12 +360,13 @@ def _child_gate(feature: str | None = None):
         ), 423
     # The periodic Reel quiz is not a global app gate. Reels consumes the
     # quiz_required signal and performs the compulsory interruption there.
-    key = (g.mobile_claims or {}).get("usage_session_key")
-    if key:
-        try:
-            heartbeat(key)
-        except Exception:
-            pass
+    if record_usage:
+        key = (g.mobile_claims or {}).get("usage_session_key")
+        if key:
+            try:
+                heartbeat(key)
+            except Exception:
+                pass
     return None
 
 def _asset_url(reference, viewer_id=None, viewer_role=None, auth_decisions=None):
@@ -4019,7 +4020,9 @@ def register_mobile_api(bp):
                 heartbeat(key)
             except Exception:
                 pass
-        gate = _child_gate()
+        # This endpoint already wrote the dedicated heartbeat above.
+        # Do not let _child_gate() write the same usage session a second time.
+        gate = _child_gate(record_usage=False)
         if gate:
             return gate
         locked, remaining = lock_state(uid)
