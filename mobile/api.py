@@ -2876,7 +2876,7 @@ def register_mobile_api(bp):
                         ), 503
                     if not acquired:
                         latest_status = (claimed_post or {}).get("processing_status")
-                        if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
+                        if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED", "FAILED"}:
                             return jsonify(
                                 ok=True,
                                 post_id=existing["post_id"],
@@ -2896,8 +2896,6 @@ def register_mobile_api(bp):
                             existing["post_id"], uid, session_row["object_key"],
                             session_row["kind"].upper(), lease_token=lease_token
                         )
-                        execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, existing["post_id"]))
-                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
                     except Exception as exc:
                         execute(
                             """UPDATE posts
@@ -2909,6 +2907,14 @@ def register_mobile_api(bp):
                             (f"dispatch_failed: {exc}", existing["post_id"], lease_token),
                         )
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
+                    try:
+                        execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, existing["post_id"]))
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "media job_id persistence failed after successful dispatch for post_id=%s",
+                            existing["post_id"],
+                        )
+                    return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
 
                 conn.rollback()
                 return jsonify(
@@ -3126,13 +3132,13 @@ def register_mobile_api(bp):
             ), 503
         if not acquired:
             latest_status = (claimed_post or {}).get("processing_status")
-            if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
+            if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED", "FAILED"}:
                 return jsonify(
                     ok=True,
                     post_id=post_id,
                     status=latest_status,
                     idempotent=True,
-                    moderation_queued=True,
+                    moderation_queued=latest_status == "PROCESSING",
                     publication_state="PRIVATE_PROCESSING",
                 )
             return jsonify(
@@ -3147,14 +3153,6 @@ def register_mobile_api(bp):
         try:
             job_id = enqueue_media_job(
                 post_id, uid, session_row["object_key"], kind, lease_token=lease_token
-            )
-            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
-            return jsonify(
-                ok=True,
-                post_id=post_id,
-                status="PROCESSING",
-                moderation_queued=True,
-                publication_state="PRIVATE_PROCESSING",
             )
         except Exception as exc:
             execute(
@@ -3173,6 +3171,20 @@ def register_mobile_api(bp):
                 post_id=post_id,
                 upload_id=upload_id,
             ), 503
+        try:
+            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "media job_id persistence failed after successful dispatch for post_id=%s",
+                post_id,
+            )
+        return jsonify(
+            ok=True,
+            post_id=post_id,
+            status="PROCESSING",
+            moderation_queued=True,
+            publication_state="PRIVATE_PROCESSING",
+        )
 
     @bp.route("/api/mobile/v2/posts/<int:post_id>/processing-status", methods=["GET"])
     @_require_mobile("CHILD", "PARENT")
