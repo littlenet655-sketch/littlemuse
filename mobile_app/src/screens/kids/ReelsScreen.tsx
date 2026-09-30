@@ -390,7 +390,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
     setFollowStates((prev) => ({ ...prev, [childId]: nextStatus }));
 
     try {
-      const res = await toggleFollow(session.token, childId);
+      const res = await toggleFollow(session.token, childId, currentStatus === 'Following' ? 'remove' : currentStatus === 'Requested' ? 'cancel' : 'request');
       if (res?.ok && res.status) {
         const s = res.status.toLowerCase();
         const authoritative: ReelFollowStatus =

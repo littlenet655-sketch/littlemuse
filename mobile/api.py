@@ -2133,11 +2133,24 @@ def register_mobile_api(bp):
             return jsonify(error="self_follow"), 400
         if not can_discover_child(uid, child_id):
             return jsonify(error="child_unavailable"), 404
+        action = str(_json_dict().get("action", "toggle"))
+        if action not in {"toggle", "request", "cancel", "remove"}:
+            return jsonify(error="invalid_action"), 400
+        if action == "remove":
+            unfollow_child(uid, child_id)
+            return jsonify(ok=True, status="removed")
+        if action == "cancel":
+            cancel_outgoing_follow(uid, child_id)
+            return jsonify(ok=True, status="cancelled")
         if is_following(uid, child_id):
+            if action == "request":
+                return jsonify(ok=True, status="following")
             # Active friendship: unfollowing removes both directions.
             unfollow_child(uid, child_id)
             return jsonify(ok=True, status="removed")
         if outgoing_follow_pending(uid, child_id):
+            if action == "request":
+                return jsonify(ok=True, status="pending")
             # Cancel MY request. Unwinds trigger-generated handshake rows, but
             # never deletes their genuine incoming request.
             cancel_outgoing_follow(uid, child_id)
@@ -2214,7 +2227,7 @@ def register_mobile_api(bp):
             return gate
         uid = int(g.mobile_user["user_id"])
         incoming = fetch_all(
-            """SELECT f.id, f.child_id as requester_id, u.full_name as requester_name, u.username as requester_username,
+            """SELECT f.follower_id AS id, f.child_id as requester_id, u.full_name as requester_name, u.username as requester_username,
                       cp.profile_picture, cp.school_name, f.created_at, f.approval_stage
                FROM followers f
                JOIN users u ON u.user_id = f.child_id
@@ -2223,7 +2236,7 @@ def register_mobile_api(bp):
             (uid,),
         )
         outgoing = fetch_all(
-            """SELECT f.id, f.following_child_id as target_id, u.full_name as target_name, u.username as target_username,
+            """SELECT f.follower_id AS id, f.following_child_id as target_id, u.full_name as target_name, u.username as target_username,
                       cp.profile_picture, cp.school_name, f.created_at, f.approval_stage
                FROM followers f
                JOIN users u ON u.user_id = f.following_child_id

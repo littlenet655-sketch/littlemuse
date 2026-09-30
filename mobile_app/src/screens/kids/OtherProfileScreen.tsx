@@ -188,7 +188,7 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
       setBusy(true);
       setInfo('');
       try {
-        const res = (await toggleFollow(session.token, targetId)) as { ok: boolean; status?: string };
+        const res = (await toggleFollow(session.token, targetId, followState === 'following' ? 'remove' : followState === 'requested' ? 'cancel' : 'request')) as { ok: boolean; status?: string };
         await invalidateSocialCaches();
         setInfo((res.status && FOLLOW_STATUS_COPY[res.status]) || done);
         await load();

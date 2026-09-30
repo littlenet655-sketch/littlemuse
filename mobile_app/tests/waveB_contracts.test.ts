@@ -149,7 +149,7 @@ describe('Task 8: Reels Follow + Audio Controls Contracts', () => {
     const content = readFileSync(filePath, 'utf-8');
 
     // Social follow uses toggleFollow API
-    assert.match(content, /toggleFollow\(session\.token,\s*childId\)/);
+    assert.match(content, /toggleFollow\(session\.token,\s*childId,/);
     // Optimistic transition to 'Requested' (parent approval required)
     assert.match(content, /currentStatus\s*===\s*'Follow'\s*\?\s*'Requested'\s*:\s*'Follow'/);
     // Rollback on failure

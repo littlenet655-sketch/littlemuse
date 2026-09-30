@@ -91,8 +91,8 @@ export function fetchSaved(token: string): Promise<{ ok: boolean; posts: PostDet
   return get(routes.saved, token);
 }
 
-export function toggleFollow(token: string, childId: number): Promise<{ ok: boolean; status: string }> {
-  return postJson(routes.follow(childId), {}, token);
+export function toggleFollow(token: string, childId: number, action: 'request' | 'cancel' | 'remove' = 'request'): Promise<{ ok: boolean; status: string }> {
+  return postJson(routes.follow(childId), { action }, token);
 }
 
 export function profileAction(token: string, targetId: number, action: string): Promise<{ ok: boolean; action: string }> {
