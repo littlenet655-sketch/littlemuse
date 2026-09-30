@@ -665,3 +665,38 @@ def test_social_candidates_filter_final_processing_and_durable_media_before_limi
         assert "p.media_path LIKE 'uploads/r2/%%'" in eligibility_sql
         assert sql.index("p.processing_status = 'ALLOWED'") < sql.index("LIMIT %s")
 
+def test_materialized_session_rechecks_processing_state_and_renderability(monkeypatch):
+    """A stale feed session must not resurrect a post that is no longer publishable."""
+    import child.service as cs
+    import services.curated_feed as cf
+    import services.recommendation as rec
+
+    stale_row = {
+        **_dummy_social_row(post_id=777, is_reel=False),
+        "processing_status": "PROCESSING",
+        "media_path": "uploads/r2/posts/stale.jpg",
+    }
+
+    def fake_fetch_all(sql, _params):
+        if "FROM posts p" in sql:
+            return [stale_row]
+        if "blocked_users" in sql:
+            return []
+        return []
+
+    monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(cf, "controls_for_child", lambda _cid: {"allow_reels": True})
+    monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
+    monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
+    monkeypatch.setattr(cf, "_child_real_age", lambda _cid: 10)
+    monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
+    monkeypatch.setattr(rec, "hidden_items", lambda _cid, _items: set())
+
+    items = cf._materialize_session_items(
+        [{"source_type": "SOCIAL", "source_id": 777}],
+        child_id=7,
+        surface="FEED",
+    )
+
+    assert items == []
+
