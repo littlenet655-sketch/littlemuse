@@ -268,7 +268,20 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
                LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
+                 AND p.processing_status = 'ALLOWED'
                  AND p.is_reel = TRUE
+                 AND (
+                   p.media_type = 'TEXT'
+                   OR (
+                     p.media_path IS NOT NULL
+                     AND (
+                       p.media_path LIKE 'uploads/r2/%%'
+                       OR p.media_path LIKE 'static/%%'
+                       OR p.media_path LIKE 'http://%%'
+                       OR p.media_path LIKE 'https://%%'
+                     )
+                   )
+                 )
                   AND p.child_id = ANY(%s::int[])
                  AND p.content_category = ANY(%s)
                  AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
@@ -295,7 +308,20 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
            LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
            LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
            WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
+             AND p.processing_status = 'ALLOWED'
              AND p.is_reel = FALSE
+             AND (
+               p.media_type = 'TEXT'
+               OR (
+                 p.media_path IS NOT NULL
+                 AND (
+                   p.media_path LIKE 'uploads/r2/%%'
+                   OR p.media_path LIKE 'static/%%'
+                   OR p.media_path LIKE 'http://%%'
+                   OR p.media_path LIKE 'https://%%'
+                 )
+               )
+             )
              AND (%s::int[] IS NULL OR p.child_id = ANY(%s::int[]))
              AND p.content_category = ANY(%s)
              AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
