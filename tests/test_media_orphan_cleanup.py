@@ -276,7 +276,7 @@ def test_reconcile_uses_bounded_ttl_query():
     source = Path(media_processor.__file__).read_text(encoding="utf-8")
     fn = source.split("def reconcile_abandoned_upload_sessions")[1].split("\ndef ")[0]
     assert "LIMIT 50" in fn
-    assert "expires_at < LOCALTIMESTAMP" in fn
+    assert "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'" in fn
     assert "INTERVAL '1 second'" in fn
     assert "status IN ('PENDING', 'EXPIRED')" in fn
 
