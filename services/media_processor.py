@@ -220,7 +220,12 @@ def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dic
         merged_models.update(m["model_signals"])
 
     return {
+        # Keep the visual category at the top level so visual policy can use
+        # model-specific NSFW thresholds. Text/media source categories remain
+        # available separately for audit/debugging.
         "category": str(m.get("category") or t.get("category") or "").upper(),
+        "text_category": str(t.get("category") or "").upper(),
+        "media_category": str(m.get("category") or "").upper(),
         "adult_score": max(float(t.get("adult_score") or 0.0), float(m.get("adult_score") or 0.0)),
         "sexual_score": max(float(t.get("sexual_score") or 0.0), float(m.get("sexual_score") or 0.0)),
         "violence_score": max(float(t.get("violence_score") or 0.0), float(m.get("violence_score") or 0.0)),
@@ -228,6 +233,15 @@ def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dic
         "toxicity_score": max(float(t.get("toxicity_score") or 0.0), float(m.get("toxicity_score") or 0.0)),
         "general_score": max(float(t.get("general_score") or 0.0), float(m.get("general_score") or 0.0)),
         "risk_score": max(float(t.get("risk_score") or 0.0), float(m.get("risk_score") or 0.0)),
+        # Deterministic evidence is safety-critical and must survive merging.
+        # These flags are deliberately boolean ORs; probabilistic model scores
+        # must never be promoted into these fields upstream.
+        "deterministic_grooming": bool(t.get("deterministic_grooming") or m.get("deterministic_grooming")),
+        "deterministic_severe_abuse": bool(t.get("deterministic_severe_abuse") or m.get("deterministic_severe_abuse")),
+        "deterministic_self_harm": bool(t.get("deterministic_self_harm") or m.get("deterministic_self_harm")),
+        "deterministic_dangerous_challenge": bool(t.get("deterministic_dangerous_challenge") or m.get("deterministic_dangerous_challenge")),
+        "deterministic_sexual": bool(t.get("deterministic_sexual") or m.get("deterministic_sexual")),
+        "deterministic_ocr_pii": bool(t.get("deterministic_ocr_pii") or m.get("deterministic_ocr_pii")),
         "partial_safety_failure": bool(t.get("partial_safety_failure") or m.get("partial_safety_failure")),
         "total_safety_failure": bool(t.get("total_safety_failure") or m.get("total_safety_failure")),
         "model_signals": merged_models,
