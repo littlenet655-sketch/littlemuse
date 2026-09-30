@@ -229,3 +229,37 @@ def test_deterministic_sexual_flag_survives_media_merge_and_hard_blocks():
     assert decision.action == "BLOCK"
     assert "sexual" in decision.reason.lower()
 
+def test_ocr_adult_provenance_survives_caption_media_merge():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.55,
+        "sexual_score": 0.55,
+        "ocr_adult_score": 0.55,
+        "ocr_sexual_score": 0.55,
+        "ocr_category": "SEXUAL_LANGUAGE",
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.55,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.05,
+                    "sexual": 0.05,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.05,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals({}, media)
+
+    assert merged["ocr_adult_score"] == pytest.approx(0.55)
+    assert merged["ocr_category"] == "SEXUAL_LANGUAGE"
+    assert decide(merged, "STRICT").action == "BLOCK"
+
