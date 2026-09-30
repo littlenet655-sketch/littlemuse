@@ -146,3 +146,46 @@ def test_merge_preserves_true_deterministic_text_abuse_flags():
     assert merged["deterministic_severe_abuse"] is True
     assert decide(merged, "STRICT").action == "BLOCK"
 
+def test_explicit_text_still_hard_blocks_when_visual_evidence_is_benign():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "SEXUAL_LANGUAGE",
+        "adult_score": 0.50,
+        "sexual_score": 0.50,
+        "violence_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.50,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.10,
+        "sexual_score": 0.10,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.10,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.10,
+                    "sexual": 0.10,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.10,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["text_category"] == "SEXUAL_LANGUAGE"
+    assert merged["text_adult_score"] == pytest.approx(0.50)
+    assert merged["media_adult_score"] == pytest.approx(0.10)
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "text" in decision.reason.lower()
+
