@@ -44,13 +44,22 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
     total_failure = bool(signals.get("total_safety_failure"))
     partial_failure = bool(signals.get("partial_safety_failure"))
 
-    if category in HARD_TEXT_CATEGORIES or signals.get("deterministic_grooming") or signals.get("deterministic_severe_abuse") or signals.get("deterministic_self_harm") or signals.get("deterministic_dangerous_challenge"):
+    if (
+        category in HARD_TEXT_CATEGORIES
+        or signals.get("deterministic_grooming")
+        or signals.get("deterministic_severe_abuse")
+        or signals.get("deterministic_self_harm")
+        or signals.get("deterministic_dangerous_challenge")
+        or signals.get("deterministic_sexual")
+    ):
         if category == "GROOMING" or signals.get("deterministic_grooming"):
             reason = "grooming/coercion hard blocked"
         elif category == "SELF_HARM" or signals.get("deterministic_self_harm"):
             reason = "self-harm crisis language blocked and escalated"
         elif category == "DANGEROUS_CHALLENGE" or signals.get("deterministic_dangerous_challenge"):
             reason = "dangerous challenge instruction blocked"
+        elif signals.get("deterministic_sexual"):
+            reason = "explicit sexual solicitation/language hard blocked"
         else:
             reason = "severe abuse/threat hard blocked"
         return Decision("BLOCK", 100.0, reason)
