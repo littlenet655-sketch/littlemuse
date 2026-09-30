@@ -1309,18 +1309,19 @@ def reconcile_abandoned_upload_sessions(stale_seconds: int = 86400) -> dict[str,
     swept twice. The DB is the source of truth: no R2 prefix listings, no
     unbounded scans.
     """
-    from datetime import datetime, timedelta, timezone
-
     stale_seconds = max(3600, min(int(stale_seconds), 7 * 86400))
-    threshold = datetime.now(timezone.utc) - timedelta(seconds=stale_seconds)
 
+    # upload_sessions.expires_at is a legacy TIMESTAMP (without timezone).
+    # Every DB connection is configured to APP_TIMEZONE, so compare it against
+    # PostgreSQL LOCALTIMESTAMP instead of mixing it with a timezone-aware
+    # Python datetime (which would shift the boundary by the session offset).
     rows = fetch_all(
         """SELECT upload_id, child_id, object_key, extension
            FROM upload_sessions
            WHERE status IN ('PENDING', 'EXPIRED')
-             AND expires_at < %s
+             AND expires_at < LOCALTIMESTAMP - (%s * INTERVAL '1 second')
            ORDER BY expires_at ASC LIMIT 50""",
-        (threshold,),
+        (str(stale_seconds),),
     )
 
     cleaned: list[str] = []
