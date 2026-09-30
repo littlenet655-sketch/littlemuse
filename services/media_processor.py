@@ -220,7 +220,19 @@ def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dic
         merged_models.update(m["model_signals"])
 
     return {
+        # Keep the visual category at the top level so visual policy can use
+        # model-specific NSFW thresholds. Text/media source categories remain
+        # available separately for audit/debugging.
         "category": str(m.get("category") or t.get("category") or "").upper(),
+        "text_category": str(t.get("category") or "").upper(),
+        "media_category": str(m.get("category") or "").upper(),
+        "text_adult_score": float(t.get("adult_score") or 0.0),
+        "text_sexual_score": float(t.get("sexual_score") or 0.0),
+        "media_adult_score": float(m.get("adult_score") or 0.0),
+        "media_sexual_score": float(m.get("sexual_score") or 0.0),
+        "ocr_adult_score": float(m.get("ocr_adult_score") or 0.0),
+        "ocr_sexual_score": float(m.get("ocr_sexual_score") or 0.0),
+        "ocr_category": str(m.get("ocr_category") or "").upper(),
         "adult_score": max(float(t.get("adult_score") or 0.0), float(m.get("adult_score") or 0.0)),
         "sexual_score": max(float(t.get("sexual_score") or 0.0), float(m.get("sexual_score") or 0.0)),
         "violence_score": max(float(t.get("violence_score") or 0.0), float(m.get("violence_score") or 0.0)),
@@ -228,6 +240,15 @@ def _merge_signals(text_signals: dict | None, media_signals: dict | None) -> dic
         "toxicity_score": max(float(t.get("toxicity_score") or 0.0), float(m.get("toxicity_score") or 0.0)),
         "general_score": max(float(t.get("general_score") or 0.0), float(m.get("general_score") or 0.0)),
         "risk_score": max(float(t.get("risk_score") or 0.0), float(m.get("risk_score") or 0.0)),
+        # Deterministic evidence is safety-critical and must survive merging.
+        # These flags are deliberately boolean ORs; probabilistic model scores
+        # must never be promoted into these fields upstream.
+        "deterministic_grooming": bool(t.get("deterministic_grooming") or m.get("deterministic_grooming")),
+        "deterministic_severe_abuse": bool(t.get("deterministic_severe_abuse") or m.get("deterministic_severe_abuse")),
+        "deterministic_self_harm": bool(t.get("deterministic_self_harm") or m.get("deterministic_self_harm")),
+        "deterministic_dangerous_challenge": bool(t.get("deterministic_dangerous_challenge") or m.get("deterministic_dangerous_challenge")),
+        "deterministic_sexual": bool(t.get("deterministic_sexual") or m.get("deterministic_sexual")),
+        "deterministic_ocr_pii": bool(t.get("deterministic_ocr_pii") or m.get("deterministic_ocr_pii")),
         "partial_safety_failure": bool(t.get("partial_safety_failure") or m.get("partial_safety_failure")),
         "total_safety_failure": bool(t.get("total_safety_failure") or m.get("total_safety_failure")),
         "model_signals": merged_models,
@@ -1101,24 +1122,30 @@ def claim_media_job_lease(
 
     last_att = post.get("last_attempt_at")
     if last_att and not force and not is_reap:
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        if hasattr(last_att, "tzinfo") and last_att.tzinfo is None:
-            last_att = last_att.replace(tzinfo=timezone.utc)
+        # last_attempt_at is a legacy TIMESTAMP without timezone. Compare it
+        # against the database's local clock rather than attaching UTC in
+        # Python; doing the latter creates a ~5.5h backoff error in IST.
+        now_row = fetch_one("SELECT LOCALTIMESTAMP AS now") or {}
+        now = now_row.get("now")
         backoff_sec = min(300, (2 ** max(0, attempts - 1)) * 5)
-        elapsed = (now - last_att).total_seconds()
-        if elapsed < backoff_sec:
-            rem = int(backoff_sec - elapsed)
-            post_dict = dict(post)
-            post_dict["retry_after_seconds"] = rem
-            return False, None, post_dict
+        if now is not None:
+            elapsed = (now - last_att).total_seconds()
+            if elapsed < backoff_sec:
+                rem = max(1, int(backoff_sec - elapsed))
+                post_dict = dict(post)
+                post_dict["retry_after_seconds"] = rem
+                return False, None, post_dict
 
+    try:
+        lease_seconds = max(30, min(int(lease_seconds), 3600))
+    except (TypeError, ValueError):
+        lease_seconds = 300
     new_token = uuid.uuid4().hex
     claimed_row = execute(
         """UPDATE posts
            SET processing_status='PROCESSING',
                processing_lease_token=%s,
-               processing_lease_expires_at=NOW() + INTERVAL '300 seconds',
+               processing_lease_expires_at=NOW() + (%s * INTERVAL '1 second'),
                processing_started_at=COALESCE(processing_started_at, NOW()),
                processing_attempts=processing_attempts + 1,
                last_attempt_at=NOW(),
@@ -1130,7 +1157,7 @@ def claim_media_job_lease(
            RETURNING post_id, child_id, source_media_path, is_reel, is_story,
                      processing_status, moderation_status, processing_attempts,
                      max_processing_attempts, processing_lease_token""",
-        (new_token, post_id, force, force),
+        (new_token, lease_seconds, post_id, force, force),
         returning=True,
     )
     if claimed_row:
@@ -1288,18 +1315,18 @@ def reconcile_abandoned_upload_sessions(stale_seconds: int = 86400) -> dict[str,
     swept twice. The DB is the source of truth: no R2 prefix listings, no
     unbounded scans.
     """
-    from datetime import datetime, timedelta, timezone
-
     stale_seconds = max(3600, min(int(stale_seconds), 7 * 86400))
-    threshold = datetime.now(timezone.utc) - timedelta(seconds=stale_seconds)
 
+    # upload_sessions.expires_at is a legacy TIMESTAMP (without timezone).
+    # Values are canonical UTC-naive, so cleanup compares against the same
+    # UTC-naive database clock regardless of the connection session timezone.
     rows = fetch_all(
         """SELECT upload_id, child_id, object_key, extension
            FROM upload_sessions
            WHERE status IN ('PENDING', 'EXPIRED')
-             AND expires_at < %s
+             AND expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - (%s * INTERVAL '1 second')
            ORDER BY expires_at ASC LIMIT 50""",
-        (threshold,),
+        (str(stale_seconds),),
     )
 
     cleaned: list[str] = []

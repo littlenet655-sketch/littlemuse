@@ -337,7 +337,7 @@ def _onboarding_state(uid: int, quiz_state: dict | None = None) -> dict:
         quiz_state = {"required": bool(feed_quiz_state(uid).get("required"))}
     return {"quiz_required": bool(quiz_state.get("required"))}
 
-def _child_gate(feature: str | None = None):
+def _child_gate(feature: str | None = None, *, record_usage: bool = True):
     uid = int(g.mobile_user["user_id"])
     # Demo/testing children may bypass only parent timing locks (screen-time,
     # quiet hours). Parent Pause is an explicit parent action and always blocks,
@@ -360,12 +360,13 @@ def _child_gate(feature: str | None = None):
         ), 423
     # The periodic Reel quiz is not a global app gate. Reels consumes the
     # quiz_required signal and performs the compulsory interruption there.
-    key = (g.mobile_claims or {}).get("usage_session_key")
-    if key:
-        try:
-            heartbeat(key)
-        except Exception:
-            pass
+    if record_usage:
+        key = (g.mobile_claims or {}).get("usage_session_key")
+        if key:
+            try:
+                heartbeat(key)
+            except Exception:
+                pass
     return None
 
 def _asset_url(reference, viewer_id=None, viewer_role=None, auth_decisions=None):
@@ -2722,12 +2723,49 @@ def register_mobile_api(bp):
             f"quarantine/{uid}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
-        expires_at = datetime.utcnow() + timedelta(seconds=expires_seconds)
 
-        execute(
+        # Do not persist a PENDING session until an upload target can actually
+        # be issued. Previously presign/config failures leaked abandoned rows.
+        if os.environ.get("FORCE_DIRECT_UPLOAD_UNAVAILABLE") == "1" or os.environ.get("DIRECT_UPLOAD_UNAVAILABLE") == "1":
+            return jsonify(
+                error="direct_upload_unavailable",
+                fallback_allowed=not Config._PRODUCTION,
+            ), 503
+
+        if object_storage.enabled():
+            try:
+                upload_url = object_storage.signed_upload_url(
+                    object_key, content_type=mime_type, expires_seconds=expires_seconds
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "direct upload target generation failed for child_id=%s", uid
+                )
+                return jsonify(
+                    error="upload_target_unavailable",
+                    fallback_allowed=False,
+                ), 503
+        elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
+            return jsonify(
+                error="storage_configuration_error",
+                fallback_allowed=False,
+            ), 500
+        else:
+            upload_url = f"{Config.BASE_URL}/api/mobile/v2/uploads/mock-put/{upload_id}"
+
+        # upload_sessions uses legacy TIMESTAMP (without timezone) columns.
+        # Store a canonical UTC-naive value so rows remain comparable even when
+        # they are created/read through connections using different session
+        # timezones (app pool, disposable tests, admin tooling).
+        upload_times = execute(
             """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
-                                          expected_size_bytes, mime_type, extension, status, expires_at)
-               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)""",
+                                          expected_size_bytes, mime_type, extension, status,
+                                          created_at, expires_at)
+               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING',
+                      CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+                      (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + (%s * INTERVAL '1 second'))
+               RETURNING created_at, expires_at,
+                         expires_at AT TIME ZONE 'UTC' AS expires_at_aware""",
             (
                 upload_id,
                 uid,
@@ -2737,34 +2775,18 @@ def register_mobile_api(bp):
                 size_bytes,
                 mime_type,
                 ext,
-                expires_at,
+                expires_seconds,
             ),
+            returning=True,
         )
-
-        if os.environ.get("FORCE_DIRECT_UPLOAD_UNAVAILABLE") == "1" or os.environ.get("DIRECT_UPLOAD_UNAVAILABLE") == "1":
-            return jsonify(
-                error="direct_upload_unavailable",
-                fallback_allowed=not Config._PRODUCTION,
-            ), 503
-
-        if object_storage.enabled():
-            upload_url = object_storage.signed_upload_url(
-                object_key, content_type=mime_type, expires_seconds=expires_seconds
-            )
-        elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
-            return jsonify(
-                error="storage_configuration_error",
-                fallback_allowed=False,
-            ), 500
-        else:
-            upload_url = f"{Config.BASE_URL}/api/mobile/v2/uploads/mock-put/{upload_id}"
+        expires_at_aware = upload_times["expires_at_aware"]
 
         return jsonify(
             ok=True,
             upload_id=upload_id,
             upload_url=upload_url,
             object_key=object_key,
-            expires_at=expires_at.isoformat() + "Z",
+            expires_at=expires_at_aware.isoformat(),
             required_headers={"Content-Type": mime_type},
             content_category=category,
         )
@@ -2809,7 +2831,14 @@ def register_mobile_api(bp):
         conn = get_db_connection()
         try:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM upload_sessions WHERE upload_id=%s FOR UPDATE", (upload_id,))
+            cur.execute(
+                """SELECT us.*,
+                          (us.expires_at < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')) AS is_expired
+                   FROM upload_sessions us
+                   WHERE us.upload_id=%s
+                   FOR UPDATE""",
+                (upload_id,),
+            )
             session_row = cur.fetchone()
             if not session_row:
                 conn.rollback()
@@ -2833,15 +2862,76 @@ def register_mobile_api(bp):
             existing = cur.fetchone()
 
             if session_row["status"] == "CONSUMED" and existing:
-                if existing["processing_status"] == "UPLOADED" and "dispatch_failed" in (existing.get("processing_error") or ""):
+                # Any durable UPLOADED row is safe to redrive. This also closes
+                # the crash window where DB commit succeeded but process death
+                # happened before the external queue dispatch/error marker.
+                if existing["processing_status"] == "UPLOADED":
                     conn.rollback()
                     from services.job_queue import enqueue_media_job
+                    from services.media_processor import claim_media_job_lease
                     try:
-                        job_id = enqueue_media_job(existing["post_id"], uid, session_row["object_key"], session_row["kind"].upper())
-                        execute("UPDATE posts SET processing_status='PROCESSING', job_id=%s, processing_error=NULL WHERE post_id=%s", (job_id, existing["post_id"]))
-                        return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
+                        acquired, lease_token, claimed_post = claim_media_job_lease(
+                            existing["post_id"], lease_seconds=300, is_reap=True
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "media dispatch claim failed for post_id=%s", existing["post_id"]
+                        )
+                        return jsonify(
+                            ok=False,
+                            error="job_dispatch_failed",
+                            failure_stage="claim",
+                            retryable=True,
+                            post_id=existing["post_id"],
+                            upload_id=upload_id,
+                        ), 503
+                    if not acquired:
+                        latest_status = (claimed_post or {}).get("processing_status")
+                        if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED", "FAILED"}:
+                            return jsonify(
+                                ok=True,
+                                post_id=existing["post_id"],
+                                status=latest_status,
+                                idempotent=True,
+                            )
+                        return jsonify(
+                            ok=False,
+                            error="job_dispatch_failed",
+                            failure_stage="claim",
+                            retryable=True,
+                            post_id=existing["post_id"],
+                            upload_id=upload_id,
+                        ), 503
+                    try:
+                        job_id = enqueue_media_job(
+                            existing["post_id"], uid, session_row["object_key"],
+                            session_row["kind"].upper(), lease_token=lease_token
+                        )
                     except Exception as exc:
+                        try:
+                            execute(
+                                """UPDATE posts
+                                   SET processing_status='UPLOADED',
+                                       processing_lease_token=NULL,
+                                       processing_lease_expires_at=NULL,
+                                       processing_error=%s
+                                   WHERE post_id=%s AND processing_lease_token=%s""",
+                                (f"dispatch_failed: {exc}", existing["post_id"], lease_token),
+                            )
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "failed to release media dispatch lease for post_id=%s",
+                                existing["post_id"],
+                            )
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
+                    try:
+                        execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, existing["post_id"]))
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "media job_id persistence failed after successful dispatch for post_id=%s",
+                            existing["post_id"],
+                        )
+                    return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
 
                 conn.rollback()
                 return jsonify(
@@ -2851,17 +2941,29 @@ def register_mobile_api(bp):
                     idempotent=True,
                 )
 
-            exp = session_row.get("expires_at")
-            if exp:
-                now = datetime.now(timezone.utc)
-                if hasattr(exp, "tzinfo") and exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-                elif not hasattr(exp, "tzinfo"):
-                    exp = datetime.fromisoformat(str(exp)).replace(tzinfo=timezone.utc)
-                if exp < now:
-                    cur.execute("UPDATE upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
-                    conn.commit()
-                    return jsonify(error="upload_session_expired"), 400
+            session_status = str(session_row.get("status") or "").upper()
+            if session_status == "CONSUMED":
+                # CONSUMED without its durable post is an inconsistent state;
+                # never create a second post from the same upload session.
+                conn.rollback()
+                return jsonify(
+                    error="upload_session_inconsistent",
+                    status=session_status,
+                ), 409
+            if session_status == "EXPIRED":
+                conn.rollback()
+                return jsonify(error="upload_session_expired"), 400
+            if session_status not in {"PENDING", "UPLOADED"}:
+                conn.rollback()
+                return jsonify(
+                    error="upload_session_not_completable",
+                    status=session_status,
+                ), 409
+
+            if bool(session_row.get("is_expired")):
+                cur.execute("UPDATE upload_sessions SET status='EXPIRED' WHERE upload_id=%s", (upload_id,))
+                conn.commit()
+                return jsonify(error="upload_session_expired"), 400
 
             from services import object_storage
 
@@ -2927,7 +3029,7 @@ def register_mobile_api(bp):
             if isinstance(raw_tags, str):
                 raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            from services.tag_service import validate_and_normalize_tags, save_post_tags
+            from services.tag_service import validate_and_normalize_tags
 
             validated_tags, tag_err = validate_and_normalize_tags(raw_tags, uid)
             if tag_err:
@@ -2999,7 +3101,7 @@ def register_mobile_api(bp):
                                        processing_status, processing_started_at, location_name,
                                        story_music_id, story_music_title, story_music_artist, story_music_url,
                                        story_music_start, story_music_duration, upload_id, processing_attempts, last_attempt_at)
-                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'UPLOADED', NULL, %s, %s, %s, %s, %s, %s, %s, %s, 0, NULL)
                        RETURNING post_id""",
                     (
                         uid,
@@ -3024,14 +3126,22 @@ def register_mobile_api(bp):
                 post_row = cur.fetchone()
                 post_id = post_row["post_id"]
 
+            # Persist tags inside the same transaction as the post/session state.
+            # A tag-write failure must not commit a CONSUMED upload without its
+            # validated metadata and then rely on a reaper to process a partial post.
+            for display_tag, normalized_tag in validated_tags:
+                cur.execute(
+                    """INSERT INTO post_tags(post_id, tag, normalized_tag)
+                       VALUES(%s, %s, %s)
+                       ON CONFLICT(post_id, normalized_tag) DO NOTHING""",
+                    (post_id, display_tag, normalized_tag),
+                )
+
             cur.execute(
                 "UPDATE upload_sessions SET status='CONSUMED', consumed_at=NOW() WHERE upload_id=%s",
                 (upload_id,),
             )
             conn.commit()
-
-            if validated_tags:
-                save_post_tags(post_id, validated_tags)
         except Exception:
             conn.rollback()
             raise
@@ -3039,22 +3149,63 @@ def register_mobile_api(bp):
             conn.close()
 
         from services.job_queue import enqueue_media_job
+        from services.media_processor import claim_media_job_lease
 
         try:
-            job_id = enqueue_media_job(post_id, uid, session_row["object_key"], kind)
-            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+            acquired, lease_token, claimed_post = claim_media_job_lease(
+                post_id, lease_seconds=300, is_reap=True
+            )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "media dispatch claim failed for post_id=%s", post_id
+            )
             return jsonify(
-                ok=True,
+                ok=False,
+                error="job_dispatch_failed",
+                failure_stage="claim",
+                retryable=True,
                 post_id=post_id,
-                status="PROCESSING",
-                moderation_queued=True,
-                publication_state="PRIVATE_PROCESSING",
+                upload_id=upload_id,
+            ), 503
+        if not acquired:
+            latest_status = (claimed_post or {}).get("processing_status")
+            if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED", "FAILED"}:
+                return jsonify(
+                    ok=True,
+                    post_id=post_id,
+                    status=latest_status,
+                    idempotent=True,
+                    moderation_queued=latest_status == "PROCESSING",
+                    publication_state="PRIVATE_PROCESSING",
+                )
+            return jsonify(
+                ok=False,
+                error="job_dispatch_failed",
+                failure_stage="claim",
+                retryable=True,
+                post_id=post_id,
+                upload_id=upload_id,
+            ), 503
+
+        try:
+            job_id = enqueue_media_job(
+                post_id, uid, session_row["object_key"], kind, lease_token=lease_token
             )
         except Exception as exc:
-            execute(
-                "UPDATE posts SET processing_status='UPLOADED', processing_error=%s WHERE post_id=%s",
-                (f"dispatch_failed: {exc}", post_id),
-            )
+            try:
+                execute(
+                    """UPDATE posts
+                       SET processing_status='UPLOADED',
+                           processing_lease_token=NULL,
+                           processing_lease_expires_at=NULL,
+                           processing_error=%s
+                       WHERE post_id=%s AND processing_lease_token=%s""",
+                    (f"dispatch_failed: {exc}", post_id, lease_token),
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "failed to release media dispatch lease for post_id=%s", post_id
+                )
             return jsonify(
                 ok=False,
                 error="job_dispatch_failed",
@@ -3062,6 +3213,20 @@ def register_mobile_api(bp):
                 post_id=post_id,
                 upload_id=upload_id,
             ), 503
+        try:
+            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "media job_id persistence failed after successful dispatch for post_id=%s",
+                post_id,
+            )
+        return jsonify(
+            ok=True,
+            post_id=post_id,
+            status="PROCESSING",
+            moderation_queued=True,
+            publication_state="PRIVATE_PROCESSING",
+        )
 
     @bp.route("/api/mobile/v2/posts/<int:post_id>/processing-status", methods=["GET"])
     @_require_mobile("CHILD", "PARENT")
@@ -4013,15 +4178,20 @@ def register_mobile_api(bp):
     @_require_mobile("CHILD")
     def mobile_v2_kids_heartbeat():
         uid = int(g.mobile_user["user_id"])
+        # Check parent pause, quiet hours and an already-exhausted limit before
+        # extending last_seen_at. A blocked child must not keep accumulating
+        # usage merely because the heartbeat hook is still mounted.
+        gate = _child_gate(record_usage=False)
+        if gate:
+            return gate
         key = (g.mobile_claims or {}).get("usage_session_key")
         if key:
             try:
                 heartbeat(key)
             except Exception:
                 pass
-        gate = _child_gate()
-        if gate:
-            return gate
+        # Re-evaluate after this single heartbeat so crossing the limit on this
+        # tick is reflected immediately in the response.
         locked, remaining = lock_state(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         controls = controls_for_child(uid)

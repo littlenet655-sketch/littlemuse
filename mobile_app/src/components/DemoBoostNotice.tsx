@@ -10,6 +10,7 @@ import { adminKeys } from '../query/keys';
 export function DemoBoostNotice() {
   const { session } = useAuth();
   const insets = useSafeAreaInsets();
+  const isAdmin = session?.user.role === 'ADMIN';
   const [message, setMessage] = useState<string | null>(null);
   const wasActive = useRef(false);
   const warnedFive = useRef(false);
@@ -19,9 +20,14 @@ export function DemoBoostNotice() {
   const query = useQuery({
     queryKey: adminKeys.demoBoost,
     queryFn: () => fetchDemoBoostStatus(session?.token ?? ''),
-    enabled: Boolean(session?.token),
-    refetchInterval: 30_000,
-    staleTime: 10_000,
+    enabled: Boolean(session?.token) && isAdmin,
+    // Demo Boost is an admin-only infrastructure control/status. Child and
+    // parent sessions must never poll it or see operational boost notices.
+    // Boost is normally OFF. Poll slowly while inactive, then tighten the
+    // cadence only for the short active window so clients can show expiry
+    // warnings without turning this status endpoint into background traffic.
+    refetchInterval: (q) => q.state.data?.demo_boost?.active ? 30_000 : 5 * 60_000,
+    staleTime: 30_000,
   });
 
   function show(text: string) {
@@ -69,7 +75,7 @@ export function DemoBoostNotice() {
     }
   }, [query.data?.demo_boost]);
 
-  if (!message || !session) return null;
+  if (!isAdmin || !message || !session) return null;
 
   return (
     <View pointerEvents="none" style={[styles.banner, { top: insets.top + 8 }]}>
