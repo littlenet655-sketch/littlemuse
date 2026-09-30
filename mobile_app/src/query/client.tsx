@@ -56,9 +56,9 @@ export function useIsOnline(): boolean {
   return online;
 }
 
-/** Invalidate everything touching the signed-in user (used on logout/role change). */
+/** Clear everything touching the signed-in user without refetching with a dying token. */
 export async function invalidateSessionQueries(): Promise<void> {
-  await queryClient.invalidateQueries();
+  await queryClient.cancelQueries();
   queryClient.clear();
 }
 
