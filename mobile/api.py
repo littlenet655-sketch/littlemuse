@@ -2909,15 +2909,21 @@ def register_mobile_api(bp):
                             session_row["kind"].upper(), lease_token=lease_token
                         )
                     except Exception as exc:
-                        execute(
-                            """UPDATE posts
-                               SET processing_status='UPLOADED',
-                                   processing_lease_token=NULL,
-                                   processing_lease_expires_at=NULL,
-                                   processing_error=%s
-                               WHERE post_id=%s AND processing_lease_token=%s""",
-                            (f"dispatch_failed: {exc}", existing["post_id"], lease_token),
-                        )
+                        try:
+                            execute(
+                                """UPDATE posts
+                                   SET processing_status='UPLOADED',
+                                       processing_lease_token=NULL,
+                                       processing_lease_expires_at=NULL,
+                                       processing_error=%s
+                                   WHERE post_id=%s AND processing_lease_token=%s""",
+                                (f"dispatch_failed: {exc}", existing["post_id"], lease_token),
+                            )
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "failed to release media dispatch lease for post_id=%s",
+                                existing["post_id"],
+                            )
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
                     try:
                         execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, existing["post_id"]))
@@ -3168,15 +3174,20 @@ def register_mobile_api(bp):
                 post_id, uid, session_row["object_key"], kind, lease_token=lease_token
             )
         except Exception as exc:
-            execute(
-                """UPDATE posts
-                   SET processing_status='UPLOADED',
-                       processing_lease_token=NULL,
-                       processing_lease_expires_at=NULL,
-                       processing_error=%s
-                   WHERE post_id=%s AND processing_lease_token=%s""",
-                (f"dispatch_failed: {exc}", post_id, lease_token),
-            )
+            try:
+                execute(
+                    """UPDATE posts
+                       SET processing_status='UPLOADED',
+                           processing_lease_token=NULL,
+                           processing_lease_expires_at=NULL,
+                           processing_error=%s
+                       WHERE post_id=%s AND processing_lease_token=%s""",
+                    (f"dispatch_failed: {exc}", post_id, lease_token),
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "failed to release media dispatch lease for post_id=%s", post_id
+                )
             return jsonify(
                 ok=False,
                 error="job_dispatch_failed",
