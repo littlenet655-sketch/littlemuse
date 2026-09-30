@@ -220,6 +220,36 @@ def test_upload_session_presign_failure_does_not_leak_pending_row(client, app):
     assert after == before
 
 
+def test_upload_session_uses_single_utc_anchor_for_created_and_expiry(client, app):
+    with app.app_context():
+        _setup_child_and_parent(998, "upload_timestamp")
+
+    token = _issue_token({"user_id": 998, "role": "CHILD"})
+    with patch("services.object_storage.enabled", return_value=True), patch(
+        "services.object_storage.signed_upload_url", return_value="signed-upload"
+    ):
+        resp = client.post(
+            "/api/mobile/v2/uploads/session",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "kind": "post",
+                "media_type": "IMAGE",
+                "size_bytes": 1024,
+                "extension": "jpg",
+                "mime_type": "image/jpeg",
+            },
+        )
+
+    assert resp.status_code == 200
+    with app.app_context():
+        row = fetch_one(
+            "SELECT created_at, expires_at FROM upload_sessions WHERE upload_id=%s",
+            (resp.json["upload_id"],),
+        )
+    assert row["expires_at"] > row["created_at"]
+    assert int((row["expires_at"] - row["created_at"]).total_seconds()) == 900
+
+
 def test_upload_complete_and_ownership_security(client, app):
     with app.app_context():
         # Upload completion is a gated child action. Provision both children
