@@ -17,7 +17,7 @@ from typing import Any
 from database.connection import execute, fetch_one
 
 
-DEFAULT_CACHE_VERSION = "2026-09-20-v1"
+DEFAULT_CACHE_VERSION = "2026-09-30-v2"
 
 
 def cache_version() -> str:
