@@ -256,6 +256,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
     cats = effective_categories(child_id)
     age_grp = _age_group(child_id)
     is_reel = str(surface).upper() == "REELS"
+    # Production/R2 feeds can reject legacy local paths in SQL before LIMIT.
+    # Local development still needs uploads/... files, whose existence can only
+    # be checked on the filesystem after hydration; over-fetch them boundedly
+    # and let _social_media_renderable() perform that final check.
+    from services import object_storage
+    allow_local_media = not object_storage.enabled()
+    query_limit = limit if not allow_local_media else min(max(limit * 4, limit + 20), 240)
     if is_reel:
         rows = fetch_all(
             """SELECT p.*, u.full_name, cp.profile_picture,
@@ -280,6 +287,8 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                        OR p.media_path LIKE 'static/%%'
                        OR p.media_path LIKE 'http://%%'
                        OR p.media_path LIKE 'https://%%'
+                       OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
+                       OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
                      )
                    )
                  )
@@ -293,10 +302,10 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                    UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
                ORDER BY p.created_at DESC
                LIMIT %s""",
-             (child_id, child_id, allowed_child_ids, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, limit),
+             (child_id, child_id, allow_local_media, allowed_child_ids, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, query_limit),
         )
         normalized=[normalize_social_item(r) for r in rows]
-        return [item for item in normalized if _social_media_renderable(item)]
+        return [item for item in normalized if _social_media_renderable(item)][:limit]
     rows = fetch_all(
         """SELECT p.*, u.full_name, cp.profile_picture,
              (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
@@ -333,11 +342,11 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
            ORDER BY p.created_at DESC
            LIMIT %s""",
-        (child_id, child_id, allowed_child_ids, allowed_child_ids, cats, age_grp, age_grp,
-         child_id, child_id, child_id, child_id, limit),
+        (child_id, child_id, allow_local_media, allowed_child_ids, allowed_child_ids, cats, age_grp, age_grp,
+         child_id, child_id, child_id, child_id, query_limit),
     )
     normalized=[normalize_social_item(r) for r in rows]
-    return [item for item in normalized if _social_media_renderable(item)]
+    return [item for item in normalized if _social_media_renderable(item)][:limit]
 
 
 def get_recent_impression_keys(child_id: int, surface: str, hours: int = 2) -> set[tuple[str, int]]:
