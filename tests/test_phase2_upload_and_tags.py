@@ -220,7 +220,7 @@ def test_upload_session_presign_failure_does_not_leak_pending_row(client, app):
     assert after == before
 
 
-def test_upload_session_uses_single_utc_anchor_for_created_and_expiry(client, app):
+def test_upload_session_uses_database_local_clock_for_created_and_expiry(client, app):
     with app.app_context():
         _setup_child_and_parent(998, "upload_timestamp")
 
@@ -243,11 +243,17 @@ def test_upload_session_uses_single_utc_anchor_for_created_and_expiry(client, ap
     assert resp.status_code == 200
     with app.app_context():
         row = fetch_one(
-            "SELECT created_at, expires_at FROM upload_sessions WHERE upload_id=%s",
+            """SELECT created_at, expires_at,
+                      expires_at > LOCALTIMESTAMP AS still_valid
+               FROM upload_sessions WHERE upload_id=%s""",
             (resp.json["upload_id"],),
         )
     assert row["expires_at"] > row["created_at"]
     assert int((row["expires_at"] - row["created_at"]).total_seconds()) == 900
+    assert row["still_valid"] is True
+    # Client-facing expiry must carry an explicit timezone offset, not a
+    # misleading trailing Z attached to a database-local naive timestamp.
+    assert resp.json["expires_at"].endswith(("+05:30", "+00:00"))
 
 
 def test_upload_complete_and_ownership_security(client, app):
