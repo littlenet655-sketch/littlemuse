@@ -2858,9 +2858,22 @@ def register_mobile_api(bp):
                     conn.rollback()
                     from services.job_queue import enqueue_media_job
                     from services.media_processor import claim_media_job_lease
-                    acquired, lease_token, claimed_post = claim_media_job_lease(
-                        existing["post_id"], lease_seconds=300, is_reap=True
-                    )
+                    try:
+                        acquired, lease_token, claimed_post = claim_media_job_lease(
+                            existing["post_id"], lease_seconds=300, is_reap=True
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "media dispatch claim failed for post_id=%s", existing["post_id"]
+                        )
+                        return jsonify(
+                            ok=False,
+                            error="job_dispatch_failed",
+                            failure_stage="claim",
+                            retryable=True,
+                            post_id=existing["post_id"],
+                            upload_id=upload_id,
+                        ), 503
                     if not acquired:
                         latest_status = (claimed_post or {}).get("processing_status")
                         if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
@@ -3095,9 +3108,22 @@ def register_mobile_api(bp):
         from services.job_queue import enqueue_media_job
         from services.media_processor import claim_media_job_lease
 
-        acquired, lease_token, claimed_post = claim_media_job_lease(
-            post_id, lease_seconds=300, is_reap=True
-        )
+        try:
+            acquired, lease_token, claimed_post = claim_media_job_lease(
+                post_id, lease_seconds=300, is_reap=True
+            )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "media dispatch claim failed for post_id=%s", post_id
+            )
+            return jsonify(
+                ok=False,
+                error="job_dispatch_failed",
+                failure_stage="claim",
+                retryable=True,
+                post_id=post_id,
+                upload_id=upload_id,
+            ), 503
         if not acquired:
             latest_status = (claimed_post or {}).get("processing_status")
             if latest_status in {"PROCESSING", "ALLOWED", "BLOCKED"}:
