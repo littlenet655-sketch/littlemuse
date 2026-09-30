@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchProcessingStatus, redriveProcessing, type ProcessingStatus } from '../api/kidsUpload';
 import { useAuth } from '../auth/AuthProvider';
+import { invalidateSocialCaches } from '../query/keys';
 import { MAX_POLL_ATTEMPTS, MAX_POLL_DURATION_MS, isTerminalStage, processingStage, type ProcessingStage } from './social';
 
 /**
@@ -47,8 +48,20 @@ export function useProcessingStatus(postId: number | null, active: boolean) {
     setModeration(next.moderation_status ?? null);
     setRetryable(Boolean(next.retryable));
     setError(next.error ?? null);
+    if (isTerminalStage(processingStage(next.status, next.moderation_status, Boolean(next.retryable)))) {
+      void invalidateSocialCaches([postId]);
+    }
     return next;
   }, [postId, session?.token]);
+
+  useEffect(() => {
+    if (!active || !postId) return;
+    attemptsRef.current = 0;
+    startedAtRef.current = Date.now();
+    setAttempts(0);
+    // One reconciliation on foreground also observes a parent's REVIEW decision.
+    if (terminal) void fetchOnce().catch(setError);
+  }, [active, postId, fetchOnce]);
 
   useEffect(() => {
     if (!postId || !active || !session || terminal) return;

@@ -262,7 +262,7 @@ def _apply_ocr_evidence(result, ocr_text):
             result[flag] = True
 
     errors = list(result.get('errors') or [])
-    errors.append('ocr_text_present')
+    result['ocr_text_present'] = True
     if pii.get('detected'):
         errors.append('ocr_pii_detected:' + ','.join(pii.get('categories', []) or []))
     if pii.get('detected') and pii.get('policy_action') == 'BLOCK':

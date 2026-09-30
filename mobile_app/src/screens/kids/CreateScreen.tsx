@@ -130,6 +130,7 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [caption, setCaption] = useState('');
   const [tags, setTags] = useState('');
+  const [showMetadata, setShowMetadata] = useState(false);
   const [location, setLocation] = useState('');
   const [contentCategory, setContentCategory] = useState('');
   const [commentsEnabled, setCommentsEnabled] = useState(true);
@@ -544,93 +545,27 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       {/* Media Picker / Preview */}
       {!media ? (
         <Card style={styles.pickerCard}>
-          <Text style={styles.sectionHeading}>
-            {isVideo ? 'Choose or record a video' : 'Choose or snap a photo'}
-          </Text>
+          <Text style={styles.sectionHeading}>Add media</Text>
           <View style={styles.pickRow}>
-            {isVideo ? (
-              <>
-                <Pressable
-                  style={styles.pickOption}
-                  accessibilityRole="button"
-                  accessibilityLabel="Choose a video from your gallery"
-                  onPress={() => void choose(() => pickGalleryMedia('video'))}
-                >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                    <Feather name="film" size={24} color={colors.ink} />
-                  </View>
-                  <Text style={styles.pickOptionTitle}>Gallery Video</Text>
-                  <Text style={styles.pickOptionSub}>Choose from files</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.pickOption}
-                  accessibilityRole="button"
-                  accessibilityLabel="Record a video with the camera"
-                  onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
-                >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                    <Feather name="video" size={24} color={colors.ink} />
-                  </View>
-                  <Text style={styles.pickOptionTitle}>Camera Video</Text>
-                  <Text style={styles.pickOptionSub}>Record right now</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Pressable
-                  style={styles.pickOption}
-                  accessibilityRole="button"
-                  accessibilityLabel="Choose a photo from your gallery"
-                  onPress={() => void choose(() => pickGalleryMedia('image'))}
-                >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                    <Feather name="image" size={24} color={colors.ink} />
-                  </View>
-                  <Text style={styles.pickOptionTitle}>Choose Photo</Text>
-                  <Text style={styles.pickOptionSub}>From your gallery</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.pickOption}
-                  accessibilityRole="button"
-                  accessibilityLabel="Take a photo with the camera"
-                  onPress={() => void choose(() => capturePostMedia('image'))}
-                >
-                  <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                    <Feather name="camera" size={24} color={colors.ink} />
-                  </View>
-                  <Text style={styles.pickOptionTitle}>Take Photo</Text>
-                  <Text style={styles.pickOptionSub}>Snap with camera</Text>
-                </Pressable>
-                {allowVideoForPost && (
-                  <>
-                    <Pressable
-                      style={styles.pickOption}
-                      accessibilityRole="button"
-                      accessibilityLabel="Choose a video from your gallery"
-                      onPress={() => void choose(() => pickGalleryMedia('video'))}
-                    >
-                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                        <Feather name="film" size={24} color={colors.ink} />
-                      </View>
-                      <Text style={styles.pickOptionTitle}>Gallery Video</Text>
-                      <Text style={styles.pickOptionSub}>Choose from files</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.pickOption}
-                      accessibilityRole="button"
-                      accessibilityLabel="Record a video with the camera"
-                      onPress={() => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind)))}
-                    >
-                      <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}>
-                        <Feather name="video" size={24} color={colors.ink} />
-                      </View>
-                      <Text style={styles.pickOptionTitle}>Camera Video</Text>
-                      <Text style={styles.pickOptionSub}>Record right now</Text>
-                    </Pressable>
-                  </>
-                )}
-              </>
-            )}
+            <Pressable style={styles.pickOption} accessibilityRole="button" accessibilityLabel="Choose media from gallery"
+              onPress={() => void choose(() => pickGalleryMedia(allowVideoForPost ? 'all' : isVideo ? 'video' : 'image'))}>
+              <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}><Feather name="image" size={24} color={colors.ink} /></View>
+              <Text style={styles.pickOptionTitle}>Gallery</Text>
+              <Text style={styles.pickOptionSub}>{allowVideoForPost ? 'Photos and videos' : isVideo ? 'Videos' : 'Photos'}</Text>
+            </Pressable>
+            <Pressable style={styles.pickOption} accessibilityRole="button" accessibilityLabel="Capture media with camera"
+              onPress={() => {
+                if (!allowVideoForPost) { void choose(() => capturePostMedia(isVideo ? 'video' : 'image', maxVideoDurationFor(kind))); return; }
+                Alert.alert('Camera', 'What would you like to capture?', [
+                  { text: 'Photo', onPress: () => void choose(() => capturePostMedia('image')) },
+                  { text: 'Video', onPress: () => void choose(() => capturePostMedia('video', maxVideoDurationFor(kind))) },
+                  { text: 'Cancel', style: 'cancel' },
+                ]);
+              }}>
+              <View style={[styles.pickIconCircle, { backgroundColor: '#F2F2F2' }]}><Feather name="camera" size={24} color={colors.ink} /></View>
+              <Text style={styles.pickOptionTitle}>Camera</Text>
+              <Text style={styles.pickOptionSub}>Capture something new</Text>
+            </Pressable>
           </View>
         </Card>
       ) : (
@@ -696,24 +631,6 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           <Text style={styles.captionCounter} accessibilityLabel={`${caption.length} of 2200 characters used`}>
             {caption.length}/2200
           </Text>
-        </View>
-
-        {/* Suggested Quick Tags */}
-        <View style={styles.tagSection}>
-          <Text style={styles.tagLabel}>QUICK TAGS</Text>
-          <View style={styles.tagRow}>
-            {SUGGESTED_TAGS.map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => addTag(t)}
-                style={styles.tagChip}
-                accessibilityRole="button"
-                accessibilityLabel={`Add tag ${t}`}
-              >
-                <Text style={styles.tagChipText}>#{t}</Text>
-              </Pressable>
-            ))}
-          </View>
         </View>
 
         <View style={styles.tagSection}>
@@ -787,6 +704,33 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           </View>
         ) : null}
 
+        <Pressable
+          onPress={() => setShowMetadata((value) => !value)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showMetadata }}
+          style={styles.tagSection}
+        >
+          <Text style={styles.tagLabel}>{showMetadata ? 'Hide tags and location' : 'Tags and location (optional)'}</Text>
+        </Pressable>
+        {showMetadata ? <View>
+        {/* Suggested Quick Tags */}
+        <View style={styles.tagSection}>
+          <Text style={styles.tagLabel}>QUICK TAGS</Text>
+          <View style={styles.tagRow}>
+            {SUGGESTED_TAGS.map((t) => (
+              <Pressable
+                key={t}
+                onPress={() => addTag(t)}
+                style={styles.tagChip}
+                accessibilityRole="button"
+                accessibilityLabel={`Add tag ${t}`}
+              >
+                <Text style={styles.tagChipText}>#{t}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
         <Field
           label="Tags"
           value={tags}
@@ -800,6 +744,8 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
           onChangeText={setLocation}
           placeholder="Home, School, Art Class"
         />
+
+        </View> : null}
 
         {kind !== 'story' ? (
           <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.line }}>

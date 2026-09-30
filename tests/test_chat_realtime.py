@@ -58,8 +58,8 @@ def message_service(monkeypatch):
     monkeypatch.setitem(sys.modules, "database", db_pkg)
     monkeypatch.setitem(sys.modules, "services.social", social)
     monkeypatch.setitem(sys.modules, "services", services_pkg)
-    sys.modules.pop("childMessage.service", None)
-    sys.modules.pop("childMessage", None)
+    monkeypatch.delitem(sys.modules, "childMessage.service", raising=False)
+    monkeypatch.delitem(sys.modules, "childMessage", raising=False)
     svc = importlib.import_module("childMessage.service")
     return svc, calls
 
@@ -128,7 +128,7 @@ def test_analytics_capture_is_noop_without_key():
 
 
 def test_typing_endpoint_requires_approved_connection():
-    src = (REPO_ROOT / "mobile" / "api.py").read_text()
+    src = (REPO_ROOT / "mobile" / "api.py").read_text(encoding="utf-8")
     start = src.index('/kids/chat/<int:peer_id>/typing')
     block = src[start:start + 1200]
     assert "approved_connection_required" in block
@@ -137,6 +137,6 @@ def test_typing_endpoint_requires_approved_connection():
 
 
 def test_chat_get_supports_after_id_and_typing_flag():
-    src = (REPO_ROOT / "mobile" / "api.py").read_text()
+    src = (REPO_ROOT / "mobile" / "api.py").read_text(encoding="utf-8")
     assert 'request.args.get("after_id", type=int)' in src
     assert "peer_typing=is_peer_typing(cid, uid)" in src

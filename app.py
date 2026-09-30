@@ -50,8 +50,19 @@ def create_app():
     def handle_csrf_error(e):
         if request.path.startswith(('/login', '/switch-mode', '/register', '/logout')):
             session.clear()
-            return redirect('/login/?error=Your+session+was+refreshed.+Please+enter+your+credentials+to+continue.')
+            from urllib.parse import urlencode
+            return redirect('/login/?' + urlencode({
+                'mode': request.form.get('mode', request.args.get('mode', 'kids')),
+                'next': request.form.get('next', request.args.get('next', '')),
+                'error': 'Your session was refreshed. Please enter your credentials to continue.',
+            }))
         return render_template('csrf_error.html', reason=e.description), 400
+
+    @app.after_request
+    def private_auth_pages(response):
+        if request.path.startswith(('/login', '/parent/safety', '/parent/review')):
+            response.headers['Cache-Control']='private, no-store'
+        return response
 
     for bp in [auth_bp,api_bp,content_search_bp,child_bp,upload_bp,child_message_bp,parent_bp,parent_api_bp,quiz_bp,admin_bp,resend_webhook_bp]:
         app.register_blueprint(bp)

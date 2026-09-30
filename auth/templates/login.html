@@ -46,6 +46,7 @@
     <form method="post" action="/login/" id="auth-form" class="auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mode" id="auth-mode-input" value="{{ mode or 'kids' }}">
+      <input type="hidden" name="next" value="{{ request.form.get('next') or request.args.get('next', '') }}">
 
       <div class="auth-field">
         <label for="auth-identifier" class="field-label" id="label-identifier">

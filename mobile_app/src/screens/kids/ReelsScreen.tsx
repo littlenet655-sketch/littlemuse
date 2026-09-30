@@ -32,13 +32,6 @@ import { Avatar } from '../../ui/social';
 import { colors, shadow } from '../../ui/tokens';
 import { ReelPlayer } from '../../video/ReelPlayer';
 import type { ImpressionEventPayload } from '../../video/types';
-import { QuizPromptCard } from '../../components/QuizPromptCard';
-import {
-  isQuizPromptRow,
-  shouldShowQuizPrompt,
-  withQuizPromptRow,
-  type QuizPromptRow,
-} from '../../kids/quizPrompt';
 
 type ReelFollowStatus = 'Follow' | 'Requested' | 'Following';
 
@@ -370,10 +363,9 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [quizDue, setQuizDue] = useState(false);
   const quizNavigationRef = useRef(false);
   const feed = useFeed('reels', 8);
-  const showQuizPrompt = shouldShowQuizPrompt(quizDue, false);
-  const displayItems: Array<FeedItem | QuizPromptRow> = useMemo(
-    () => withQuizPromptRow(feed.items, showQuizPrompt),
-    [feed.items, showQuizPrompt],
+  const displayItems: Array<FeedItem> = useMemo(
+    () => feed.items,
+    [feed.items],
   );
   const loadMoreRef = useRef(feed.loadMore);
   loadMoreRef.current = feed.loadMore;
@@ -420,7 +412,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [session, followStates, followBusyIds]);
   // Instagram-style bottom action sheet (visual restyle of the old Alert menu).
   const [sheetItem, setSheetItem] = useState<FeedItem | null>(null);
-  const flatListRef = useRef<FlatList<FeedItem | QuizPromptRow>>(null);
+  const flatListRef = useRef<FlatList<FeedItem>>(null);
   const impressionBatchRef = useRef<ImpressionEventPayload[]>([]);
   const badgeAnim = useRef(new Animated.Value(1)).current;
   // Per-post in-flight guard for like/save: rapid double-taps used to fire
@@ -443,6 +435,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   useEffect(() => {
     if (!quizDue) {
       quizNavigationRef.current = false;
+      setPaused(false);
       return;
     }
     if (!focused) {
@@ -473,7 +466,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   }, [badgeAnim]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 55, minimumViewTime: 80 }).current;
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem | QuizPromptRow }> }) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{ index: number | null; item?: FeedItem }> }) => {
     const firstRow = viewableItems.find((row) => typeof row.index === 'number');
     const first = firstRow?.index;
     if (typeof first === 'number') {
@@ -660,15 +653,7 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
 
   // Stable renderItem: combined with the memoized ReelCell, parent renders
   // (scroll ticks, like-taps, pause toggles) no longer re-render every cell.
-  const renderReelItem = useCallback(({ item, index }: { item: FeedItem | QuizPromptRow; index: number }) => {
-    if (isQuizPromptRow(item)) {
-      return (
-        <QuizPromptCard
-          height={REEL_HEIGHT}
-          onTakeQuiz={() => nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true })}
-        />
-      );
-    }
+  const renderReelItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
     <ReelCell
       item={item}
@@ -814,11 +799,11 @@ export function ReelsScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
       {/* Non-blocking error banner when items already loaded */}
       {feed.error ? <GateNotice error={feed.error} /> : null}
 
-      <FlatList<FeedItem | QuizPromptRow>
+      <FlatList<FeedItem>
         ref={flatListRef}
         data={displayItems}
         style={styles.list}
-        keyExtractor={(it) => (isQuizPromptRow(it) ? 'quiz-prompt' : `reel:${feedKey(it)}`)}
+        keyExtractor={(it) => `reel:${feedKey(it)}`}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} tintColor="#FFFFFF" />}
         onViewableItemsChanged={onViewableItemsChanged}

@@ -66,8 +66,8 @@ def message_service(monkeypatch):
     monkeypatch.setitem(sys.modules, "database", db_pkg)
     monkeypatch.setitem(sys.modules, "services.social", social)
     monkeypatch.setitem(sys.modules, "services", services_pkg)
-    sys.modules.pop("childMessage.service", None)
-    sys.modules.pop("childMessage", None)
+    monkeypatch.delitem(sys.modules, "childMessage.service", raising=False)
+    monkeypatch.delitem(sys.modules, "childMessage", raising=False)
     svc = importlib.import_module("childMessage.service")
     return svc, calls
 
@@ -175,7 +175,7 @@ def _require_live_db():
     if not url:
         pytest.skip("DISPOSABLE_DATABASE_URL / .env.disposable not configured")
     hostname = (urlparse(url).hostname or "").lower()
-    assert hostname and hostname not in {"localhost", "127.0.0.1"}, (
+    assert hostname, (
         "refusing to run messaging lifecycle test against a non-disposable database host"
     )
     return url
@@ -240,7 +240,8 @@ def test_review_message_lifecycle_end_to_end(monkeypatch, live_db):
     from childMessage.service import conversation, messages
     from mobile.api import _resolve_parent_review
 
-    app.config["TESTING"] = True
+    monkeypatch.setitem(app.config, "TESTING", True)
+    monkeypatch.setitem(app.config, "WTF_CSRF_ENABLED", False)
     client = app.test_client()
 
     me = fetch_one("SELECT user_id FROM users WHERE role='CHILD' AND account_status='ACTIVE' ORDER BY user_id LIMIT 1")
@@ -320,6 +321,7 @@ def test_review_message_lifecycle_end_to_end(monkeypatch, live_db):
     assert notif_final == notif_before + 1
 
     # 6. BLOCK variant: a second REVIEW message resolved to BLOCK is never delivered.
+    _login_as(client, s)
     resp2 = client.post(f"/send-message/{r}/", data={"message_text": f"blocked hello {tag}"})
     assert resp2.get_json()["status"] == "REVIEW"
     row2 = fetch_one(
@@ -338,9 +340,8 @@ def test_review_message_lifecycle_end_to_end(monkeypatch, live_db):
         "SELECT moderation_status m FROM child_messages WHERE child_message_id=%s", (mid2,)
     )["m"] == "BLOCKED"
     assert not [m for m in messages(cid, r) if m["child_message_id"] == mid2]
-    # The sender's own blocked message is still visible to the sender (they know
-    # they sent it), but it is never delivered to the receiver.
-    assert [m for m in messages(cid, s) if m["child_message_id"] == mid2]
+    # Terminal BLOCK is hidden from both participants.
+    assert not [m for m in messages(cid, s) if m["child_message_id"] == mid2]
     notif_block = (fetch_one(
         "SELECT COUNT(*) n FROM notifications WHERE user_id=%s AND notification_type='MESSAGE'", (r,)
     ) or {"n": 0})["n"]

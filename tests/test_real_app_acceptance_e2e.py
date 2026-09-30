@@ -23,6 +23,7 @@ from services.social import can_interact, visible_posts
 from services.controls import feature_allowed
 
 
+@unittest.skipUnless(os.getenv('DISPOSABLE_DATABASE_URL') or os.getenv('RUN_REAL_POSTGRES_E2E') == '1', 'requires explicit disposable PostgreSQL')
 class RealAppAcceptanceE2ETest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

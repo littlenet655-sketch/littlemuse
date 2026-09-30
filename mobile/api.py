@@ -514,6 +514,7 @@ def _post_json(row, viewer_id=None, auth_decisions=None):
     if media_res.get("expires_at"):
         out["playback_expires_at"] = media_res["expires_at"]
     out.pop("media_path", None)
+    out.pop("source_media_path", None)
     out.pop("poster_path", None)
     out.pop("profile_picture", None)
     out.pop("story_music_path", None)
@@ -2522,7 +2523,7 @@ def register_mobile_api(bp):
         execute("DELETE FROM story_views WHERE post_id=%s", (post["post_id"],))
         return "deleted"
 
-    @bp.route("/api/mobile/v1/kids/posts/<int:post_id>", methods=["DELETE"])
+    @bp.route("/api/mobile/v1/kids/posts/<int:post_id>", methods=["GET", "DELETE"])
     @csrf.exempt
     @_require_mobile("CHILD")
     def mobile_kids_delete_post(post_id):
@@ -2530,6 +2531,11 @@ def register_mobile_api(bp):
         if gate:
             return gate
         uid = int(g.mobile_user["user_id"])
+        if request.method == "GET":
+            post = post_visible_to(uid, post_id)
+            if not post:
+                return jsonify(error="not_found"), 404
+            return jsonify(ok=True, post=_post_json(post, uid), comments=[])
         post = fetch_one(
             """SELECT post_id, child_id, is_story, moderation_reason,
                       media_path, source_media_path, poster_path, story_music_path

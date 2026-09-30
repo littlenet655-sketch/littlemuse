@@ -118,6 +118,9 @@ def login():
             if user['account_status'] != 'ACTIVE':
                 return render_template('login.html', mode='parent', error='Parent account is suspended or inactive.'), 403
             _set_session(user)
+            target = request.form.get('next') or request.args.get('next') or ''
+            if target.startswith('/parent/') and not any(ord(c)<32 or c=='\\' for c in target):
+                return redirect(target)
             return redirect('/parent/dashboard/')
 
         if user['role'] == 'ADMIN':

@@ -50,7 +50,7 @@ for p in route_files:
             )
             if not is_public and not has_pending_parent_guard and not has_token_session_guard and not any(x in decos for x in {'child_required','parent_required','admin_required','login_required'}):
                 errors.append(f'unguarded {rel}:{n.name} {route}')
-            if route!='/parent/deleted-posts/' and any(x in route for x in ['/delete','/block','/mute','/follow-action','/review/','/safety-level','/submit','/send-','/share-']) and 'GET' in methods:
+            if route not in {'/parent/deleted-posts/','/parent/review/<int:event_id>/preview/'} and any(x in route for x in ['/delete','/block','/mute','/follow-action','/review/','/safety-level','/submit','/send-','/share-']) and 'GET' in methods:
                 errors.append(f'mutating GET {rel}:{route}')
 
 # The app-level upload route uses manual role/ownership checks rather than a

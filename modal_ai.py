@@ -112,7 +112,7 @@ image = (
             "android/**", "android-build/**", "mobile_app/**", "mobile_flutter/**", "datasets/**",
             "test-results/**", "playwright-report/**", "tools/gradle-8.9/**",
             "node_modules/**", ".agent/**", ".agents/**", "agent/**",
-            ".claude/**", ".cursor/**", "*.db", "*.zip", "*.apk", ".env",
+            ".claude/**", ".cursor/**", "*.db", "*.zip", "*.apk", ".env", ".env.*", ".venv/**", "audit-*.log", "scratch/**", "walkthrough.md",
         ],
         copy=True,
     )

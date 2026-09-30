@@ -9,7 +9,7 @@ import { useIsOnline } from '../query/client';
 import { clearPendingDestination, loadPendingDestination, savePendingDestination } from '../auth/session';
 import { secureStoreBackend } from '../auth/storage';
 import type { ChildScreenProps, ChildStackParamList } from '../navigation/types';
-import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
+import { isConnectivityFailure, quizAnswerAction, quizLoadStatus, shouldProceedAfterRefresh } from '../quiz/decision';
 import { Button, Card, GateNotice, LoadingState, Notice, Screen } from '../ui/components';
 import { colors, radius, spacing, type } from '../ui/tokens';
 
@@ -74,6 +74,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
   const [gateMessage, setGateMessage] = useState('');
   const [correctCount, setCorrectCount] = useState(0);
   const [earnedXp, setEarnedXp] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
   /**
    * Per-question submission guard. Stays engaged after answerQuiz resolves
    * until the 1.1s feedback timeout fires, so a second tap during the
@@ -95,11 +96,12 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     timeoutsRef.current.push(id);
   }
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (continuing = false) => {
     if (!session) return;
     // A reload mid-feedback-window must not let a stale timeout skip a
     // question or double-fire completeQuiz from the previous attempt.
     clearPendingTimeouts();
+    setItems([]);
     setPhase('loading');
     setError(null);
     setGateMessage('');
@@ -110,6 +112,8 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
         return;
       }
       setItems(response.quizzes);
+      submittedKeyRef.current = null;
+      setSubmittedKey(null);
       setReason(response.reason);
       setRequired(response.required);
       setIndex(0);
@@ -118,14 +122,17 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       setRevealedCorrectAnswer(null);
       setFeedback('');
       if (params.returnTo) await savePendingDestination(secureStoreBackend, params.returnTo);
-      setCorrectCount(0);
-      setEarnedXp(0);
-      setPhase((response.required || params.autoStart) ? 'ready' : 'hub');
+      if (!continuing) {
+        setCorrectCount(0);
+        setEarnedXp(0);
+        setAnsweredCount(0);
+      }
+      setPhase((continuing || response.required || params.autoStart) ? 'ready' : 'hub');
     } catch (err) {
       setError(err);
       setPhase('ready');
     }
-  }, [session, params.returnTo, practiceMode]);
+  }, [session?.token, params.returnTo, params.autoStart, practiceMode]);
 
   useEffect(() => {
     void load();
@@ -148,7 +155,8 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       const stored = await loadPendingDestination(secureStoreBackend);
       const destination = resolveQuizDestination(stored);
       await clearPendingDestination(secureStoreBackend);
-      navigation.reset({ index: 0, routes: [{ name: destination }] });
+      if (params.returnTo === 'ReelsTab' && navigation.canGoBack()) navigation.goBack();
+      else navigation.reset({ index: 0, routes: [{ name: destination }] });
     } catch (err) {
       // 401: the session is cleared upstream and the navigator leaves the
       // quiz; the finally below still resets busy so nothing is left disabled.
@@ -174,6 +182,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
     try {
       const result = await answerQuiz(session.token, current.quiz_id, option, practiceMode ? 'practice' : undefined);
       setLastCorrect(result.correct);
+      setAnsweredCount((value) => value + 1);
       setRevealedCorrectAnswer(result.correct ? null : result.correct_answer);
       if (result.correct) setCorrectCount((value) => value + 1);
       setEarnedXp((value) => value + result.xp);
@@ -196,11 +205,13 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
       }
 
       const lastItem = index + 1 >= items.length;
-      if (result.correct && (result.onboarding_complete || !result.required || lastItem)) {
+      const action = quizAnswerAction(practiceMode, result.correct, result.required, lastItem);
+      if (action === 'complete' || action === 'refill') {
         scheduleTimeout(() => {
           submittedKeyRef.current = null;
           setSubmittedKey(null);
-          if (required) void completeQuiz();
+          if (action === 'refill') void load(true);
+          else if (required || params.returnTo === 'ReelsTab') void completeQuiz();
           else setPhase('complete');
         }, 1100);
         return;
@@ -250,6 +261,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <Card>
             <Notice tone="info" message="We could not load your safety quiz right now. You are still safely protected — pull or tap retry in a moment." />
             <Button label="Retry" onPress={() => void load()} />
+            {practiceMode ? <Button label="Back to Learn" variant="secondary" onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('DiscoverTab')} /> : null}
           </Card>
         </ScrollView>
       </Screen>
@@ -274,6 +286,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <Card>
             <GateNotice error={error} />
             <Button label="Retry" onPress={() => void load()} />
+            {practiceMode ? <Button label="Back to Learn" variant="secondary" onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('DiscoverTab')} /> : null}
             {canFailOpen ? (
               <>
                 <View style={{ height: 10 }} />
@@ -379,7 +392,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             <View style={styles.scoreRow}>
               <Feather name="check-circle" size={24} color="#10B981" />
               <Text style={styles.scoreText}>
-                {correctCount} of {items.length} Correct
+                {correctCount} of {answeredCount} Correct
               </Text>
             </View>
             <Text style={styles.scoreSubtext}>
@@ -388,15 +401,7 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
             <View style={styles.completeActions}>
               <Button
                 label="Practice Again"
-                onPress={() => {
-                  setIndex(0);
-                  setSelectedOption(null);
-                  setLastCorrect(null);
-                  setCorrectCount(0);
-                  setEarnedXp(0);
-                  setFeedback('');
-                  setPhase('ready');
-                }}
+                onPress={() => void load(true)}
               />
               <View style={{ height: 10 }} />
               <Button label="Back to Learning Hub" variant="secondary" onPress={() => setPhase('hub')} />
@@ -467,6 +472,10 @@ export function QuizScreen({ navigation, route }: ChildScreenProps<'Quiz'>) {
           <Text style={styles.quizStepCounter}>
             Question {index + 1} of {items.length}
           </Text>
+          {practiceMode ? <>
+            <Button label="Finish Quiz" variant="secondary" onPress={() => { clearPendingTimeouts(); setPhase('complete'); }} />
+            <Button label="Back to Learn" variant="secondary" onPress={() => { clearPendingTimeouts(); if (navigation.canGoBack()) navigation.goBack(); else navigation.navigate('DiscoverTab'); }} />
+          </> : null}
 
           {/* Dynamic Animated Progress Bar */}
           <View style={styles.progressContainer}>

@@ -427,7 +427,7 @@ export function PostCard({
           </Pressable>
         ) : (
           <Pressable onPress={onOpen} disabled={!onOpen && !socialTarget} style={[styles.mediaBox, { height: FALLBACK_MEDIA_HEIGHT }]}>
-            <Text style={styles.videoLabel}>Video</Text>
+            <Text style={styles.videoLabel}>{item.media_url ? 'Open video' : 'Video unavailable'}</Text>
           </Pressable>
         )
       ) : previewUrl ? (

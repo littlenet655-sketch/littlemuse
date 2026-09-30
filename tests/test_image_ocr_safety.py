@@ -85,7 +85,8 @@ def test_burned_in_grooming_text_propagates_deterministic_flag():
 def test_benign_ocr_text_never_weakens_visual_evidence():
     result = _apply_ocr_evidence(_base_result(adult_score=0.9), BENIGN_TEXT)
     assert result["adult_score"] == 0.9
-    assert "ocr_text_present" in result["errors"]
+    assert result["ocr_text_present"] is True
+    assert "ocr_text_present" not in result["errors"]
     assert result.get("deterministic_ocr_pii") is not True
 
 

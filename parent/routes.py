@@ -227,16 +227,42 @@ def safety():
     # Only children under an approved Parent Mode mapping, matching the
     # canonical owns() check, so a pending/declined link never leaks review events.
     ev=fetch_all("SELECT e.*,u.full_name FROM moderation_events e JOIN users u ON u.user_id=e.child_id WHERE e.decision='REVIEW' AND e.status='OPEN' AND e.child_id IN (SELECT m.child_id FROM parent_child_map m WHERE m.approved=TRUE AND m.approval_status='APPROVED' AND (m.parent_id=%s OR m.verified_parent_id=%s)) ORDER BY e.created_at DESC",(session['user_id'],session['user_id']))
+    focused = request.args.get('event', type=int)
+    if 'event' in request.args and (focused is None or not any(e['event_id'] == focused for e in ev)):
+        return ('Not available', 404)
+    ev.sort(key=lambda e: e['event_id'] != focused)
     for e in ev:
         preview={}
         if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'} and e['content_id']:
-            preview=fetch_one('SELECT media_type,media_path,caption,story_music_path FROM posts WHERE post_id=%s',(e['content_id'],)) or {}
+            preview=fetch_one('SELECT media_type,media_path,source_media_path,caption,story_music_path FROM posts WHERE post_id=%s',(e['content_id'],)) or {}
         elif e['content_type']=='COMMENT' and e['content_id']:
             preview=fetch_one('SELECT comment_text FROM comments WHERE comment_id=%s',(e['content_id'],)) or {}
         elif e['content_type']=='MESSAGE' and e['content_id']:
             preview=fetch_one('SELECT message_type,message_text,media_path,shared_post_id FROM child_messages WHERE child_message_id=%s',(e['content_id'],)) or {}
+        if preview.get('source_media_path') or preview.get('media_path'):
+            preview['preview_url']=f"/parent/review/{e['event_id']}/preview/"
+        preview.pop('source_media_path', None)
+        preview.pop('media_path', None)
         e['preview']=preview
     return render_template('safety_review.html',events=ev)
+
+@parent_bp.route('/parent/review/<int:event_id>/preview/',methods=['GET'])
+@parent_required
+def review_preview(event_id):
+    from services.object_storage import is_reference, signed_download_url
+    e=fetch_one("SELECT * FROM moderation_events WHERE event_id=%s AND decision='REVIEW' AND status='OPEN'",(event_id,))
+    if not e or not owns(session['user_id'],e['child_id']):return ('Not available',404)
+    if e['content_type'] in {'IMAGE','VIDEO','AUDIO','TEXT'}:
+        media=fetch_one("SELECT source_media_path,media_path FROM posts WHERE post_id=%s AND child_id=%s AND moderation_status='REVIEW'",(e['content_id'],e['child_id'])) or {}
+    elif e['content_type']=='MESSAGE':
+        media=fetch_one("SELECT media_path FROM child_messages WHERE child_message_id=%s AND sender_child_id=%s AND moderation_status='REVIEW'",(e['content_id'],e['child_id'])) or {}
+    else:return ('Not available',404)
+    ref=media.get('source_media_path') or media.get('media_path')
+    if not ref or not is_reference(ref):return ('Not available',404)
+    response=redirect(signed_download_url(ref,expires_seconds=60))
+    response.headers['Cache-Control']='private, no-store'
+    response.headers['Referrer-Policy']='no-referrer'
+    return response
 @parent_bp.route('/parent/review/<int:event_id>/',methods=['POST'])
 @parent_required
 def review(event_id):

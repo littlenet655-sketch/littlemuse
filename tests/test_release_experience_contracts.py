@@ -50,8 +50,8 @@ def test_random_reel_brain_break_is_server_driven_and_feed_stays_optional():
     assert "withQuizBreaks(visibleItems" not in feed
     # Reel interruption is server-driven, non-dismissible, and hands directly
     # to Quiz when the persisted latch becomes due.
-    assert "withQuizPromptRow(feed.items, showQuizPrompt)" in reels
-    assert "QuizPromptCard" in reels
+    assert "() => feed.items" in reels
+    assert "withQuizPromptRow" not in reels
     assert "onDismiss=" not in reels
     assert "setPaused(true)" in reels
     assert "nav.navigate('Quiz', { returnTo: 'ReelsTab', autoStart: true })" in reels
