@@ -4178,17 +4178,20 @@ def register_mobile_api(bp):
     @_require_mobile("CHILD")
     def mobile_v2_kids_heartbeat():
         uid = int(g.mobile_user["user_id"])
+        # Check parent pause, quiet hours and an already-exhausted limit before
+        # extending last_seen_at. A blocked child must not keep accumulating
+        # usage merely because the heartbeat hook is still mounted.
+        gate = _child_gate(record_usage=False)
+        if gate:
+            return gate
         key = (g.mobile_claims or {}).get("usage_session_key")
         if key:
             try:
                 heartbeat(key)
             except Exception:
                 pass
-        # This endpoint already wrote the dedicated heartbeat above.
-        # Do not let _child_gate() write the same usage session a second time.
-        gate = _child_gate(record_usage=False)
-        if gate:
-            return gate
+        # Re-evaluate after this single heartbeat so crossing the limit on this
+        # tick is reflected immediately in the response.
         locked, remaining = lock_state(uid)
         limit_row = fetch_one("SELECT daily_limit_minutes, strict_mode FROM child_time_limits WHERE child_id=%s", (uid,))
         controls = controls_for_child(uid)
