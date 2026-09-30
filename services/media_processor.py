@@ -1134,12 +1134,16 @@ def claim_media_job_lease(
             post_dict["retry_after_seconds"] = rem
             return False, None, post_dict
 
+    try:
+        lease_seconds = max(30, min(int(lease_seconds), 3600))
+    except (TypeError, ValueError):
+        lease_seconds = 300
     new_token = uuid.uuid4().hex
     claimed_row = execute(
         """UPDATE posts
            SET processing_status='PROCESSING',
                processing_lease_token=%s,
-               processing_lease_expires_at=NOW() + INTERVAL '300 seconds',
+               processing_lease_expires_at=NOW() + (%s * INTERVAL '1 second'),
                processing_started_at=COALESCE(processing_started_at, NOW()),
                processing_attempts=processing_attempts + 1,
                last_attempt_at=NOW(),
@@ -1151,7 +1155,7 @@ def claim_media_job_lease(
            RETURNING post_id, child_id, source_media_path, is_reel, is_story,
                      processing_status, moderation_status, processing_attempts,
                      max_processing_attempts, processing_lease_token""",
-        (new_token, post_id, force, force),
+        (new_token, lease_seconds, post_id, force, force),
         returning=True,
     )
     if claimed_row:
