@@ -636,3 +636,32 @@ def test_refill_probe_is_false_when_window_exhausted(monkeypatch):
     sess, _ = cf.get_or_create_feed_session(3, "REELS")
     # Everything served inside the window: no *new* content for a refill.
     assert cf._has_refill_candidates(3, "REELS", sess, "for_you") is False
+
+def test_social_candidates_filter_final_processing_and_durable_media_before_limit(monkeypatch):
+    """Broken legacy media must not consume the SQL LIMIT before eligibility filtering."""
+    import child.service as cs
+    import services.curated_feed as cf
+
+    monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
+    monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
+    monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
+
+    seen_sql = []
+
+    def fake_fetch_all(sql, _params):
+        seen_sql.append(sql)
+        return [_dummy_social_row(900 + len(seen_sql), is_reel="p.is_reel = TRUE" in sql)]
+
+    monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
+
+    assert len(cf.fetch_social_candidates(7, "FEED", limit=60)) == 1
+    assert len(cf.fetch_social_candidates(7, "REELS", limit=60)) == 1
+    assert len(seen_sql) == 2
+
+    for sql in seen_sql:
+        eligibility_sql = sql.split("ORDER BY", 1)[0]
+        assert "p.processing_status = 'ALLOWED'" in eligibility_sql
+        assert "p.media_type = 'TEXT'" in eligibility_sql
+        assert "p.media_path LIKE 'uploads/r2/%%'" in eligibility_sql
+        assert sql.index("p.processing_status = 'ALLOWED'") < sql.index("LIMIT %s")
+
