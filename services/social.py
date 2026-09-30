@@ -229,11 +229,19 @@ def post_visible_to(viewer_id,post_id):
 
 def visible_profile_posts(viewer_id,target_id,limit=60):
     if viewer_id == target_id:
-        return fetch_all("""SELECT p.* FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
+        return fetch_all("""SELECT p.*,
+          EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.post_id AND l.child_id=%s) AS viewer_liked,
+          EXISTS(SELECT 1 FROM saved_posts s WHERE s.post_id=p.post_id AND s.child_id=%s) AS viewer_saved,
+          ARRAY(SELECT tag FROM post_tags t WHERE t.post_id=p.post_id ORDER BY tag_id) AS tags
+          FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
           AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE) OR p.moderation_status='REVIEW')
-          ORDER BY p.created_at DESC LIMIT %s""",(target_id,limit))
-    rows=fetch_all("""SELECT p.* FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
-      AND p.moderation_status='ALLOWED' AND p.is_safe=TRUE ORDER BY p.created_at DESC LIMIT %s""",(target_id,limit))
+          ORDER BY p.created_at DESC LIMIT %s""",(viewer_id,viewer_id,target_id,limit))
+    rows=fetch_all("""SELECT p.*,
+      EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.post_id AND l.child_id=%s) AS viewer_liked,
+      EXISTS(SELECT 1 FROM saved_posts s WHERE s.post_id=p.post_id AND s.child_id=%s) AS viewer_saved,
+      ARRAY(SELECT tag FROM post_tags t WHERE t.post_id=p.post_id ORDER BY tag_id) AS tags
+      FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
+      AND p.moderation_status='ALLOWED' AND p.is_safe=TRUE ORDER BY p.created_at DESC LIMIT %s""",(viewer_id,viewer_id,target_id,limit))
     return [p for p in rows if post_visible_to(viewer_id,p['post_id'])]
 
 
