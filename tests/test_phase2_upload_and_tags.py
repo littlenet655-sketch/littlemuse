@@ -220,7 +220,7 @@ def test_upload_session_presign_failure_does_not_leak_pending_row(client, app):
     assert after == before
 
 
-def test_upload_session_uses_database_local_clock_for_created_and_expiry(client, app):
+def test_upload_session_uses_canonical_utc_clock_for_created_and_expiry(client, app):
     with app.app_context():
         _setup_child_and_parent(998, "upload_timestamp")
 
@@ -244,18 +244,47 @@ def test_upload_session_uses_database_local_clock_for_created_and_expiry(client,
     with app.app_context():
         row = fetch_one(
             """SELECT created_at, expires_at,
-                      expires_at > LOCALTIMESTAMP AS still_valid
+                      expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS still_valid
                FROM upload_sessions WHERE upload_id=%s""",
             (resp.json["upload_id"],),
         )
     assert row["expires_at"] > row["created_at"]
     assert int((row["expires_at"] - row["created_at"]).total_seconds()) == 900
     assert row["still_valid"] is True
-    # Client-facing expiry must carry an explicit timezone offset, not a
-    # misleading trailing Z attached to a database-local naive timestamp.
+    # Client-facing expiry must carry an explicit timezone offset while the
+    # stored legacy TIMESTAMP remains canonical UTC-naive.
     client_expiry = datetime.fromisoformat(resp.json["expires_at"])
     assert client_expiry.tzinfo is not None
     assert client_expiry.utcoffset() is not None
+
+
+def test_upload_complete_rejects_cancelled_session_without_creating_post(client, app):
+    with app.app_context():
+        _setup_child_and_parent(999, "cancelled_upload")
+        upload_id = str(uuid.uuid4())
+        obj_key = f"uploads/r2/quarantine/999/{upload_id}/source.jpg"
+        execute(
+            """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
+                                          expected_size_bytes, mime_type, extension, status, expires_at)
+               VALUES(%s, 999, %s, 'IMAGE', 'POST', 1000, 'image/jpeg', 'jpg', 'CANCELLED',
+                      (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '1 hour')""",
+            (upload_id, obj_key),
+        )
+
+    token = _issue_token({"user_id": 999, "role": "CHILD"})
+    with patch("services.job_queue.enqueue_media_job") as enqueue:
+        resp = client.post(
+            f"/api/mobile/v2/uploads/{upload_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"caption": "should not publish"},
+        )
+
+    assert resp.status_code == 409
+    assert resp.json["error"] == "upload_session_not_completable"
+    assert resp.json["status"] == "CANCELLED"
+    assert enqueue.called is False
+    with app.app_context():
+        assert fetch_one("SELECT post_id FROM posts WHERE upload_id=%s", (upload_id,)) is None
 
 
 def test_upload_complete_and_ownership_security(client, app):
