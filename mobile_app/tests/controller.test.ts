@@ -25,6 +25,23 @@ describe('401 / logout split (no recursion)', () => {
   });
 
 
+  it('still clears credentials if query-cache cleanup throws', async () => {
+    const storage = memoryBackend({
+      'littlenet.auth.token': 'expired',
+      'littlenet.auth.user': '{"user_id":1,"role":"CHILD"}',
+    });
+
+    await invalidateLocalSession({
+      storage,
+      clearQueries: async () => {
+        throw new Error('query cache unavailable');
+      },
+    });
+
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
+    assert.equal(storage.data['littlenet.auth.user'], undefined);
+  });
+
   it('expired-token 401 path clears locally without any server call', async () => {
     const storage = memoryBackend({ 'littlenet.auth.token': 'expired', 'littlenet.auth.user': '{"user_id":1,"role":"CHILD"}' });
     let serverCalls = 0;
@@ -73,6 +90,27 @@ describe('401 / logout split (no recursion)', () => {
       },
       't',
     );
+    assert.equal(serverCalls, 1);
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
+  });
+
+  it('explicit sign-out still clears credentials if query cancellation fails', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 't' });
+    let serverCalls = 0;
+
+    await userInitiatedSignOut(
+      {
+        storage,
+        clearQueries: async () => {
+          throw new Error('cancel failed');
+        },
+        serverLogout: async () => {
+          serverCalls += 1;
+        },
+      },
+      't',
+    );
+
     assert.equal(serverCalls, 1);
     assert.equal(storage.data['littlenet.auth.token'], undefined);
   });
