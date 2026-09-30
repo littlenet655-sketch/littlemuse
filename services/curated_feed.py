@@ -666,7 +666,9 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                WHERE cc.content_id = ANY(%s)
                  AND cc.publish_status = 'PUBLISHED'
                  AND cma.moderation_status = 'ALLOWED'
-                 AND cma.is_safe = TRUE""",
+                 AND cma.is_safe = TRUE
+                 AND cat.active = TRUE
+                 AND COALESCE(NULLIF(cma.delivery_object_key, ''), NULLIF(cma.original_object_key, '')) IS NOT NULL""",
             (curated_ids,),
         )
         curated_items = hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in c_rows])
@@ -677,7 +679,8 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
         s_rows = fetch_all(
             """SELECT p.*, u.full_name, cp.profile_picture,
                  (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
-                 (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count
+                 (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+                 COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
