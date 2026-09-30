@@ -52,10 +52,14 @@ def test_concurrent_upload_complete_never_duplicates_posts(client, app):
 
     with patch("mobile.api._child_gate", return_value=None), \
          patch("services.object_storage.head_object", return_value={"content_length": 50000, "content_type": "video/mp4"}), \
-         patch("services.job_queue.enqueue_media_job", return_value="job_conc_123"):
+         patch("services.job_queue.enqueue_media_job", return_value="job_conc_123") as mock_enqueue:
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(make_request, i) for i in range(5)]
             responses = [f.result() for f in futures]
+
+    # The upload row lock + processing lease must allow exactly one external
+    # worker spawn even when five completion requests race.
+    assert mock_enqueue.call_count == 1
 
     # All responses must be successful 200 OK
     status_codes = [r.status_code for r in responses]
