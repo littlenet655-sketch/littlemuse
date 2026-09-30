@@ -334,6 +334,17 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
     }
   }, [session?.token, current?.post_id]);
 
+  // Keep the gesture hook unconditional while loading, empty, or failed.
+  const swipeDown = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dy > 24 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 90) closeStories();
+      },
+    }),
+  ).current;
+
   if (loading) return <Screen><LoadingState message="Loading stories…" /></Screen>;
   if (error) {
     return (
@@ -382,19 +393,6 @@ export function StoriesScreen({ navigation, route }: ChildScreenProps<'Stories'>
   const next = () => advance();
   const previous = () => setIndex((value) => Math.max(0, value - 1));
   const expiryLabel = isOwnStory ? expiresInLabel(current.created_at) : null;
-
-  // Instagram parity: swipe down anywhere on the viewer to close it. Only a
-  // deliberate downward swipe claims the gesture — plain taps still reach the
-  // tap zones below.
-  const swipeDown = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dy > 24 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 90) closeStories();
-      },
-    }),
-  ).current;
 
   return (
     <Screen>
