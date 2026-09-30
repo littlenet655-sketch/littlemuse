@@ -2,11 +2,11 @@
 
 import pytest
 
-from safety.policy import decide
-from services.media_processor import _merge_signals
-
 
 def test_merge_preserves_visual_category_and_scores_for_model_specific_policy():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
     media = {
         "category": "ADULT",
         "adult_score": 0.645,
@@ -55,6 +55,9 @@ def test_merge_preserves_visual_category_and_scores_for_model_specific_policy():
 
 
 def test_merge_keeps_trained_image_hard_block_behavior():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
     media = {
         "category": "ADULT",
         "adult_score": 0.95,
