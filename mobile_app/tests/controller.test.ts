@@ -38,6 +38,27 @@ describe('401 / logout split (no recursion)', () => {
     assert.equal(storage.data['littlenet.auth.onboarding'], undefined);
   });
 
+  it('cancels query work before the explicit server logout starts', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 't' });
+    const order: string[] = [];
+
+    await userInitiatedSignOut(
+      {
+        storage,
+        clearQueries: async () => {
+          order.push('clear-queries');
+        },
+        serverLogout: async () => {
+          order.push('server-logout');
+        },
+      },
+      't',
+    );
+
+    assert.deepEqual(order, ['clear-queries', 'server-logout']);
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
+  });
+
   it('user logout calls the server exactly once even when it 401s', async () => {
     const storage = memoryBackend({ 'littlenet.auth.token': 't' });
     let serverCalls = 0;
