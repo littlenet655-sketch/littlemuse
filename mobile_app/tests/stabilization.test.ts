@@ -40,3 +40,12 @@ test('Create retains photo and video with two primary media sources', () => {
   assert.match(source, /capturePostMedia\('image'\)/);
   assert.match(source, /capturePostMedia\('video', maxVideoDurationFor\(kind\)\)/);
 });
+
+test('Story loading, error and empty returns cannot skip the gesture hook', () => {
+  const source = readFileSync('src/screens/kids/StoriesScreen.tsx', 'utf8');
+  const hook = source.indexOf('const swipeDown = useRef(');
+  assert.ok(hook >= 0);
+  for (const guard of ['if (loading) return', 'if (error) {', 'if (!current) {']) {
+    assert.ok(hook < source.indexOf(guard), `${guard} skips the gesture hook`);
+  }
+});
