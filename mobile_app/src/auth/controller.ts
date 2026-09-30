@@ -16,8 +16,12 @@ export interface SessionControllerDeps {
 export async function invalidateLocalSession(deps: Pick<SessionControllerDeps, 'storage' | 'clearQueries'>): Promise<void> {
   // Stop query observers/network work first so no stale request can race the
   // token removal and trigger another unauthorized cascade during sign-out.
-  await deps.clearQueries();
-  await clearSession(deps.storage);
+  // Cache cleanup is best-effort; a cache failure must never preserve auth.
+  try {
+    await deps.clearQueries();
+  } finally {
+    await clearSession(deps.storage);
+  }
 }
 
 /**
@@ -29,7 +33,11 @@ export async function userInitiatedSignOut(deps: SessionControllerDeps, token: s
   // Stop observers/network work before the logout request itself. Otherwise a
   // background query can race sign-out, receive a 401, and enter the local
   // invalidation path while the explicit logout is still in flight.
-  await deps.clearQueries();
+  try {
+    await deps.clearQueries();
+  } catch {
+    // Query-cache cleanup is advisory; auth cleanup below is authoritative.
+  }
   if (token) {
     try {
       await withoutUnauthorizedHandler(() => deps.serverLogout(token));
