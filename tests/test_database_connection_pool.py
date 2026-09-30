@@ -62,6 +62,16 @@ class FakePool:
         (self.discarded if close else self.returned).append(conn)
 
 
+def test_connect_kwargs_bound_dead_sockets_and_runaway_queries():
+    kwargs = connection._connect_kwargs()
+    assert kwargs["connect_timeout"] <= 5
+    assert kwargs["tcp_user_timeout"] <= 8000
+    assert kwargs["keepalives"] == 1
+    assert "statement_timeout=25000" in kwargs["options"]
+    assert "lock_timeout=8000" in kwargs["options"]
+    assert "timezone=" in kwargs["options"]
+
+
 def test_healthy_pooled_connection_is_validated_and_reused(monkeypatch):
     raw = FakeConnection()
     pool = FakePool(raw, raw)

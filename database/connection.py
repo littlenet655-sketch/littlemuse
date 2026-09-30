@@ -90,9 +90,26 @@ def _database_timezone() -> str:
 
 
 def _connect_kwargs() -> dict:
+    """Bound every PostgreSQL connect and read.
+
+    Neon drops idle sockets without a TCP reset. Without these limits a pooled
+    connection's next query waits for the kernel retransmission timeout, and the
+    mobile client reports that as "took too long" on login, feed, and quiz alike.
+    tcp_user_timeout fires when transmitted data is not acknowledged; a live
+    server that is merely slow still ACKs and is governed by statement_timeout.
+    """
     return {
         "cursor_factory": __import__("psycopg2.extras", fromlist=["RealDictCursor"]).RealDictCursor,
-        "options": f"-c timezone={_database_timezone()}",
+        "connect_timeout": 5,
+        "keepalives": 1,
+        "keepalives_idle": 20,
+        "keepalives_interval": 5,
+        "keepalives_count": 3,
+        "tcp_user_timeout": 4000,
+        "options": (
+            f"-c timezone={_database_timezone()} "
+            "-c statement_timeout=25000 -c lock_timeout=8000"
+        ),
     }
 
 
@@ -109,7 +126,7 @@ def _get_pool():
                 started = time.monotonic()
                 minconn = max(1, int(os.getenv("DB_POOL_MIN_CONNECTIONS", "2")))
                 maxconn = max(minconn, int(os.getenv("DB_POOL_MAX_CONNECTIONS", "20")))
-                _pool = ThreadedConnectionPool(minconn, maxconn, _database_url(), cursor_factory=RealDictCursor, options=f"-c timezone={_database_timezone()}")
+                _pool = ThreadedConnectionPool(minconn, maxconn, _database_url(), **_connect_kwargs())
                 _metric("pool_creations", time.monotonic() - started)
                 _metric("connection_creations", amount=minconn)
     return _pool
@@ -187,7 +204,7 @@ def get_db_connection():
         import psycopg2
         from psycopg2.extras import RealDictCursor
         started = time.monotonic()
-        conn = psycopg2.connect(_database_url(), cursor_factory=RealDictCursor, options=f"-c timezone={_database_timezone()}")
+        conn = psycopg2.connect(_database_url(), **_connect_kwargs())
         _metric("connection_creations", time.monotonic() - started)
         return conn
 

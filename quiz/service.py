@@ -160,13 +160,16 @@ def next_feed_quiz(cid):
             (g, cid)
         )
     if not row:
-        # Bank exhausted for this child! Generate fresh questions using K2 AI on the fly
+        # The request path must not wait on paid quiz generation. K2's read
+        # timeout is 30s, which is longer than the mobile client's deadline.
+        # Serve a local question now and refill the bank in the background.
         try:
-            from quiz.learning_service import generate_and_insert_fresh_quizzes
-            fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=3, child_id=cid)
+            from quiz.learning_service import _procedural_fallback_quizzes, _refill_bank_async
+            fresh = _procedural_fallback_quizzes(age_group=g, needed=1, child_id=cid)
             if fresh:
                 row = fresh[0]
-        except Exception as exc:
+            _refill_bank_async(g)
+        except Exception:
             pass
 
     # Strictly guarantee: NEVER return a question already in child_quiz_attempts for this child
@@ -174,9 +177,10 @@ def next_feed_quiz(cid):
         has_attempted = fetch_one('SELECT 1 FROM child_quiz_attempts WHERE child_id=%s AND quiz_id=%s', (cid, row['quiz_id']))
         if has_attempted:
             try:
-                from quiz.learning_service import generate_and_insert_fresh_quizzes
-                fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=1, child_id=cid)
+                from quiz.learning_service import _procedural_fallback_quizzes, _refill_bank_async
+                fresh = _procedural_fallback_quizzes(age_group=g, needed=1, child_id=cid)
                 row = fresh[0] if fresh else None
+                _refill_bank_async(g)
             except Exception:
                 row = None
 

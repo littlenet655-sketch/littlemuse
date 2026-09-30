@@ -111,6 +111,7 @@ def _client():
     if not _enabled():
         raise RuntimeError("Cloudflare R2 is not configured")
     import boto3
+    from botocore.config import Config as BotoConfig
 
     return boto3.client(
         "s3",
@@ -118,6 +119,11 @@ def _client():
         aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         region_name="auto",
+        config=BotoConfig(
+            connect_timeout=5,
+            read_timeout=20,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
     )
 
 

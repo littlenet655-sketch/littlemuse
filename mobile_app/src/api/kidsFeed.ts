@@ -89,7 +89,12 @@ export function fetchFeedV2(
   const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit), mode });
   if (sessionId) p.set('session_id', sessionId);
   if (refillFrom) p.set('refill_from', refillFrom);
-  return get<FeedPage>(`${routes.feedV2}?${p.toString()}`, token, activeSignal);
+  // Same budget as reel pages. A cold container plus one feed-session build
+  // was already observed to outlive the 10s default on a phone.
+  return apiRequest<FeedPage>(`${routes.feedV2}?${p.toString()}`, {
+    signal: activeSignal,
+    timeoutMs: 30_000,
+  }, token);
 }
 
 export async function fetchReelsV2(
@@ -182,7 +187,7 @@ export function recordFeedImpression(
 }
 
 export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean; allow_comments?: boolean } }> {
-  return get(routes.kidsHome, token);
+  return apiRequest(routes.kidsHome, { timeoutMs: 30_000 }, token);
 }
 
 export interface HeartbeatResult {

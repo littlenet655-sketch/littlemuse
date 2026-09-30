@@ -211,6 +211,25 @@ def test_wrong_answer_clears_compulsory_gate_without_infinite_loop():
         mock_reset.assert_called_once_with(123)
 
 
+def test_exhausted_bank_does_not_wait_on_paid_generation():
+    import quiz.learning_service as learning_service
+    from quiz.service import next_feed_quiz
+
+    local = {"quiz_id": 77, "question": "What is 2 + 2?", "age_group": "9-11"}
+    with patch("quiz.service.age_group", return_value="9-11"), \
+         patch("quiz.service.fetch_one", return_value=None), \
+         patch.object(learning_service, "get_child_difficulty_level", return_value="MEDIUM"), \
+         patch.object(learning_service, "trigger_background_refill_if_needed"), \
+         patch.object(learning_service, "populate_child_personalized_pool"), \
+         patch.object(learning_service, "_procedural_fallback_quizzes", return_value=[local]) as local_fill, \
+         patch.object(learning_service, "_refill_bank_async") as background, \
+         patch.object(learning_service, "generate_and_insert_fresh_quizzes", side_effect=AssertionError("paid generator blocked the request")):
+        q = next_feed_quiz(42)
+    assert q["quiz_id"] == 77
+    local_fill.assert_called()
+    background.assert_called()
+
+
 def test_static_fallback_when_k2_ai_unavailable():
     from quiz.service import next_feed_quiz
 

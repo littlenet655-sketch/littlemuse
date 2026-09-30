@@ -115,6 +115,10 @@ WEB_SCALEDOWN_WINDOW = int(os.getenv("MODAL_WEB_SCALEDOWN_WINDOW", "60"))
     min_containers=WEB_MIN_CONTAINERS,
     max_containers=WEB_MAX_CONTAINERS,
 )
+# One input at a time lets a single slow feed or a dead-DB probe occupy the
+# container until every other phone request (login, quiz, home) hits the
+# client deadline. Flask plus the DB pool can serve these in parallel.
+@modal.concurrent(max_inputs=16, target_inputs=4)
 @modal.wsgi_app()
 def web():
     """Expose the complete LittleNet Flask app on Modal."""

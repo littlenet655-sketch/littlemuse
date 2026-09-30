@@ -89,6 +89,13 @@ def test_video_release_policy_is_bounded_and_fail_safe():
     assert "LITTLENET_VIDEO_MAX_AUTO_ALLOW_GAP_SECONDS=12" in env
 
 
+def test_web_container_serves_mobile_requests_concurrently():
+    web = (ROOT / "modal_web.py").read_text(encoding="utf-8")
+    assert "@modal.concurrent(max_inputs=16, target_inputs=4)" in web
+    # The decorator has to wrap the web entrypoint, not only a comment.
+    assert web.index("@modal.concurrent(max_inputs=16, target_inputs=4)") < web.index("def web(")
+
+
 def test_release_preflight_rejects_stale_ai_endpoint_or_secret_drift():
     web = (ROOT / "modal_web.py").read_text(encoding="utf-8")
     ai = (ROOT / "modal_ai.py").read_text(encoding="utf-8")
