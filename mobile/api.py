@@ -2738,9 +2738,18 @@ def register_mobile_api(bp):
             ), 503
 
         if object_storage.enabled():
-            upload_url = object_storage.signed_upload_url(
-                object_key, content_type=mime_type, expires_seconds=expires_seconds
-            )
+            try:
+                upload_url = object_storage.signed_upload_url(
+                    object_key, content_type=mime_type, expires_seconds=expires_seconds
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "direct upload target generation failed for child_id=%s", uid
+                )
+                return jsonify(
+                    error="upload_target_unavailable",
+                    fallback_allowed=False,
+                ), 503
         elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
             return jsonify(
                 error="storage_configuration_error",
