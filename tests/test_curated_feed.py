@@ -641,8 +641,10 @@ def test_social_candidates_filter_final_processing_and_durable_media_before_limi
     """Broken legacy media must not consume the SQL LIMIT before eligibility filtering."""
     import child.service as cs
     import services.curated_feed as cf
+    from services import object_storage
 
     monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
+    monkeypatch.setattr(object_storage, "enabled", lambda: True)
     monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
     monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
 
@@ -699,4 +701,35 @@ def test_materialized_session_rechecks_processing_state_and_renderability(monkey
     )
 
     assert items == []
+
+def test_social_candidates_keep_valid_local_media_in_local_mode(monkeypatch):
+    """Local development posts remain feed-renderable when R2 is disabled."""
+    import child.service as cs
+    import services.curated_feed as cf
+    from services import object_storage
+
+    monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
+    monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
+    monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
+    monkeypatch.setattr(object_storage, "enabled", lambda: False)
+    monkeypatch.setattr(cf.os.path, "exists", lambda path: path == "uploads/posts/valid.jpg")
+
+    local_row = {
+        **_dummy_social_row(post_id=901, is_reel=False),
+        "processing_status": "ALLOWED",
+        "media_path": "uploads/posts/valid.jpg",
+    }
+    seen_params = []
+
+    def fake_fetch_all(sql, params):
+        seen_params.append(params)
+        return [local_row]
+
+    monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
+
+    items = cf.fetch_social_candidates(7, "FEED", limit=10)
+
+    assert [item["source_id"] for item in items] == [901]
+    assert seen_params
+    assert seen_params[0][-1] > 10
 
