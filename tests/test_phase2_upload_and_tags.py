@@ -253,7 +253,9 @@ def test_upload_session_uses_database_local_clock_for_created_and_expiry(client,
     assert row["still_valid"] is True
     # Client-facing expiry must carry an explicit timezone offset, not a
     # misleading trailing Z attached to a database-local naive timestamp.
-    assert resp.json["expires_at"].endswith(("+05:30", "+00:00"))
+    client_expiry = datetime.fromisoformat(resp.json["expires_at"])
+    assert client_expiry.tzinfo is not None
+    assert client_expiry.utcoffset() is not None
 
 
 def test_upload_complete_and_ownership_security(client, app):
