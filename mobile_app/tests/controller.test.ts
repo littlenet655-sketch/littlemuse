@@ -5,6 +5,26 @@ import { memoryBackend } from '../src/auth/backends';
 import { ApiError } from '../src/api/client';
 
 describe('401 / logout split (no recursion)', () => {
+  it('cancels query work before removing the persisted token', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 'expired' });
+    const order: string[] = [];
+    const originalRemove = storage.removeItem;
+    storage.removeItem = async (key: string) => {
+      if (key === 'littlenet.auth.token') order.push('remove-token');
+      await originalRemove(key);
+    };
+
+    await invalidateLocalSession({
+      storage,
+      clearQueries: async () => {
+        order.push('clear-queries');
+      },
+    });
+
+    assert.deepEqual(order.slice(0, 2), ['clear-queries', 'remove-token']);
+  });
+
+
   it('expired-token 401 path clears locally without any server call', async () => {
     const storage = memoryBackend({ 'littlenet.auth.token': 'expired', 'littlenet.auth.user': '{"user_id":1,"role":"CHILD"}' });
     let serverCalls = 0;
