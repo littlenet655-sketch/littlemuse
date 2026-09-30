@@ -283,7 +283,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         : old,
     );
     try {
-      await toggleFollow(session.token, kid.user_id);
+      await toggleFollow(session.token, kid.user_id, kid.is_following ? 'remove' : kid.is_pending ? 'cancel' : 'request');
     } catch {
       // Roll back to the authoritative server state on failure.
     } finally {

@@ -135,3 +135,54 @@ def test_deploy_images_exclude_local_credentials_and_quarantine_not_in_html():
         for excluded in ('".env.*"', '"scratch/**"', '"walkthrough.md"'):
             assert excluded in source
     assert 'e.preview.media_path' not in (ROOT / 'parent/templates/safety_review.html').read_text(encoding='utf-8')
+
+
+@pytest.mark.parametrize('active,expected', [(False, 'pending'), (True, 'following')])
+def test_explicit_follow_request_retry_preserves_relationship(app, monkeypatch, active, expected):
+    import inspect
+    from mobile import api
+    state = {'pending': False}
+    monkeypatch.setattr(api, '_child_gate', lambda *_: None)
+    monkeypatch.setattr(api, 'can_discover_child', lambda *_: True)
+    monkeypatch.setattr(api, 'is_following', lambda *_: active)
+    monkeypatch.setattr(api, 'outgoing_follow_pending', lambda *_: state['pending'])
+    monkeypatch.setattr(api, 'incoming_follow_pending', lambda *_: False)
+    monkeypatch.setattr(api, 'child_has_guardian', lambda *_: True)
+    monkeypatch.setattr(api, 'follow_child', lambda *_: state.update(pending=True))
+    monkeypatch.setattr(api, 'unfollow_child', lambda *_: pytest.fail('retry removed friendship'))
+    monkeypatch.setattr(api, 'cancel_outgoing_follow', lambda *_: pytest.fail('retry cancelled request'))
+    monkeypatch.setattr(api, 'record_signal', lambda *_: None)
+    monkeypatch.setattr(api, 'parent_notify', lambda *_: None)
+    rule = next(r for r in app.url_map.iter_rules() if r.rule == '/api/mobile/v1/kids/follow/<int:child_id>')
+    view = inspect.unwrap(app.view_functions[rule.endpoint])
+    for _ in range(2):
+        with app.test_request_context('/api/mobile/v1/kids/follow/8', method='POST', json={'action': 'request'}):
+            g.mobile_user = {'user_id': 7}
+            assert view(8).get_json()['status'] == expected
+
+
+def test_connection_request_lists_execute_with_real_follower_key(app, monkeypatch):
+    import inspect
+    import sqlite3
+    from mobile import api
+    conn = sqlite3.connect(':memory:')
+    conn.row_factory = sqlite3.Row
+    conn.executescript('''
+        CREATE TABLE followers(follower_id INTEGER,child_id INTEGER,following_child_id INTEGER,
+                               approved BOOLEAN,created_at TEXT,approval_stage TEXT);
+        CREATE TABLE users(user_id INTEGER,full_name TEXT,username TEXT);
+        CREATE TABLE child_profiles(child_id INTEGER,profile_picture TEXT,school_name TEXT);
+        INSERT INTO users VALUES(8,'Fixture','fixture');
+        INSERT INTO followers VALUES(1,7,8,FALSE,'2026-09-30','REQUESTED');
+        INSERT INTO followers VALUES(2,8,7,FALSE,'2026-09-30','RECEIVER_PARENT_PENDING');
+    ''')
+    monkeypatch.setattr(api, '_child_gate', lambda *_: None)
+    monkeypatch.setattr(api, 'fetch_all', lambda sql, params: [dict(r) for r in conn.execute(sql.replace('%s','?'), params)])
+    monkeypatch.setattr(api, '_asset_url', lambda _: None)
+    with app.test_request_context('/api/mobile/v1/kids/connections/requests'):
+        g.mobile_user = {'user_id': 7}
+        rule = next(r for r in app.url_map.iter_rules() if r.rule == '/api/mobile/v1/kids/connections/requests')
+        payload = inspect.unwrap(app.view_functions[rule.endpoint])().get_json()
+        assert payload['incoming'][0]['id'] == 2
+        assert payload['outgoing'][0]['id'] == 1
+    conn.close()

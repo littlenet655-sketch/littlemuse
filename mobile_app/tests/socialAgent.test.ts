@@ -69,14 +69,18 @@ function bodyJson(index = 0): Record<string, unknown> {
 }
 
 describe('follow / unfollow contract', () => {
-  it('toggles follow with a POST and no body; server owns pending state', async () => {
+  it('sends explicit follow intent so a retried request cannot cancel it', async () => {
     stubFetch();
     nextPayload = { ok: true, status: 'pending' };
     const res = await toggleFollow('tok', 7);
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/kids/follow/7');
     assert.equal(seen[0]?.init.method, 'POST');
-    assert.deepEqual(bodyJson(), {});
+    assert.deepEqual(bodyJson(), { action: 'request' });
     assert.equal(res.status, 'pending');
+    await toggleFollow('tok', 7, 'cancel');
+    assert.deepEqual(bodyJson(1), { action: 'cancel' });
+    await toggleFollow('tok', 7, 'remove');
+    assert.deepEqual(bodyJson(2), { action: 'remove' });
   });
 
   it('reads follow requests from the real endpoint', async () => {
