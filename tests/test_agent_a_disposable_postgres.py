@@ -91,7 +91,7 @@ def test_profile_query_returns_viewer_metadata_without_changing_visibility(db):
                    VALUES(%s,'IMAGE','Profile metadata fixture','ALLOWED','ALLOWED',TRUE) RETURNING post_id""", (uid,))
     pid = cur.fetchone()['post_id']
     cur.execute('INSERT INTO likes(post_id,child_id) VALUES(%s,%s)', (pid,uid))
-    cur.execute("INSERT INTO post_tags(post_id,tag) VALUES(%s,'Art')", (pid,))
+    cur.execute("INSERT INTO post_tags(post_id,tag,normalized_tag) VALUES(%s,'Art','art')", (pid,))
     row = next(p for p in visible_profile_posts(uid,uid) if p['post_id']==pid)
     assert row['viewer_liked'] is True
     assert row['viewer_saved'] is False
