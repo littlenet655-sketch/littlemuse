@@ -1122,17 +1122,19 @@ def claim_media_job_lease(
 
     last_att = post.get("last_attempt_at")
     if last_att and not force and not is_reap:
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        if hasattr(last_att, "tzinfo") and last_att.tzinfo is None:
-            last_att = last_att.replace(tzinfo=timezone.utc)
+        # last_attempt_at is a legacy TIMESTAMP without timezone. Compare it
+        # against the database's local clock rather than attaching UTC in
+        # Python; doing the latter creates a ~5.5h backoff error in IST.
+        now_row = fetch_one("SELECT LOCALTIMESTAMP AS now") or {}
+        now = now_row.get("now")
         backoff_sec = min(300, (2 ** max(0, attempts - 1)) * 5)
-        elapsed = (now - last_att).total_seconds()
-        if elapsed < backoff_sec:
-            rem = int(backoff_sec - elapsed)
-            post_dict = dict(post)
-            post_dict["retry_after_seconds"] = rem
-            return False, None, post_dict
+        if now is not None:
+            elapsed = (now - last_att).total_seconds()
+            if elapsed < backoff_sec:
+                rem = max(1, int(backoff_sec - elapsed))
+                post_dict = dict(post)
+                post_dict["retry_after_seconds"] = rem
+                return False, None, post_dict
 
     try:
         lease_seconds = max(30, min(int(lease_seconds), 3600))
