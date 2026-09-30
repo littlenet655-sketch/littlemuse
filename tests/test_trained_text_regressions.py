@@ -108,6 +108,16 @@ class TestTrainedViolenceProbability:
         assert result["deterministic_severe_abuse"] is False
         assert result["category"] == "TEXT"
 
+    def test_high_probability_still_blocks_through_risk_policy(self, trained_model):
+        trained_model["violence"] = 0.80
+        result = text_service.check_text(BENIGN_TEXT)
+        assert result["violence_score"] == pytest.approx(0.80)
+        assert result["deterministic_severe_abuse"] is False
+        assert result["category"] == "TEXT"
+        decision = policy.decide(result, "STRICT")
+        assert decision.action == "BLOCK"
+        assert "risk" in decision.reason.lower()
+
 
 class TestDeterministicRulesSurviveWeakModel:
     """Deterministic rules fire even when the trained model says 'clean'."""
