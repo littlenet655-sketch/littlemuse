@@ -3005,7 +3005,7 @@ def register_mobile_api(bp):
             if isinstance(raw_tags, str):
                 raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            from services.tag_service import validate_and_normalize_tags, save_post_tags
+            from services.tag_service import validate_and_normalize_tags
 
             validated_tags, tag_err = validate_and_normalize_tags(raw_tags, uid)
             if tag_err:
@@ -3102,14 +3102,22 @@ def register_mobile_api(bp):
                 post_row = cur.fetchone()
                 post_id = post_row["post_id"]
 
+            # Persist tags inside the same transaction as the post/session state.
+            # A tag-write failure must not commit a CONSUMED upload without its
+            # validated metadata and then rely on a reaper to process a partial post.
+            for display_tag, normalized_tag in validated_tags:
+                cur.execute(
+                    """INSERT INTO post_tags(post_id, tag, normalized_tag)
+                       VALUES(%s, %s, %s)
+                       ON CONFLICT(post_id, normalized_tag) DO NOTHING""",
+                    (post_id, display_tag, normalized_tag),
+                )
+
             cur.execute(
                 "UPDATE upload_sessions SET status='CONSUMED', consumed_at=NOW() WHERE upload_id=%s",
                 (upload_id,),
             )
             conn.commit()
-
-            if validated_tags:
-                save_post_tags(post_id, validated_tags)
         except Exception:
             conn.rollback()
             raise
