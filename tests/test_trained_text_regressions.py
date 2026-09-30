@@ -2,11 +2,10 @@
 
 Covers ``safety/text_service.py::check_text()``:
 
-Class 1 -- the >= 0.60 trained-violence merge (commit 5f1c367). The trained
-text model's ``violence_score`` is a probability that is virtually never
-exactly 0; folding it raw into the lexical ``severe`` flag would make every
-message truthy-severe and hard-block all kids' chat. The merge block only
-folds it in when ``trained_violence >= 0.60``. These tests pin that boundary.
+Class 1 -- trained violence remains probabilistic evidence. The trained
+text model's ``violence_score`` is a probability, not a deterministic
+lexical match. It is preserved for risk scoring at every confidence but must
+never manufacture ``deterministic_severe_abuse`` or a SEVERE_ABUSE category.
 
 Class 2 -- defense in depth. Deterministic grooming / contact-request rules
 must fire even when the trained model returns all-zero scores.
@@ -81,37 +80,33 @@ def trained_model(monkeypatch):
     return scores
 
 
-class TestTrainedViolenceThreshold:
-    """The trained violence_score merges into the lexical severe flag ONLY
-    at trained_violence >= 0.60."""
+class TestTrainedViolenceProbability:
+    """Model violence remains probabilistic; lexical rules alone are deterministic."""
 
-    def test_059_does_not_merge(self, trained_model):
+    def test_059_is_preserved_as_probabilistic_evidence(self, trained_model):
         trained_model["violence"] = 0.59
         result = text_service.check_text(BENIGN_TEXT)
-        assert not result["violence_score"], (
-            f"trained violence 0.59 must not merge, got "
-            f"violence_score={result['violence_score']}"
-        )
+        assert result["violence_score"] == pytest.approx(0.59)
         assert result["deterministic_severe_abuse"] is False
-        assert result["category"] != "SEVERE_ABUSE"
+        assert result["category"] == "TEXT"
+        # STRICT policy may review this model score, but it is not a lexical
+        # severe-abuse hard block.
+        assert policy.decide(result, "STRICT").action == "REVIEW"
 
-    def test_060_merges(self, trained_model):
+    def test_060_does_not_become_deterministic_abuse(self, trained_model):
         trained_model["violence"] = 0.60
         result = text_service.check_text(BENIGN_TEXT)
         assert result["violence_score"] == pytest.approx(0.60)
-        assert result["deterministic_severe_abuse"] is True
-        assert result["category"] == "SEVERE_ABUSE"
+        assert result["deterministic_severe_abuse"] is False
+        assert result["category"] == "TEXT"
+        assert policy.decide(result, "STRICT").action == "REVIEW"
 
-    def test_05999_does_not_merge_boundary(self, trained_model):
-        # Documents the exact boundary: 0.5999 is still below the threshold.
+    def test_05999_has_no_special_deterministic_boundary(self, trained_model):
         trained_model["violence"] = 0.5999
         result = text_service.check_text(BENIGN_TEXT)
-        assert not result["violence_score"], (
-            f"trained violence 0.5999 must not merge, got "
-            f"violence_score={result['violence_score']}"
-        )
+        assert result["violence_score"] == pytest.approx(0.5999)
         assert result["deterministic_severe_abuse"] is False
-        assert result["category"] != "SEVERE_ABUSE"
+        assert result["category"] == "TEXT"
 
 
 class TestDeterministicRulesSurviveWeakModel:
