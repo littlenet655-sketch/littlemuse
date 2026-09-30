@@ -274,7 +274,8 @@ def test_feed_modes_server_filtering():
         {"source_type": "CURATED", "source_id": 20, "category": "Math", "moderation_status": "ALLOWED"},
     ]
 
-    with patch("services.curated_feed.get_or_create_feed_session", return_value=("sess-123", sample_session_items)):
+    with patch("services.curated_feed.get_or_create_feed_session", return_value=("sess-123", sample_session_items)), \
+         patch("services.curated_feed._has_refill_candidates", return_value=False):
         # For You: all items
         page_all = get_feed_page(child_id=1, surface="FEED", mode="for_you")
         assert len(page_all["items"]) == 4

@@ -153,14 +153,39 @@ def can_discover_child(viewer_id,target_id):
     if viewer_id==target_id:return True
     try:target_id=int(target_id)
     except (TypeError,ValueError):return False
-    return target_id in set(discoverable_child_ids(viewer_id))
+    if target_id in set(discoverable_child_ids(viewer_id)):return True
+    from services.controls import feature_allowed
+    if not feature_allowed(viewer_id,'discover'):return False
+    return bool(fetch_one('''SELECT 1 FROM users u JOIN child_profiles cp ON cp.child_id=u.user_id
+        LEFT JOIN parent_control_settings pcs ON pcs.child_id=u.user_id
+        WHERE u.user_id=%s AND u.role='CHILD' AND u.account_status='ACTIVE'
+          AND COALESCE(cp.age,u.age) BETWEEN 6 AND 17 AND COALESCE(pcs.allow_discover,TRUE)
+          AND EXISTS(SELECT 1 FROM parent_child_map m WHERE m.child_id=u.user_id
+                     AND m.approved=TRUE AND m.approval_status='APPROVED')
+          AND NOT EXISTS(SELECT 1 FROM blocked_users b WHERE
+              (b.blocker_id=%s AND b.blocked_id=u.user_id) OR (b.blocker_id=u.user_id AND b.blocked_id=%s))
+          AND NOT EXISTS(SELECT 1 FROM muted_users m WHERE m.muter_id=%s AND m.muted_id=u.user_id)''',
+        (target_id,viewer_id,viewer_id,viewer_id)))
 
 
 def discoverable_children(cid,search_term=None,limit=30):
-    ids=discoverable_child_ids(cid)
-    if not ids:return []
     try:limit=max(1,min(int(limit),50))
     except (TypeError,ValueError):limit=30
+    # Suggestions keep the trusted cohort. Explicit exact lookup is opt-in,
+    # exposes only public identity, and uses the same profile/follow eligibility.
+    term=(search_term or '').strip()
+    if len(term)>=2:
+        matches=fetch_all("""SELECT u.user_id,u.full_name,u.username,cp.profile_picture
+            FROM users u JOIN child_profiles cp ON cp.child_id=u.user_id
+            WHERE u.role='CHILD' AND u.account_status='ACTIVE' AND u.user_id<>%s
+              AND (LOWER(u.username)=LOWER(%s) OR LOWER(u.full_name)=LOWER(%s))
+            ORDER BY u.user_id LIMIT 50""",(cid,term,term))
+        # ponytail: at most 50 shared eligibility checks; batch them if this limit grows.
+        matches=[dict(r,recommendation_reason='Exact match · parents approve friendship')
+                 for r in matches if can_discover_child(cid,r['user_id'])]
+        if matches:return matches[:limit]
+    ids=discoverable_child_ids(cid)
+    if not ids:return []
     term=(search_term or '').strip();pattern=f"%{term}%"
     return fetch_all('''WITH viewer AS (
           SELECT cp.school_name,cp.current_class,pcm.parent_id

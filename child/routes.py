@@ -104,7 +104,8 @@ def child_settings():
 def view_profile(user_id):
     if not can_discover_child(session['user_id'],user_id):return ('Not available',404)
     if fetch_one('SELECT 1 FROM blocked_users WHERE (blocker_id=%s AND blocked_id=%s) OR (blocker_id=%s AND blocked_id=%s)',(session['user_id'],user_id,user_id,session['user_id'])):return ('Not available',404)
-    return render_template('view_profile.html',profile=get_child_profile(user_id),counts=counts(user_id),target_user_id=user_id,is_following=is_following(session['user_id'],user_id),is_pending=is_follow_pending(session['user_id'],user_id),posts=visible_profile_posts(session['user_id'],user_id),can_message=can_interact(session['user_id'],user_id))
+    public_profile={k:v for k,v in (get_child_profile(user_id) or {}).items() if k in {'child_id','full_name','username','bio','profile_picture'}}
+    return render_template('view_profile.html',profile=public_profile,counts=counts(user_id),target_user_id=user_id,is_following=is_following(session['user_id'],user_id),is_pending=is_follow_pending(session['user_id'],user_id),posts=visible_profile_posts(session['user_id'],user_id),can_message=can_interact(session['user_id'],user_id))
 
 @child_bp.route('/discover/')
 @limiter.limit('60 per minute')

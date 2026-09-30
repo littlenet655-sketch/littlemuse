@@ -1,11 +1,14 @@
 from functools import wraps
 from flask import session, redirect, jsonify, request
 from database.connection import fetch_one
+from urllib.parse import urlencode
 
 
 def _deny():
     if request.path.startswith('/api/'):
         return jsonify(error='unauthorized'), 401
+    if request.path.startswith('/parent/'):
+        return redirect('/login/?' + urlencode({'mode': 'parent', 'next': request.full_path.rstrip('?')}))
     return redirect('/login/')
 
 

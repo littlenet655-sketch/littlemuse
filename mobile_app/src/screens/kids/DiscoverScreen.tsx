@@ -365,7 +365,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <IgIcon name="search" size={18} color={colors.muted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search safe topics, classmates, #science…"
+            placeholder="Safe topics or an exact username…"
             placeholderTextColor={colors.muted}
             value={raw}
             onChangeText={setRaw}
@@ -456,7 +456,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <EmptyState
             icon="search"
             title="No results found"
-            body={raw ? 'Try another name, subject, or friendly topic.' : 'Explore safe learning, friends, and creative ideas.'}
+            body={raw ? 'Try an exact username or full name, a subject, or a friendly topic.' : 'Explore safe topics or find a friend by exact username. Parents approve friendships.'}
           />
           {!raw ? (
             <View style={styles.suggestionRow} accessibilityRole="list" accessibilityLabel="Suggested topics">

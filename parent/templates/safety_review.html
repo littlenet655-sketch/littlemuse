@@ -1,7 +1,7 @@
 {% extends 'parent_base.html' %}{% block content %}{% import '_icons.html' as ico %}
 <div class="dashboard-title"><div><span class="eyebrow">Human review</span><h2>{{t('safety_review')}}</h2><p>{{t('safety_intro')}}</p></div><span class="decision-chip review">{{ico.icon('eye',15)}} REVIEW only</span></div>
 {% for e in events %}
-<article class="review-card review-detail" data-review-card>
+<article id="event-{{e.event_id}}" class="review-card review-detail" data-review-card>
   <div class="review-heading"><div><span class="decision-chip review">REVIEW</span><h3>{{e.full_name}} · {{e.content_type}}</h3><p>{{e.reason}}</p></div><div class="risk-gauge"><b>{{e.risk_score|round|int}}%</b><span>{{t('risk')}}</span></div></div>
   <div class="signal-grid" aria-label="AI model signals">
     {% for label,value,kind in [(t('adult'),e.adult_score,'adult'),(t('weapon'),e.weapon_score,'weapon'),(t('violence'),e.violence_score,'violence'),(t('toxicity'),e.toxicity_score,'toxicity')] %}
@@ -12,11 +12,11 @@
   {% if e.preview %}
   <section class="review-preview-panel"><div class="review-preview-head"><div><b>Flagged item preview</b><small>Blurred by default. Only Parent Mode can reveal a REVIEW item.</small></div><button class="btn outline" type="button" data-review-toggle aria-expanded="false">{{ico.icon('eye',17)}} {{t('inspect')}} · Show flagged media</button></div>
     <div class="review-preview blurred" data-review-preview>
-      {% if e.preview.media_path %}
-        {% if e.preview.media_type=='IMAGE' or e.preview.message_type=='IMAGE' %}<img src="/{{e.preview.media_path}}" alt="Blurred review preview">
-        {% elif e.preview.media_type=='VIDEO' or e.preview.message_type=='VIDEO' %}<video controls playsinline preload="metadata" src="/{{e.preview.media_path}}"></video>
-        {% elif e.preview.media_type=='AUDIO' or e.preview.message_type=='VOICE' %}<audio controls preload="metadata" src="/{{e.preview.media_path}}"></audio>
-        {% elif e.preview.message_type=='FILE' %}<a class="btn outline" href="/{{e.preview.media_path}}" target="_blank" rel="noopener">Open review attachment</a>{% endif %}
+      {% if e.preview.preview_url %}
+        {% if e.preview.media_type=='IMAGE' or e.preview.message_type=='IMAGE' %}<img src="{{e.preview.preview_url}}" alt="Blurred review preview">
+        {% elif e.preview.media_type=='VIDEO' or e.preview.message_type=='VIDEO' %}<video controls playsinline preload="metadata" src="{{e.preview.preview_url}}"></video>
+        {% elif e.preview.media_type=='AUDIO' or e.preview.message_type=='VOICE' %}<audio controls preload="metadata" src="{{e.preview.preview_url}}"></audio>
+        {% elif e.preview.message_type=='FILE' %}<a class="btn outline" href="{{e.preview.preview_url}}" target="_blank" rel="noopener">Open review attachment</a>{% endif %}
       {% endif %}
       {% if e.preview.caption %}<p>{{e.preview.caption}}</p>{% endif %}{% if e.preview.comment_text %}<p>{{e.preview.comment_text}}</p>{% endif %}{% if e.preview.message_text %}<p>{{e.preview.message_text}}</p>{% endif %}
     </div>

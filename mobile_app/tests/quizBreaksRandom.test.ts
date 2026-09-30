@@ -20,16 +20,16 @@ test('Learn tab exposes an optional Quiz Zone without creating a feed gate', () 
 
 test('Reels rely on server latch instead of local marker placement', () => {
   const reels = text('src/screens/kids/ReelsScreen.tsx');
-  // The prompt card position comes from a pure helper driven by the server's
-  // quiz_due signal — never from locally counted markers.
-  assert.match(reels, /withQuizPromptRow\(feed\.items, showQuizPrompt\)/);
+  // A compulsory interruption overlays a stable list; inserting a prompt row
+  // would shift the Reel index when the latch clears.
+  assert.match(reels, /\(\) => feed\.items/);
   assert.doesNotMatch(reels, /withQuizBreaks\(feed\.items/);
   assert.match(reels, /if \(result\.quiz_required\)/);
   assert.match(reels, /error\.code === 'quiz_required'/);
   // The due signal becomes a compulsory Reel interruption.
   assert.doesNotMatch(reels, /scrollEnabled=\{!quizLocked\}/);
   assert.doesNotMatch(reels, /QuizBreakCard/);
-  assert.match(reels, /QuizPromptCard/);
+  assert.doesNotMatch(reels, /withQuizPromptRow/);
   assert.doesNotMatch(reels, /onDismiss=/);
   assert.match(reels, /setPaused\(true\)/);
   assert.match(reels, /nav\.navigate\('Quiz', \{ returnTo: 'ReelsTab', autoStart: true \}\)/);

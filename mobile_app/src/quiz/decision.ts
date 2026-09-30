@@ -9,6 +9,12 @@ import type { OnboardingState } from '../api/auth';
 
 export type QuizLoadStatus = 'ready' | 'unavailable';
 
+export function quizAnswerAction(practice: boolean, correct: boolean, required: boolean, lastItem: boolean) {
+  if (practice) return lastItem ? 'refill' : 'next';
+  if (!correct && required) return 'retry';
+  return correct && (!required || lastItem) ? 'complete' : 'next';
+}
+
 /** A required quiz with an empty bank must stay gated, never show "All done". */
 export function quizLoadStatus(itemCount: number): QuizLoadStatus {
   return itemCount > 0 ? 'ready' : 'unavailable';

@@ -47,6 +47,7 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
   // local blocked state so the child can still unblock from here.
   const [blocked, setBlocked] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [failedThumbnails, setFailedThumbnails] = useState<Record<number, string>>({});
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void; goBack: () => void };
 
   // Visual-only aggregates from already-fetched data.
@@ -382,18 +383,20 @@ export function OtherProfileScreen({ route, navigation }: ChildScreenProps<'Othe
         <View style={styles.grid}>
           {posts.map((p) => {
             const isVid = String(p.media_type ?? '').toUpperCase() === 'VIDEO';
-            const imgUrl = isVid ? p.poster_url || p.media_url : p.media_url;
+            const imgUrl = isVid ? p.poster_url : p.media_url;
             return (
               <Pressable
                 key={p.post_id}
                 style={styles.gridCell}
                 onPress={() => nav.navigate('PostDetail', { postId: p.post_id })}
               >
-                {imgUrl ? (
-                  <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
+                {imgUrl && failedThumbnails[p.post_id] !== imgUrl ? (
+                  <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover"
+                    onError={() => setFailedThumbnails((current) => ({ ...current, [p.post_id]: imgUrl }))} />
                 ) : (
                   <View style={styles.gridPlaceholder}>
                     <Feather name={isVid ? 'play' : 'image'} size={22} color={colors.muted} />
+                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }}>Media unavailable</Text>
                   </View>
                 )}
                 {isVid ? (

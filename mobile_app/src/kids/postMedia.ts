@@ -32,7 +32,7 @@ export function localMediaSize(uri: string): number {
   return file.size;
 }
 
-function toPicked(asset: ImagePicker.ImagePickerAsset, kind: 'image' | 'video'): PickedMedia {
+function toPicked(asset: ImagePicker.ImagePickerAsset, kind: 'image' | 'video' | 'all'): PickedMedia {
   const isVideo = kind === 'video' || asset.type === 'video';
   const ext = extOf(asset.fileName ?? asset.uri, isVideo ? 'mp4' : 'jpg');
   const mimeType = asset.mimeType ?? (isVideo ? 'video/mp4' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
@@ -47,9 +47,9 @@ function toPicked(asset: ImagePicker.ImagePickerAsset, kind: 'image' | 'video'):
   };
 }
 
-export async function pickGalleryMedia(kind: 'image' | 'video'): Promise<PickedMedia | null> {
+export async function pickGalleryMedia(kind: 'image' | 'video' | 'all'): Promise<PickedMedia | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: kind === 'video' ? ['videos'] : ['images'],
+    mediaTypes: kind === 'all' ? ['images', 'videos'] : kind === 'video' ? ['videos'] : ['images'],
     quality: 0.9,
   });
   if (result.canceled || !result.assets?.[0]) return null;

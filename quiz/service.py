@@ -80,7 +80,7 @@ def needs_onboarding_quiz(cid, required_questions=2):
 # ─── Classic quiz bank (used by quiz page) ────────────────────────────────────
 
 def quizzes(cid, limit=5):
-    """Return randomized unseen age-matched questions; strictly guarantees non-repeating for kids by dynamically generating new questions with K2 AI."""
+    """Return unseen age-matched questions, filling locally when the bank runs low."""
     g = age_group(cid)
     if not g:
         return []
@@ -97,8 +97,8 @@ def quizzes(cid, limit=5):
     if len(rows) < limit:
         needed = limit - len(rows)
         try:
-            from quiz.learning_service import generate_and_insert_fresh_quizzes
-            fresh = generate_and_insert_fresh_quizzes(age_group=g, needed=needed, child_id=cid)
+            from quiz.learning_service import _procedural_fallback_quizzes
+            fresh = _procedural_fallback_quizzes(age_group=g, needed=needed, child_id=cid)
             existing_ids = {r['quiz_id'] for r in rows}
             for f in fresh:
                 if f['quiz_id'] not in existing_ids:

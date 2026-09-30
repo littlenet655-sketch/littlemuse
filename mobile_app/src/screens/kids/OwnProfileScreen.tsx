@@ -22,18 +22,6 @@ const GAP = 1;
 const GRID_COLS = 3;
 const cellSize = (Dimensions.get('window').width - GAP * (GRID_COLS - 1)) / GRID_COLS;
 
-/** Kit-style 3x3 grid glyph for the posts tab — drawn with Views. */
-function GridGlyph({ size = 24, color = colors.ink }: { size?: number; color?: string }) {
-  const cell = (size - 2) / 3;
-  return (
-    <View style={{ width: size, height: size, flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
-      {Array.from({ length: 9 }, (_, i) => (
-        <View key={i} style={{ width: cell, height: cell, backgroundColor: color, borderRadius: 1 }} />
-      ))}
-    </View>
-  );
-}
-
 /** Kit-style down chevron drawn with Views (no chevron glyph in IgIcon). */
 function ChevronDown({ color = colors.ink }: { color?: string }) {
   return (
@@ -65,6 +53,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const [saveError, setSaveError] = useState<unknown>(null);
+  const [failedThumbnails, setFailedThumbnails] = useState<Record<number, string>>({});
   const nav = navigation as unknown as { navigate: (r: string, p: object) => void };
   const profileQuery = useQuery({
     queryKey: [...kidsKeys.ownProfile, session?.token ?? 'signed-out'],
@@ -295,6 +284,8 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
             </Pressable>
             {/* Read-only self visibility: the child's own controls and
                 activity. Nothing here can be changed. */}
+          </View>
+          <View style={styles.actionsRow}>
             <Pressable
               style={styles.greyBtn}
               onPress={() => nav.navigate('MyControls', {})}
@@ -354,7 +345,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                 accessibilityLabel={`${label} tab`}
               >
                 {t === 'posts' ? (
-                  <GridGlyph size={24} color={color} />
+                  <Feather name="grid" size={24} color={color} />
                 ) : (
                   <IgIcon name={t === 'reels' ? 'reels' : 'bookmark'} size={24} color={color} />
                 )}
@@ -403,7 +394,7 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
           <View style={styles.grid}>
             {list.map((post) => {
               const isVid = post.media_type?.toUpperCase() === 'VIDEO';
-              const imgUrl = isVid ? post.poster_url || post.media_url : post.media_url;
+              const imgUrl = isVid ? post.poster_url : post.media_url;
               return (
                 <Pressable
                   key={post.post_id}
@@ -412,15 +403,19 @@ export function OwnProfileScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
                   accessibilityLabel={isVid ? `Open reel ${post.post_id}` : `Open post ${post.post_id}`}
                   onPress={() => nav.navigate('PostDetail', { postId: post.post_id })}
                 >
-                  {imgUrl ? (
-                    <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover" />
+                  {imgUrl && failedThumbnails[post.post_id] !== imgUrl ? (
+                    <Image source={{ uri: imgUrl }} style={styles.gridThumb} resizeMode="cover"
+                      onError={() => setFailedThumbnails((current) => ({ ...current, [post.post_id]: imgUrl }))} />
                   ) : (
                     <View style={styles.gridPlaceholder}>
                       {isVid ? (
                         <IgIcon name="reels" size={26} color={colors.muted} />
                       ) : (
-                        <GridGlyph size={26} color={colors.muted} />
+                        <Feather name="file-text" size={26} color={colors.muted} />
                       )}
+                      <Text style={{ color: colors.muted, textAlign: 'center', fontSize: 12 }}>
+                        {['UPLOADED', 'PROCESSING'].includes(post.processing_status ?? '') ? 'Checking privately' : post.processing_status === 'FAILED' ? 'Check failed' : post.moderation_status === 'REVIEW' ? 'Parent review' : post.media_type === 'TEXT' ? post.caption || 'Text post' : 'Media unavailable'}
+                      </Text>
                     </View>
                   )}
                   {isVid ? (

@@ -12,6 +12,8 @@ export interface PostDetail {
   caption?: string;
   content_category?: string;
   media_type?: string;
+  moderation_status?: string;
+  processing_status?: string;
   likes?: number;
   comments_count?: number;
   created_at?: string;

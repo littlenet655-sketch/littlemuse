@@ -409,7 +409,7 @@ export function FeedScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
         keyExtractor={feedKey}
         refreshControl={<RefreshControl refreshing={feed.refreshing} onRefresh={feed.refresh} />}
         ListHeaderComponent={listHeader}
-        ListEmptyComponent={<EmptyState title="Nothing here yet" body="When friends share kind posts, they will appear here." />}
+        ListEmptyComponent={<EmptyState title="No eligible posts right now" body="You may have seen or hidden the available posts, or your parent's settings may limit them. Pull to refresh for new safe content. Hidden posts stay hidden." />}
         ListFooterComponent={listFooter}
         renderItem={renderFeedItem}
         onViewableItemsChanged={onViewableItemsChanged}

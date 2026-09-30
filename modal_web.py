@@ -88,7 +88,7 @@ web_image = (
             ".git/**", ".pytest_cache/**", "**/__pycache__/**", "uploads/**",
             "android/**", "tools/gradle-8.9/**", "node_modules/**", "mobile_app/**",
             ".agent/**", ".agents/**", "agent/**", ".claude/**", ".cursor/**",
-            "*.db", "*.zip", "*.apk", ".env",
+            "*.db", "*.zip", "*.apk", ".env", ".env.*", ".venv/**", "audit-*.log", "scratch/**", "walkthrough.md",
         ],
         copy=True,
     )
@@ -187,6 +187,9 @@ def process_image_job_background(
     lease_token: str | None = None,
 ):
     """Lower-cost orchestration worker dedicated to image uploads."""
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger('services.media_processor').setLevel(logging.INFO)
     os.chdir("/root/littlenet")
     from services.media_processor import process_media_job
     return process_media_job(
@@ -216,6 +219,9 @@ def process_media_job_background(post_id: int, child_id: int, object_key: str, k
     are delegated to the scale-to-zero CPU moderation function. GPU inference is
     reserved for workloads that still require it (for example video paths).
     """
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger('services.media_processor').setLevel(logging.INFO)
     os.chdir("/root/littlenet")
     from services.media_processor import process_media_job
     return process_media_job(int(post_id), int(child_id), str(object_key), str(kind), lease_token=lease_token)

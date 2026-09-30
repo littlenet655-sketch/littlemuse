@@ -24,7 +24,7 @@ def _get_disposable_url():
             line = line.strip()
             if "DATABASE_URL" in line:
                 return line.split("=", 1)[1].strip().strip('"\'')
-    return os.getenv("DISPOSABLE_DATABASE_URL") or os.getenv("DATABASE_URL")
+    return os.getenv("DISPOSABLE_DATABASE_URL")
 
 
 DISPOSABLE_URL = _get_disposable_url()
@@ -44,7 +44,7 @@ def configure_disposable_db():
 
 @pytest.fixture
 def db():
-    conn = psycopg2.connect(DISPOSABLE_URL, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(DISPOSABLE_URL, cursor_factory=RealDictCursor, connect_timeout=15)
     conn.autocommit = True
     yield conn
     conn.close()
@@ -254,7 +254,14 @@ def test_reap_stale_jobs_marks_exceeded_attempts_as_failed(db):
     )
     post_id = cur.fetchone()["post_id"]
 
-    res = media_processor.reap_stale_media_jobs(stale_seconds=300)
+    # A retained database clone can have older jobs ahead of this fixture in
+    # the bounded reaper queue. Keep this state-transition check isolated.
+    fetch = media_processor.fetch_all
+    with patch.object(media_processor, 'fetch_all', side_effect=lambda sql, params: fetch(
+        sql.replace('ORDER BY post_id ASC LIMIT 50', 'AND post_id=%s ORDER BY post_id ASC LIMIT 50'),
+        (*params, post_id),
+    )):
+        res = media_processor.reap_stale_media_jobs(stale_seconds=300)
     assert res["ok"] is True
     failed_ids = [f["post_id"] for f in res.get("failed", [])]
     assert post_id in failed_ids

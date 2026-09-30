@@ -17,7 +17,7 @@ requests==2.33.0
 # web/AWS backend authenticates with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
 modal>=1.1,<2
 boto3==1.40.17
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.14.0
 
 # OCR backend for burned-in text screening (safety/visual_service.py).
 # rapidocr-onnxruntime is the module's preferred backend (tried first; the
