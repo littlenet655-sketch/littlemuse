@@ -2723,25 +2723,14 @@ def register_mobile_api(bp):
             f"quarantine/{uid}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
-        expires_at = datetime.utcnow() + timedelta(seconds=expires_seconds)
+        # upload_sessions.created_at/expires_at are legacy timestamp-without-time-zone
+        # columns. Store both from the same explicit UTC-naive anchor so their
+        # relative ordering is correct regardless of the database/session timezone.
+        created_at_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        expires_at = created_at_utc + timedelta(seconds=expires_seconds)
 
-        execute(
-            """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
-                                          expected_size_bytes, mime_type, extension, status, expires_at)
-               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)""",
-            (
-                upload_id,
-                uid,
-                object_key,
-                media_type,
-                kind.upper(),
-                size_bytes,
-                mime_type,
-                ext,
-                expires_at,
-            ),
-        )
-
+        # Do not persist a PENDING session until an upload target can actually
+        # be issued. Previously presign/config failures leaked abandoned rows.
         if os.environ.get("FORCE_DIRECT_UPLOAD_UNAVAILABLE") == "1" or os.environ.get("DIRECT_UPLOAD_UNAVAILABLE") == "1":
             return jsonify(
                 error="direct_upload_unavailable",
@@ -2759,6 +2748,25 @@ def register_mobile_api(bp):
             ), 500
         else:
             upload_url = f"{Config.BASE_URL}/api/mobile/v2/uploads/mock-put/{upload_id}"
+
+        execute(
+            """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind,
+                                          expected_size_bytes, mime_type, extension, status,
+                                          created_at, expires_at)
+               VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s, %s)""",
+            (
+                upload_id,
+                uid,
+                object_key,
+                media_type,
+                kind.upper(),
+                size_bytes,
+                mime_type,
+                ext,
+                created_at_utc,
+                expires_at,
+            ),
+        )
 
         return jsonify(
             ok=True,
@@ -2834,12 +2842,23 @@ def register_mobile_api(bp):
             existing = cur.fetchone()
 
             if session_row["status"] == "CONSUMED" and existing:
-                if existing["processing_status"] == "UPLOADED" and "dispatch_failed" in (existing.get("processing_error") or ""):
+                # Any durable UPLOADED row is safe to redrive. This also closes
+                # the crash window where DB commit succeeded but process death
+                # happened before the external queue dispatch/error marker.
+                if existing["processing_status"] == "UPLOADED":
                     conn.rollback()
                     from services.job_queue import enqueue_media_job
                     try:
                         job_id = enqueue_media_job(existing["post_id"], uid, session_row["object_key"], session_row["kind"].upper())
-                        execute("UPDATE posts SET processing_status='PROCESSING', job_id=%s, processing_error=NULL WHERE post_id=%s", (job_id, existing["post_id"]))
+                        execute(
+                            """UPDATE posts
+                               SET job_id=%s,
+                                   processing_status=CASE WHEN processing_status='UPLOADED' THEN 'PROCESSING' ELSE processing_status END,
+                                   processing_started_at=COALESCE(processing_started_at,NOW()),
+                                   processing_error=CASE WHEN processing_status='UPLOADED' THEN NULL ELSE processing_error END
+                               WHERE post_id=%s""",
+                            (job_id, existing["post_id"]),
+                        )
                         return jsonify(ok=True, post_id=existing["post_id"], status="PROCESSING", retry_dispatched=True, moderation_queued=True, publication_state="PRIVATE_PROCESSING")
                     except Exception as exc:
                         return jsonify(ok=False, error="job_dispatch_failed", retryable=True, post_id=existing["post_id"], upload_id=upload_id), 503
@@ -3000,7 +3019,7 @@ def register_mobile_api(bp):
                                        processing_status, processing_started_at, location_name,
                                        story_music_id, story_music_title, story_music_artist, story_music_url,
                                        story_music_start, story_music_duration, upload_id, processing_attempts, last_attempt_at)
-                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'PROCESSING', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, 'PENDING', 'UPLOADED', NULL, %s, %s, %s, %s, %s, %s, %s, %s, 0, NULL)
                        RETURNING post_id""",
                     (
                         uid,
@@ -3043,7 +3062,15 @@ def register_mobile_api(bp):
 
         try:
             job_id = enqueue_media_job(post_id, uid, session_row["object_key"], kind)
-            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+            execute(
+                """UPDATE posts
+                   SET job_id=%s,
+                       processing_status=CASE WHEN processing_status='UPLOADED' THEN 'PROCESSING' ELSE processing_status END,
+                       processing_started_at=COALESCE(processing_started_at,NOW()),
+                       processing_error=CASE WHEN processing_status='UPLOADED' THEN NULL ELSE processing_error END
+                   WHERE post_id=%s""",
+                (job_id, post_id),
+            )
             return jsonify(
                 ok=True,
                 post_id=post_id,
