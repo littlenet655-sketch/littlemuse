@@ -88,6 +88,68 @@ def test_approve_does_not_resurrect_blocked_message(monkeypatch):
     assert "already blocked" in (reviews[0][1][3] or "")
 
 
+def test_approve_does_not_resurrect_blocked_post(monkeypatch):
+    """IMAGE/VIDEO approvals must follow effective=BLOCK, not the raw request.
+
+    A duplicate OPEN review on already-BLOCKED media used to call
+    sanitize_and_promote_media because the post branch checked `requested`.
+    """
+    conn = _FakeConn()
+
+    def execute(sql, params=None):
+        q = " ".join(str(sql).split())
+        conn.cur.statements.append((q, params))
+        if "FROM moderation_events WHERE event_id" in q:
+            conn.cur._result = [{
+                "event_id": 9, "child_id": 7, "content_type": "IMAGE",
+                "content_id": 501, "decision": "REVIEW", "status": "OPEN",
+            }]
+        elif q.startswith("SELECT moderation_status FROM posts"):
+            conn.cur._result = [{"moderation_status": "BLOCKED"}]
+        elif "FROM posts WHERE post_id" in q:
+            conn.cur._result = [{
+                "post_id": 501, "child_id": 7, "is_reel": False, "is_story": False,
+                "source_media_path": "uploads/r2/quarantine/7/pic.jpg",
+                "media_type": "IMAGE",
+            }]
+        else:
+            conn.cur._result = []
+
+    conn.cur.execute = execute
+    promoted = []
+    notified = []
+    monkeypatch.setattr(mapi, "get_db_connection", lambda: conn)
+    monkeypatch.setattr(mapi, "owns", lambda _pid, _cid: True)
+    monkeypatch.setattr(
+        "services.media_processor.sanitize_and_promote_media",
+        lambda *a, **k: promoted.append(a) or (_ for _ in ()).throw(AssertionError("promoted blocked post")),
+    )
+    monkeypatch.setattr(
+        "services.publication_lifecycle.refresh_publication_visibility",
+        lambda *a, **k: notified.append("visible"),
+    )
+    monkeypatch.setattr(
+        "services.media_processor._notify_approved_followers",
+        lambda *a, **k: notified.append("followers"),
+    )
+    monkeypatch.setattr(
+        "services.media_processor.block_and_cleanup_quarantine",
+        lambda *a, **k: None,
+    )
+
+    ok, result = mapi._resolve_parent_review(101, 9, "APPROVE")
+
+    assert ok is True
+    assert result == "BLOCK"
+    assert promoted == []
+    assert notified == []
+    sql = next(q for q, _p in conn.cur.statements if q.startswith("UPDATE posts"))
+    assert "moderation_status='BLOCKED'" in sql
+    assert "ALLOWED" not in sql
+    reviews = [p for q, p in conn.cur.statements if q.startswith("INSERT INTO moderation_reviews")]
+    assert reviews[0][2] == "BLOCK"
+
+
 def test_report_target_rejects_blocked_message():
     """_validate_report_target must not mint REVIEW events for BLOCKED messages."""
     import mobile.stitch_api as sapi

@@ -938,12 +938,13 @@ def _resolve_parent_review(
             if str((srow or {}).get("moderation_status") or "").upper() == "BLOCKED":
                 content_terminally_blocked = True
 
-        status = "ALLOWED" if requested == "APPROVE" else "BLOCKED"
         # Safety: a MESSAGE approval is only effective while the sender/receiver pair is
         # still an unblocked, approved connection. If the relationship broke (or the
         # message row vanished) while the item sat in REVIEW, the approval is safely
         # converted to a block so the message can never be delivered after the fact.
         # Mirrors the web parent review path in parent/routes.py.
+        # effective, not the raw request, is what may be persisted. A terminal BLOCK
+        # (or a broken message relationship) must not be overwritten by APPROVE.
         effective = requested
         if content_terminally_blocked:
             effective = "BLOCK"
@@ -970,7 +971,7 @@ def _resolve_parent_review(
                 connected = cur.fetchone()
                 if blocked_pair or not connected:
                     effective = "BLOCK"
-            status = "ALLOWED" if effective == "APPROVE" else "BLOCKED"
+        status = "ALLOWED" if effective == "APPROVE" else "BLOCKED"
         p_row = None
         kind = "post"
         pub_media = None
@@ -983,7 +984,7 @@ def _resolve_parent_review(
                 kind = "reel" if p_row.get("is_reel") else ("story" if p_row.get("is_story") else "post")
             if p_row and p_row.get("source_media_path"):
                 media_type = p_row.get("media_type") or "IMAGE"
-                if requested == "APPROVE":
+                if effective == "APPROVE":
                     from services.media_processor import sanitize_and_promote_media
                     try:
                         pub_media, pub_poster = sanitize_and_promote_media(
@@ -1047,7 +1048,7 @@ def _resolve_parent_review(
                        SET moderation_status=%s, processing_status=%s, is_safe=%s,
                            processing_lease_token=NULL, processing_lease_expires_at=NULL
                        WHERE post_id=%s""",
-                    (status, status, requested == "APPROVE", post_id),
+                    (status, status, effective == "APPROVE", post_id),
                 )
         elif event["content_type"] == "COMMENT" and event.get("content_id"):
             cur.execute("UPDATE comments SET moderation_status=%s WHERE comment_id=%s", (status, event["content_id"]))
@@ -1172,7 +1173,7 @@ def _resolve_parent_review(
 
         if p_row:
             post_id = int(p_row["post_id"])
-            if requested == "APPROVE":
+            if effective == "APPROVE":
                 from services.publication_lifecycle import refresh_publication_visibility
                 refresh_publication_visibility(post_id, int(p_row["child_id"]), is_reel=bool(p_row.get("is_reel")))
                 if p_row.get("source_media_path"):

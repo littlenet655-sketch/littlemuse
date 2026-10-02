@@ -291,7 +291,7 @@ def review(event_id):
             else:
                 a,b=m['sender_child_id'],m['receiver_child_id']
                 cur.execute('SELECT 1 FROM blocked_users WHERE (blocker_id=%s AND blocked_id=%s) OR (blocker_id=%s AND blocked_id=%s)',(a,b,b,a));blocked=cur.fetchone()
-                cur.execute('SELECT 1 FROM followers WHERE approved=TRUE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(a,b,b,a));connected=cur.fetchone()
+                cur.execute("""SELECT 1 FROM followers WHERE approved=TRUE AND approval_stage='ACTIVE' AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))""",(a,b,b,a));connected=cur.fetchone()
                 if blocked or not connected:effective='BLOCK'
         status='ALLOWED' if effective=='APPROVE' else 'BLOCKED'
         sanitize_failed=False
@@ -326,7 +326,39 @@ def review(event_id):
             elif p_row:
                 cur.execute("UPDATE posts SET moderation_status='BLOCKED',processing_status='BLOCKED',is_safe=FALSE,media_path=NULL,processing_completed_at=NOW(),processing_error=NULL WHERE post_id=%s",(post_id,))
         elif e['content_type']=='COMMENT' and e['content_id']:cur.execute('UPDATE comments SET moderation_status=%s WHERE comment_id=%s',(status,e['content_id']))
-        elif e['content_type']=='MESSAGE' and e['content_id']:cur.execute('UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s',(status,e['content_id']))
+        elif e['content_type']=='MESSAGE' and e['content_id']:
+            # Same chat-media contract as mobile.api._resolve_parent_review:
+            # an image/video approval must leave quarantine, and a block must
+            # drop the object. A status flip alone would mark quarantine bytes ALLOWED.
+            cur.execute("""SELECT child_message_id,sender_child_id,message_type,media_path
+                           FROM child_messages WHERE child_message_id=%s FOR UPDATE""",(e['content_id'],))
+            review_message=cur.fetchone()
+            if not review_message:
+                effective='BLOCK';status='BLOCKED'
+            elif review_message.get('message_type') in {'IMAGE','VIDEO'} and review_message.get('media_path'):
+                quarantine_ref=str(review_message['media_path'])
+                if effective=='APPROVE':
+                    from services.chat_media import promote_reviewed_chat_media
+                    try:
+                        published_ref,_poster=promote_reviewed_chat_media(message_id=int(review_message['child_message_id']),child_id=int(review_message['sender_child_id']),media_type=str(review_message['message_type']),quarantine_ref=quarantine_ref)
+                        cur.execute("UPDATE child_messages SET media_path=%s,moderation_status='ALLOWED' WHERE child_message_id=%s",(published_ref,e['content_id']))
+                    except Exception:
+                        sanitize_failed=True;effective='BLOCK';status='BLOCKED'
+                        try:
+                            from services.chat_media import block_reviewed_chat_media
+                            block_reviewed_chat_media(message_id=int(review_message['child_message_id']),quarantine_ref=quarantine_ref)
+                        except Exception:
+                            pass
+                        cur.execute("UPDATE child_messages SET media_path=NULL,moderation_status='BLOCKED' WHERE child_message_id=%s",(e['content_id'],))
+                else:
+                    try:
+                        from services.chat_media import block_reviewed_chat_media
+                        block_reviewed_chat_media(message_id=int(review_message['child_message_id']),quarantine_ref=quarantine_ref)
+                    except Exception:
+                        pass
+                    cur.execute("UPDATE child_messages SET media_path=NULL,moderation_status='BLOCKED' WHERE child_message_id=%s",(e['content_id'],))
+            else:
+                cur.execute('UPDATE child_messages SET moderation_status=%s WHERE child_message_id=%s',(status,e['content_id']))
         review_note=None
         if terminally_blocked:review_note='Content already blocked; approval safely converted to block.'
         elif effective!=requested:review_note='Sanitization failed; approval safely converted to block.' if sanitize_failed else 'Connection changed; approval safely converted to block.'
