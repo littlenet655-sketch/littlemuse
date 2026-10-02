@@ -80,15 +80,20 @@ def _set_autoscaler(seconds: int) -> None:
     cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=bounded)
 
 
-def _restore_autoscaler() -> None:
+def _restore_autoscaler() -> bool:
+    """Restore the 30s idle window. Returns False when Modal rejected it.
+
+    Callers must keep the boost row non-OFF on failure so the next status poll
+    retries; otherwise an up-to-65-minute T4/CPU idle window would stay attached
+    to the deployed functions until the next deploy.
+    """
     try:
         gpu, cpu = _modal_functions()
         gpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
         cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
+        return True
     except Exception:
-        # State expiry remains authoritative. A later status/admin call retries
-        # the restore; min_containers was never raised above zero.
-        pass
+        return False
 
 
 def _mark_ready(expected_expiry) -> None:
@@ -149,12 +154,14 @@ def status() -> dict:
     # future requests. Restore defaults lazily the first time any app screen
     # polls status after expiry.
     if str(row.get("status") or "OFF").upper() != "OFF":
-        execute(
-            """UPDATE demo_boost_state
-               SET status='OFF',activated_by=NULL,last_error=NULL,updated_at=NOW()
-               WHERE state_id=1"""
-        )
-        _restore_autoscaler()
+        # Restore first; only mark OFF once Modal confirmed, so a failed restore
+        # is retried by the next poll instead of being forgotten.
+        if _restore_autoscaler():
+            execute(
+                """UPDATE demo_boost_state
+                   SET status='OFF',activated_by=NULL,last_error=NULL,updated_at=NOW()
+                   WHERE state_id=1"""
+            )
     return _public(_row())
 
 
@@ -204,10 +211,12 @@ def extend(admin_id: int, minutes: int) -> dict:
 
 
 def stop() -> dict:
+    # Expire immediately (boost is inactive for every client); status() performs
+    # the autoscaler restore and flips the row to OFF, retrying on later polls
+    # if Modal is temporarily unreachable.
     execute(
         """UPDATE demo_boost_state
-           SET status='OFF',activated_by=NULL,expires_at=NOW(),last_error=NULL,updated_at=NOW()
+           SET expires_at=NOW(),last_error=NULL,updated_at=NOW()
            WHERE state_id=1"""
     )
-    _restore_autoscaler()
     return status()
