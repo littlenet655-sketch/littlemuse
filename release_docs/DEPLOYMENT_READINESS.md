@@ -2,22 +2,22 @@
 
 **Status: DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**
 
-The source at technical baseline `f4be262` is locally green. This documentation
-pass did not change executable source. The package is **not** fully production
-verified. Custom LittleNet model payloads are present and locally load-verified.
-Remaining blockers are external infrastructure and device testing.
+The source at this freeze (parent `826e633`) is locally green. The package is
+**not** fully production verified. Remaining blockers are external
+infrastructure and device testing.
 
 | Area | Status | Evidence |
 |---|---|---|
-| Backend source | LOCALLY VERIFIED | 885 passed / 1 skipped / 0 failed |
-| Mobile source | LOCALLY VERIFIED | 281 passed / 0 failed; TypeScript passed |
+| Backend source | LOCALLY VERIFIED | 898 passed / 2 skipped / 0 failed |
+| Mobile source | LOCALLY VERIFIED | 283 passed / 0 failed; TypeScript passed |
 | TypeScript / Expo | LOCALLY VERIFIED | Expo Doctor 21/21; Android export passed |
-| Database (disposable) | VERIFIED | PostgreSQL 16.15 + pgvector 0.8.7; 42/42 migrations from zero |
+| Database (disposable) | VERIFIED | PostgreSQL 16.15 + pgvector 0.8.7; **43/43** migrations from zero |
+| Latest migration | VERIFIED | `20261002120000_outbox_trigger_attempts_reset.sql` |
 | Database (Neon) | EXTERNAL REQUIREMENT | production Neon was not contacted |
 | Cloudflare R2 | EXTERNAL REQUIREMENT | live R2 was not contacted |
 | Resend | EXTERNAL REQUIREMENT | live email/OTP delivery was not contacted |
 | Modal | EXTERNAL REQUIREMENT | current Modal source was not deployed from this HEAD |
-| Custom model payloads | LOCALLY VERIFIED | Real V2/V3 `.pth` and text `model.safetensors` load on CPU |
+| Custom model payloads | LOCALLY VERIFIED | Real V2/V3 `.pth` and text `model.safetensors` |
 | EAS preview APK | EXTERNAL REQUIREMENT | preview profile is internal APK; no cloud build from this source |
 | Physical device | EXTERNAL REQUIREMENT | no install/smoke from this exact source |
 | CI scanners | NOT RUN LOCALLY | `pip-audit`, `bandit`, `gitleaks` are CI-only; not source failures |
@@ -41,5 +41,4 @@ Do not treat their local absence as a source-code failure.
 ## What this status does not mean
 
 - It does not mean live production was exercised.
-- It does not mean the existing `LittleNet_DEPLOYMENT_READY_FIXED.zip` contains these payloads (that ZIP was frozen before this restore).
 - It does not mean an APK from this exact HEAD is already installed on a phone.

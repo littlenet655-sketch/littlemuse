@@ -8,12 +8,9 @@ This file is the product/identity record for this source tree. It does not claim
 | Product | LittleNet |
 | Source repository | littlenet655-sketch/littlemuse (development repo name; product is **LittleNet**) |
 | Branch | `release-candidate` |
-| Initial local baseline | `ac9be32` |
-| Technical baseline (proven local regression) | `f4be262` (`f4be262d90af724877437c5b06334ff3f01d633d`) |
-| Release commits (in order) | `3c13988`, `9afb91f`, `f8b40e1`, `0f425af`, `768b5f7`, `e55a628`, `715a594`, `09466c9`, `f4be262`, `02e7110`, then this follow-up identity commit |
-| Documentation commit | `02e7110` (`02e7110eb53db63f2e729d69a4b97b66f31271bd`) — `docs: finalize LittleNet release candidate` |
-| Final HEAD | this follow-up commit (`docs: record final release HEAD`) |
-| Pushed | **No.** Nothing from this candidate has been pushed. |
+| Previous verification HEAD | `826e633` (`826e6332e86197abb2dd555d6b363eead50278ff`) |
+| Final HEAD | this freeze commit (`fix: close final outbox trigger verification gap`) |
+| Pushed | **No.** This freeze commit has not been pushed. |
 | App name / slug | LittleNet / `littlenet` |
 | Android package | `com.littlenet.app` |
 | Version | `1.0.2` |
@@ -22,21 +19,20 @@ This file is the product/identity record for this source tree. It does not claim
 | EAS `appVersionSource` | remote |
 | Cleartext traffic | disabled (`usesCleartextTraffic=false` via `mobile_app/plugins/withCleartextDisabled.js`) |
 | Public mobile env | `EXPO_PUBLIC_API_BASE_URL` only |
+| Latest dbmate migration | `20261002120000_outbox_trigger_attempts_reset.sql` |
 
 ## Proven local regression (authoritative)
 
-These numbers are the **CURRENT FINAL RELEASE RESULT**. They were recorded on the technical baseline `f4be262` and are not reinterpreted here.
+These numbers are the **CURRENT FINAL RELEASE RESULT**.
 
 | Gate | Result |
 |---|---|
-| Database-backed focused tests | 31 passed / 0 failed |
-| Full backend | **885 passed / 1 skipped / 0 failed** (53.60 s) |
-| Skipped | `tests/test_agent_c_notifications_read.py` — requires a non-localhost hostname |
-| Mobile | **281 passed / 0 failed** |
-| TypeScript | passed |
+| Full backend | **898 passed / 2 skipped / 0 failed** (58.24 s) |
+| Mobile | **283 passed / 0 failed** |
+| TypeScript | passed (`tsc --noEmit`) |
 | Expo Doctor | 21/21 passed |
 | Android Expo export | passed |
-| Migrations from zero | **42/42** |
+| Migrations from zero | **43/43** |
 | PostgreSQL | 16.15 |
 | pgvector | 0.8.7 |
 
@@ -44,4 +40,4 @@ These numbers are the **CURRENT FINAL RELEASE RESULT**. They were recorded on th
 
 **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**
 
-Not fully production verified. Custom LittleNet model payloads are now present in this tree and locally load-verified. Remaining external requirements are infrastructure and device testing. See `release_docs/DEPLOYMENT_READINESS.md` and `release_docs/KNOWN_LIMITATIONS.md`.
+Not fully production verified. See `release_docs/DEPLOYMENT_READINESS.md` and `release_docs/KNOWN_LIMITATIONS.md`.

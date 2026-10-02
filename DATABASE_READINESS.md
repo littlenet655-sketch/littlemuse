@@ -1,6 +1,6 @@
 # LittleNet Database / Neon Readiness
 
-## CURRENT FINAL RELEASE RESULT (2026-10-02, technical baseline `f4be262`)
+## CURRENT FINAL RELEASE RESULT (2026-10-02, freeze after `826e633`)
 
 A disposable Docker `pgvector/pgvector:pg16` database was brought up, migrated
 from zero, used for the final local regression, and torn down.
@@ -13,9 +13,9 @@ from zero, used for the final local regression, and torn down.
 | pgvector | **0.8.7** |
 | Port | `127.0.0.1:55432` (disposable; container removed afterward) |
 | Bootstrap | `python tools/init_db.py` then `dbmate --no-dump-schema --migrations-dir db/migrations up` |
-| Migrations | **42 applied / 0 pending** |
-| DB-backed focused tests | **31 passed / 0 failed** |
-| Full backend | **885 passed / 1 skipped / 0 failed** |
+| Migrations | **43 applied / 0 pending** |
+| Latest migration | `20261002120000_outbox_trigger_attempts_reset.sql` |
+| Full backend | **898 passed / 2 skipped / 0 failed** |
 | Live Neon | **NOT CONTACTED** — EXTERNAL REQUIREMENT |
 
 The sections below retain the earlier source analysis (commit that introduced
@@ -65,10 +65,11 @@ must come from the URL (see section 7).
 
 Counted by a throwaway script (not committed) over `db/migrations/*.sql` - **EXECUTED**:
 
-* **42** `.sql` files (+ `README.md`); first `20260906180000_adopt_dbmate`, last `20260929000002_parent_child_account_controls`.
+* **43** `.sql` files (+ `README.md`); first `20260906180000_adopt_dbmate`, last `20261002120000_outbox_trigger_attempts_reset`.
 * Names all match `^\d{14}_[a-z0-9_]+\.sql$`; versions strictly ascending; **0 duplicate versions**.
-* All 42 contain both `-- migrate:up` and `-- migrate:down`.
+* All 43 contain both `-- migrate:up` and `-- migrate:down`.
 * `20260906180000_adopt_dbmate.sql` is an intentional no-op boundary (`SELECT 1`).
+* `20261002120000_outbox_trigger_attempts_reset.sql` replaces the live post/message delete-outbox functions so an exhausted (`attempts >= 8`) or completed row starts a new bounded cycle. Historical `20260907150000_final_runtime_invariants.sql` is unchanged.
 * Data/structure-removing statements in **up** sections (all intentional, applied once per database, not re-run): `DROP TRIGGER`/`DROP CONSTRAINT` (re-create patterns in `20260907142000`, `20260907150000`, `20260908093000`, `20260912235000`, `20260913000000`, `20260922000002`, `20260924000001`, `20260924000003`, `20260928000001`); `DELETE FROM` in `20260913000000` (invalid face_profiles), `20260921000100` (music dedup), `20260922000002` (push-token owner dedup), `20260923000000` (quiz bank simplification); `DROP TABLE`/`DROP COLUMN` in `20260922000001_drop_face_artifacts` and `DROP COLUMN` in `20260924000003`. No `TRUNCATE`. Whether the **down** sections restore deleted data was not evaluated.
 * One `CREATE INDEX` without `IF NOT EXISTS`: `20260908195500_curated_dataset_foundation.sql` (executes once under dbmate tracking; not a defect, noted for idempotency).
 * Migration-created tables absent from `database/schema.sql`: `chat_typing`, `content_reactions`, `content_saves`, `content_shares`, `curated_creators`, `login_throttle`, `media_delete_outbox`, `moderation_signal_cache`, `password_reset_otps`, `screen_time_extension_requests` (+ `face_auth_challenges`, later dropped). `child_xp`, `curated_music`, `parent_verifications` live in `upgrade.sql`/`friendship_upgrade.sql`, not `schema.sql`. Consequence: **`schema.sql` alone is not a complete schema; baseline + migrations is the only supported path.**
@@ -88,11 +89,11 @@ Retained (Neon) database via Modal (`modal_web.py`, `.github/workflows/deploy-mo
 Docker (`docker-entrypoint.sh`): `python tools/init_db.py` (idempotent) -> hard-fail if `dbmate` missing -> `dbmate up` -> `tools/seed_quizzes.py` -> gunicorn (1 worker, 4 threads). The Modal web function does **not** migrate at container start; migration is a separate pre-deploy step.
 
 Execution status for the **historical** writing of this section: **NOT EXECUTED**
-in that session. **CURRENT FINAL RELEASE RESULT** (later, `f4be262`): disposable
-PostgreSQL 16.15 + pgvector 0.8.7, **42/42** migrations from zero, backend
-**885 passed / 1 skipped / 0 failed**. Live Neon remains **NOT CONTACTED**.
-Historical Claude-session counts such as 783 passed / 2 skipped are
-**HISTORICAL RESULT** only.
+in that session. **CURRENT FINAL RELEASE RESULT**: disposable
+PostgreSQL 16.15 + pgvector 0.8.7, **43/43** migrations from zero, backend
+**898 passed / 2 skipped / 0 failed**. Live Neon remains **NOT CONTACTED**.
+Historical Claude-session counts such as 783 passed / 2 skipped, and the
+earlier local 42/42 run on `f4be262`, are **HISTORICAL RESULT** only.
 
 ## 4. Schema / index review (SOURCE)
 

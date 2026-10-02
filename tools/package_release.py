@@ -51,7 +51,18 @@ EXCLUDE_DIRS = {
     "node_modules",
 }
 EXCLUDE_FILES = {".env", "local.properties"}
-EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".jks", ".keystore", ".apk", ".zip"}
+EXCLUDE_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+    ".jks",
+    ".keystore",
+    ".apk",
+    ".zip",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+}
 
 
 def portable_arcname(rel) -> str:

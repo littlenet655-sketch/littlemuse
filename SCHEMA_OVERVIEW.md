@@ -17,8 +17,9 @@ dbmate --no-dump-schema --migrations-dir db/migrations status
 
 Never run `dbmate up` alone on an empty database.
 
-**CURRENT FINAL RELEASE RESULT:** 42/42 migrations applied from zero on a
+**CURRENT FINAL RELEASE RESULT:** 43/43 migrations applied from zero on a
 disposable `pgvector/pgvector:pg16` container (PostgreSQL 16.15, pgvector 0.8.7).
+Latest file: `20261002120000_outbox_trigger_attempts_reset.sql`.
 That container was removed after the run. Production Neon was not contacted.
 
 ## Extensions (hard requirements at schema creation)

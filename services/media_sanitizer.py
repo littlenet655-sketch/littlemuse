@@ -94,7 +94,7 @@ def strip_video_audio_in_place(path: str) -> bool:
             subprocess.run(
                 [
                     'ffmpeg','-y','-loglevel','error','-i',str(source),
-                    '-map','0:v:0','-c:v','copy','-an','-map_metadata','-1',tmp,
+                    '-map','0:v:0','-c:v','copy','-an','-map_metadata','-1','-map_chapters','-1',tmp,
                 ],
                 capture_output=True,text=True,timeout=120,check=True,
             )

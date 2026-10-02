@@ -51,6 +51,7 @@ def test_sanitizer_contract_uses_ffmpeg_an_and_verifies_audio_absent():
     assert "'ffmpeg'" in source
     assert "'-an'" in source
     assert "'-map_metadata','-1'" in source.replace(' ', '')
+    assert "'-map_chapters','-1'" in source.replace(' ', '')
     assert 'has_audio_stream(tmp)' in source
     assert 'audio_stream_still_present' in source
     assert 'os.replace' in source
@@ -59,15 +60,41 @@ def test_sanitizer_contract_uses_ffmpeg_an_and_verifies_audio_absent():
     ingest = Path(media_sanitizer.__file__).resolve().parents[1] / 'tools' / 'dataset_ingest.py'
     ingest_src = ingest.read_text(encoding='utf-8')
     assert '"-map_metadata", "-1"' in processor
+    assert '"-map_chapters", "-1"' in processor
     assert '"-map_metadata", "-1"' in ingest_src
+    assert '"-map_chapters", "-1"' in ingest_src
+
+
+def _write_ffmetadata(path, with_chapter=True):
+    text = ";FFMETADATA1\ntitle=SecretTitle\ncomment=SecretComment\n"
+    if with_chapter:
+        text += "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=900\ntitle=SecretChapter\n"
+    path.write_text(text, encoding="utf-8")
+
+
+def _chapter_titles(path):
+    result = subprocess.run(
+        ['ffprobe','-v','error','-show_chapters','-of','json',str(path)],
+        capture_output=True, text=True, check=True, timeout=20,
+    )
+    payload = json.loads(result.stdout or '{}')
+    titles = []
+    for chapter in payload.get('chapters') or []:
+        tags = {str(k).lower(): str(v) for k, v in (chapter.get('tags') or {}).items()}
+        if tags.get('title'):
+            titles.append(tags['title'])
+    return titles
 
 
 def _make_video_with_audio(path):
-    import subprocess
+    meta = path.with_suffix('.ffmeta')
+    _write_ffmetadata(meta)
     subprocess.run(
         ['ffmpeg','-hide_banner','-loglevel','error','-y',
          '-f','lavfi','-i','testsrc=duration=1:size=320x240:rate=10',
          '-f','lavfi','-i','sine=frequency=440:duration=1',
+         '-i',str(meta),
+         '-map','0:v:0','-map','1:a:0','-map_metadata','2',
          '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',
          str(path)],
         check=True, timeout=60,
@@ -79,9 +106,12 @@ def test_strip_removes_audio_from_real_video(tmp_path):
     _make_video_with_audio(path)
     assert media_sanitizer.has_audio_stream(str(path)) is True
     assert media_sanitizer.has_video_stream(str(path)) is True
+    assert _chapter_titles(path) == ['SecretChapter']
     assert media_sanitizer.strip_video_audio_in_place(str(path)) is True
     assert media_sanitizer.has_audio_stream(str(path)) is False
     assert media_sanitizer.has_video_stream(str(path)) is True
+    assert _sensitive_metadata(_format_tags(path)) == {}
+    assert _chapter_titles(path) == []
 
 
 def test_strip_is_idempotent_for_silent_video(tmp_path):
@@ -93,12 +123,14 @@ def test_strip_is_idempotent_for_silent_video(tmp_path):
 
 
 def _make_silent_video_with_metadata(path):
+    meta = path.with_suffix('.ffmeta')
+    _write_ffmetadata(meta)
     subprocess.run(
         ['ffmpeg','-hide_banner','-loglevel','error','-y',
          '-f','lavfi','-i','testsrc=duration=1:size=320x240:rate=10',
-         '-c:v','libx264','-pix_fmt','yuv420p','-an',
-         '-metadata','title=SecretTitle',
-         '-metadata','comment=SecretComment',
+         '-i',str(meta),
+         '-map','0:v:0','-map_metadata','1','-an',
+         '-c:v','libx264','-pix_fmt','yuv420p',
          '-metadata','location=+12.9716+077.5946/',
          '-metadata','location-eng=+12.9716+077.5946/',
          str(path)],
@@ -130,10 +162,12 @@ def test_silent_video_metadata_is_stripped_before_publish(tmp_path):
     _make_silent_video_with_metadata(path)
     assert media_sanitizer.has_audio_stream(str(path)) is False
     assert _sensitive_metadata(_format_tags(path))
+    assert _chapter_titles(path) == ['SecretChapter']
     assert media_sanitizer.strip_video_audio_in_place(str(path)) is False
     assert media_sanitizer.has_audio_stream(str(path)) is False
     assert media_sanitizer.has_video_stream(str(path)) is True
     assert _sensitive_metadata(_format_tags(path)) == {}
+    assert _chapter_titles(path) == []
 
 
 def test_silent_video_derivatives_strip_container_metadata(tmp_path):
@@ -145,6 +179,7 @@ def test_silent_video_derivatives_strip_container_metadata(tmp_path):
     video, _poster = _make_video_derivatives(source, tmp_path)
     assert media_sanitizer.has_audio_stream(str(video)) is False
     assert _sensitive_metadata(_format_tags(video)) == {}
+    assert _chapter_titles(video) == []
 
 
 def test_strip_fails_closed_on_garbage_input(tmp_path):

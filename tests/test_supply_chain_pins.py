@@ -34,3 +34,15 @@ def test_split_requirement_files_use_exact_pins_for_ml_stack():
             if not line or line.startswith("-r"):
                 continue
             assert "==" in line and ">=" not in line, f"{rel}: {line}"
+
+
+def test_production_text_runtime_keeps_validated_transformers_510():
+    text = (ROOT / "requirements-text.txt").read_text(encoding="utf-8")
+    modal = (ROOT / "modal_ai.py").read_text(encoding="utf-8")
+    assert "transformers==5.10.0" in text
+    assert "transformers==5.10.0" in modal
+    for rel in ("Dockerfile", "Dockerfile.web", "modal_ai.py", "modal_web.py"):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        assert "requirements.txt" not in src or "requirements-text.txt" in src
+        assert "-r requirements.txt" not in src
+        assert "COPY requirements.txt" not in src

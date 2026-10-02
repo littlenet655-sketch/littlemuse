@@ -60,7 +60,7 @@ with zipfile.ZipFile(ZIP) as z:
             errors.append(f'forbidden runtime/legacy path: {name}')
         if p.parts and p.parts[0] == 'android':
             errors.append(f'forbidden duplicate Android root: {name}')
-        if p.suffix in {'.pyc', '.pyo', '.jks', '.keystore', '.apk', '.aab'}:
+        if p.suffix in {'.pyc', '.pyo', '.jks', '.keystore', '.apk', '.aab', '.pem', '.key', '.p12', '.pfx'}:
             errors.append(f'forbidden build/sensitive suffix: {name}')
         # Pointer-stub tripwire: real model weight artifacts are megabytes; an
         # LFS pointer stub is ~130 bytes of text. Restricted to known binary
