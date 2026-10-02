@@ -81,6 +81,17 @@ def test_client_copy_follows_server_status():
     assert 'Request sent! Both parents need to approve.' in screen
 
 
+def test_connection_lists_use_canonical_follower_orientation():
+    api = text('mobile/api.py')
+    stitch = text('mobile/stitch_api.py')
+    service = text('child/service.py')
+    # child_id = requester; following_child_id = target.
+    assert 'WHERE f.following_child_id = %s AND f.approved = TRUE AND f.approval_stage = \'ACTIVE\'' in api
+    assert 'WHERE f.child_id = %s AND f.approved = TRUE AND f.approval_stage = \'ACTIVE\'' in api
+    assert "'connected': is_following(uid, target_id)" in stitch
+    assert "'followers':friends,'following':friends" in service
+
+
 def test_stale_resolutions_surface_errors():
     routes = text('parent/routes.py')
     template = text('parent/templates/follow_requests.html')

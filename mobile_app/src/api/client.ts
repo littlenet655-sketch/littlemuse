@@ -18,11 +18,15 @@ export function productionApiUrlProblem(raw: string): string | null {
     return 'invalid';
   }
   if (parsed.protocol !== 'https:') return 'https_required';
-  const host = parsed.hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'private_host';
-  if (/^10\./.test(host) || /^192\.168\./.test(host)) return 'private_host';
-  const match = host.match(/^172\.(\d+)\./);
-  if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return 'private_host';
+  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return 'private_host';
+  const rfc1918 = host.match(/^172\.(\d+)\./);
+  if (rfc1918 && Number(rfc1918[1]) >= 16 && Number(rfc1918[1]) <= 31) return 'private_host';
+  const cgnat = host.match(/^100\.(\d+)\./);
+  if (cgnat && Number(cgnat[1]) >= 64 && Number(cgnat[1]) <= 127) return 'private_host';
+  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
+  if (host.includes(':') && (/^f[cd]/i.test(host) || /^fe[89ab]/i.test(host))) return 'private_host';
   return null;
 }
 

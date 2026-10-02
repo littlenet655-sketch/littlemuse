@@ -18,28 +18,28 @@ This report covers only what was actually examined. The prompt's allowed statuse
 | 11 | Demo Boost/polling | Fixed-interval polling for all roles; unbounded email poll | Adaptive Demo Boost intervals; email poll bounded. Other pollers verified bounded | FIXED | tsc + mobile tests |
 | 12 | Logout / 401 storm | invalidateQueries refetched with discarded creds; 401 handler not token-aware | Cancel-then-clear, clear before server logout, token-aware 401 | FIXED | mobile_app/tests/controller.test.ts, cancellation.test.ts |
 | 13 | Heartbeat/session races | — | useScreenTimeHeartbeat verified: 60s, foreground-only, stable callback, torn down on logout | ALREADY FIXED / VERIFIED | code inspection |
-| 14 | Profile query / follower_id | — | NOT AUDITED | NOT AUDITED | — |
-| 15 | Story hook crash | — | Not specifically audited; existing tests pass | NOT AUDITED | — |
+| 14 | Profile query / follower_id | Reversed or stale social-graph queries | Source now uses `child_id`=requester and `following_child_id`=target; own/other profile, counts, pending/approved, and batched media auth are consistent. Friendship `followers`/`following` counts are the same by design (ACTIVE pairs). Residual: discover/suggested still does per-row follow lookups (listing size 15; not redesigned) | ALREADY FIXED / VERIFIED | tests/test_follow_back_fix.py, tests/test_two_parent_friendship.py, tests/test_discovery_privacy.py |
+| 15 | Story hook crash | Conditional hooks before empty/error return | `StoriesScreen` keeps gesture/auth/focus hooks above early returns; empty/next/exit/broken-media/tab/foreground paths remain | ALREADY FIXED / VERIFIED | mobile_app/tests/stabilization.test.ts, waveB_contracts.test.ts, parityWave2Contracts.test.ts |
 | 16 | Post/Reel rendering from R2 | — | NOT AUDITED | NOT AUDITED | — |
 | 17 | Neon/PostgreSQL | — | Migrations verified on PG16+pgvector (42 applied). Pooling/SSL review and DATABASE_READINESS.md NOT done. Live Neon: EXTERNAL VERIFICATION REQUIRED | EXTERNAL VERIFICATION REQUIRED | migrations run locally |
-| 18 | Resend/OTP | — | Password-reset OTP expiry uses DB clock (verified). Remaining OTP checks NOT AUDITED | NOT AUDITED (partial) | code inspection |
+| 18 | Resend/OTP | Remaining signup / parent-email / reset / approval gaps after the OTP hardening block | Generation, hashing, expiry, attempts, replay, resend cooldown, attempt-carry, email lowercase, approval-token single-use/expiry/guardian bind are covered. Residual: forgot-password still returns `user_id`+`masked_email` for real accounts (mobile reset still needs that). Live reset/login-throttle DB tests not run here | ALREADY FIXED / VERIFIED (residual deferred) | tests/test_otp_hardening_mock.py, tests/test_login_throttle_mock.py |
 | 19 | Child–parent linking | — | Parent review/follow routes authorise via server-side owns()/approved parent_child_map (seen). Not exhaustively audited | NOT AUDITED (partial) | — |
 | 20 | Parent routes 404s | — | NOT AUDITED | NOT AUDITED | — |
-| 21 | Mobile API base URL | — | Centralised in client.ts via EXPO_PUBLIC_API_BASE_URL; HTTPS/private-host rejection tested. Full hardcoded-host sweep NOT done | ALREADY FIXED / VERIFIED (partial) | tests/contracts.test.ts |
-| 22 | Android ID/version | — | com.littlenet.app, 1.0.2, versionCode 3 recorded | ALREADY FIXED / VERIFIED | app.json |
+| 21 | Mobile API base URL | Production could accept extra private ranges; `set_backend_url.py` wrote a dead android/ WebView path | Guard now also rejects 169.254/16, 100.64/10, IPv6 ULA/link-local. Helper writes `mobile_app/.env` `EXPO_PUBLIC_API_BASE_URL` only. No hardcoded Modal URL in mobile source | FIXED | mobile_app/tests/contracts.test.ts, tests/test_set_backend_url.py |
+| 22 | Android ID/version | — | Current source: name LittleNet, package `com.littlenet.app`, version `1.0.2`, versionCode `3`, EAS preview = internal APK, `usesCleartextTraffic=false`. npm `package.json` version remains `1.0.0` (not the Android version) | ALREADY FIXED / VERIFIED | app.json, eas.json |
 | 23 | EAS/APK readiness | expo-constants duplicate | Deduped; export OK; preview profile = APK. No cloud build run | FIXED | Doctor 19/21 (2 network-only) |
 | 24 | Modal cost/GPU | — | NOT AUDITED (only Demo Boost status cost examined: one row read, Modal touched once on expiry) | NOT AUDITED | — |
 | 25 | Model loading | — | Three trained weights are LFS pointers here; loader NOT reviewed | EXTERNAL VERIFICATION REQUIRED | ARTIFACT_MANIFEST.sha256 |
 | 26 | Moderation pipeline doc | — | MODERATION_PIPELINE.md NOT produced | NOT AUDITED | — |
 | 27 | Security | — | Pattern scan of tracked files: no real credentials found (localhost/CI/placeholder URLs only). Not a full audit (no IDOR/upload/CORS review) | NOT AUDITED (partial scan) | scan done in-session |
-| 28 | .env.example | — | Files exist (names + example values); not fully audited | NOT AUDITED | — |
+| 28 | .env.example | Missing a few deploy names / required-vs-optional notes | Root template now lists required production names and adds `STRICT_PRODUCTION_PREFLIGHT`, `LITTLENET_WEB_MODAL_APP`, `LITTLENET_R2_WRITE_PREFIX`. Expo template remains the single public var | VERIFIED | .env.example, mobile_app/.env.example |
 | 29 | Error handling paths | — | NOT AUDITED | NOT AUDITED | — |
 | 30 | Performance | — | NOT AUDITED beyond polling | NOT AUDITED | — |
 | 31 | Tests | — | Backend 783/2 skipped/0 failed; mobile 281/0 | FIXED | TEST_RESULTS.md |
 | 32 | No fake results | — | Process rule followed; unexecuted items listed | NOT APPLICABLE | — |
 | 33 | README | — | NOT updated | NOT AUDITED | — |
 | 34 | Deployment config audit | — | NOT AUDITED | NOT AUDITED | — |
-| 35 | Health endpoint | — | NOT AUDITED | NOT AUDITED | — |
+| 35 | Health endpoint | Secret / DSN / path / traceback leak | After later commits, `/healthz`, `/readyz`, `/api/mobile/v1/health` still return only status/mode booleans or static identity | ALREADY FIXED / VERIFIED | tests/test_health_no_leak.py |
 | 36 | Curated media doc | — | NOT produced | NOT AUDITED | — |
 | 37 | Release noise | — | ZIP built from tracked files only | FIXED | zip listing |
 | 38 | Artifact manifest | — | Manifest of model files created | FIXED | ARTIFACT_MANIFEST.sha256 |

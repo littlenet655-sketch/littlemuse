@@ -90,6 +90,15 @@ def test_hash_is_user_bound_and_not_plaintext():
     assert pr._otp_hash(1, "123456") != pr._otp_hash(2, "123456")
 
 
+def test_parent_signup_normalizes_email_lowercase():
+    username, _name, email, _password, _dob = otp._validate_registration({
+        "username": "parentok", "full_name": "Parent Ok",
+        "email": "  Parent.OK@Example.COM  ", "password": "password1",
+        "dob": "1990-01-01", "guardian_declaration": "1",
+    })
+    assert username == "parentok" and email == "parent.ok@example.com"
+
+
 # ── parent email OTP verify ──────────────────────────────────────────────────
 def test_verify_success_marks_verified(monkeypatch):
     (ok, err, user), conn = _verify(monkeypatch, _row())

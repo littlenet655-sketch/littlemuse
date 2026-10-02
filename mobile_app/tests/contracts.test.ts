@@ -20,6 +20,10 @@ describe('production API destination safety', () => {
     assert.equal(productionApiUrlProblem('https://192.168.0.8:5000'), 'private_host');
     assert.equal(productionApiUrlProblem('https://10.0.0.2'), 'private_host');
     assert.equal(productionApiUrlProblem('https://172.20.0.2'), 'private_host');
+    assert.equal(productionApiUrlProblem('https://169.254.1.1'), 'private_host');
+    assert.equal(productionApiUrlProblem('https://100.64.0.1'), 'private_host');
+    assert.equal(productionApiUrlProblem('https://[fd12::1]'), 'private_host');
+    assert.equal(productionApiUrlProblem('https://[fe80::1]'), 'private_host');
     assert.equal(productionApiUrlProblem('not a url'), 'invalid');
     assert.equal(productionApiUrlProblem(''), 'missing');
   });
