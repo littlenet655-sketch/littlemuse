@@ -95,9 +95,21 @@ def available() -> bool:
     artifact = path()
     try:
         if artifact.is_dir():
-            # A Hugging Face classifier directory must carry at least a config.
-            return (artifact / "config.json").is_file()
-        return artifact.is_file() and artifact.stat().st_size > 0
+            # A Hugging Face classifier directory must carry a config and a
+            # real weight file. A Git LFS pointer is not a loaded model.
+            from safety.model_files import is_git_lfs_pointer
+
+            if not (artifact / "config.json").is_file():
+                return False
+            weights = [
+                artifact / name
+                for name in ("model.safetensors", "pytorch_model.bin")
+                if (artifact / name).is_file()
+            ]
+            return bool(weights) and not any(is_git_lfs_pointer(weight) for weight in weights)
+        from safety.model_files import is_git_lfs_pointer
+
+        return artifact.is_file() and artifact.stat().st_size > 0 and not is_git_lfs_pointer(artifact)
     except OSError:
         return False
 

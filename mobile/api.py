@@ -392,6 +392,14 @@ def _child_gate(feature: str | None = None):
             pass
     return None
 
+def _unsafe_local_media_ref(ref: str) -> bool:
+    """Reject path traversal before a local uploads/ lookup."""
+    text = str(ref or "").replace("\\", "/")
+    if text.startswith("/"):
+        return True
+    return any(part == ".." for part in text.split("/"))
+
+
 def _asset_url(reference, viewer_id=None, viewer_role=None, auth_decisions=None):
     if not reference:
         return None
@@ -1432,6 +1440,8 @@ def register_mobile_api(bp):
     @_require_mobile("CHILD", "PARENT", "ADMIN")
     def mobile_media():
         ref = str(request.args.get("ref") or "")
+        if _unsafe_local_media_ref(ref):
+            return jsonify(error="invalid_media_reference"), 400
         uid = int(g.mobile_user["user_id"])
         role = str(g.mobile_user["role"])
         if not ref or not _media_allowed(uid, role, ref):

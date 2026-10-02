@@ -75,8 +75,17 @@ def paths() -> tuple[Path, Path]:
 def available() -> bool:
     if not _flag("LITTLENET_ENABLE_TRAINED_IMAGE_ENSEMBLE", True):
         return False
+    from safety.model_files import is_git_lfs_pointer
+
     v2, v3 = paths()
-    return v2.is_file() and v3.is_file() and v2.stat().st_size > 0 and v3.stat().st_size > 0
+    staged = []
+    for path in (v2, v3):
+        try:
+            if path.is_file() and path.stat().st_size > 0 and not is_git_lfs_pointer(path):
+                staged.append(path)
+        except OSError:
+            continue
+    return len(staged) == 2
 
 
 def _load_one(path: Path):

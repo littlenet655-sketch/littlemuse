@@ -186,6 +186,8 @@ def create_app():
         import os
         uid=session.get('user_id');role=session.get('role')
         if not uid:return ('Unauthorized',401)
+        if any(part == '..' for part in str(filename).replace('\\', '/').split('/')):
+            return ('Unavailable', 404)
         stored='uploads/'+filename
 
         p=fetch_one('SELECT post_id,child_id,moderation_status,is_safe,is_story FROM posts WHERE media_path=%s OR story_music_path=%s',(stored,stored))
