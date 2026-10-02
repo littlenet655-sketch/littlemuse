@@ -33,14 +33,27 @@ MODEL_BINARIES = {
 }
 # Only these suffixes are binary weight artifacts subject to the stub tripwire.
 STUB_TRIPWIRE_SUFFIXES = {'.pth', '.safetensors', '.bin'}
+def _relative_name(name: str) -> str:
+    posix = name.replace('\\', '/')
+    if posix.startswith('LittleNet/'):
+        return posix[len('LittleNet/'):]
+    return posix
+
+
 errors = []
 with zipfile.ZipFile(ZIP) as z:
     names = z.namelist()
+    if any('\\' in name for name in names):
+        errors.append('ZIP entries must use portable forward slashes')
+    tops = {name.replace('\\', '/').split('/', 1)[0] for name in names if name}
+    if tops != {'LittleNet'}:
+        errors.append(f'release ZIP must have one LittleNet/ top-level folder, got {sorted(tops)}')
+    rel_names = [_relative_name(name) for name in names]
     for name in required:
-        if name not in names:
+        if name not in rel_names:
             errors.append(f'missing release file: {name}')
     for name in names:
-        p = Path(name)
+        p = Path(_relative_name(name))
         if p.name in {'.env', 'local.properties'}:
             errors.append(f'forbidden file: {name}')
         if any(part in {'.git', '.pytest_cache', '__pycache__', '.venv', 'venv', 'node_modules', 'mobile_flutter'} for part in p.parts):
@@ -61,14 +74,16 @@ with zipfile.ZipFile(ZIP) as z:
 
     # Exact integrity check for the known model binaries.
     for mname, (expected_size, expected_sha) in MODEL_BINARIES.items():
-        if mname not in names:
+        zip_name = f'LittleNet/{mname}'
+        if zip_name not in names and mname not in names:
             continue  # already reported above as a missing required file
-        info = z.getinfo(mname)
+        zip_entry = zip_name if zip_name in names else mname
+        info = z.getinfo(zip_entry)
         if info.file_size != expected_size:
             errors.append(
                 f'model binary size mismatch: {mname} is {info.file_size} bytes, '
                 f'expected {expected_size}')
-        with z.open(mname) as fh:
+        with z.open(zip_entry) as fh:
             digest = hashlib.sha256()
             for chunk in iter(lambda: fh.read(1 << 20), b''):
                 digest.update(chunk)

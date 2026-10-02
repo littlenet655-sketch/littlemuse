@@ -3,12 +3,14 @@ import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@
 import type { ReactNode } from 'react';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import { shouldRetryQuery } from '../api/errors';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // No aggressive polling: screens opt into bounded refetch explicitly.
-      retry: 1,
+      // HTTP 428 / quiz_required must never consume the generic one-retry budget.
+      retry: shouldRetryQuery,
       staleTime: 120_000,
       gcTime: 5 * 60_000,
       refetchOnWindowFocus: 'always',

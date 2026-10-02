@@ -1,3 +1,5 @@
+import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -48,9 +50,16 @@ def test_sanitizer_contract_uses_ffmpeg_an_and_verifies_audio_absent():
     source=Path(media_sanitizer.__file__).read_text(encoding='utf-8')
     assert "'ffmpeg'" in source
     assert "'-an'" in source
+    assert "'-map_metadata','-1'" in source.replace(' ', '')
     assert 'has_audio_stream(tmp)' in source
     assert 'audio_stream_still_present' in source
     assert 'os.replace' in source
+    assert 'had_audio' in source
+    processor = (Path(media_sanitizer.__file__).parent / 'media_processor.py').read_text(encoding='utf-8')
+    ingest = Path(media_sanitizer.__file__).resolve().parents[1] / 'tools' / 'dataset_ingest.py'
+    ingest_src = ingest.read_text(encoding='utf-8')
+    assert '"-map_metadata", "-1"' in processor
+    assert '"-map_metadata", "-1"' in ingest_src
 
 
 def _make_video_with_audio(path):
@@ -81,6 +90,61 @@ def test_strip_is_idempotent_for_silent_video(tmp_path):
     media_sanitizer.strip_video_audio_in_place(str(path))
     assert media_sanitizer.strip_video_audio_in_place(str(path)) is False
     assert media_sanitizer.has_audio_stream(str(path)) is False
+
+
+def _make_silent_video_with_metadata(path):
+    subprocess.run(
+        ['ffmpeg','-hide_banner','-loglevel','error','-y',
+         '-f','lavfi','-i','testsrc=duration=1:size=320x240:rate=10',
+         '-c:v','libx264','-pix_fmt','yuv420p','-an',
+         '-metadata','title=SecretTitle',
+         '-metadata','comment=SecretComment',
+         '-metadata','location=+12.9716+077.5946/',
+         '-metadata','location-eng=+12.9716+077.5946/',
+         str(path)],
+        check=True, timeout=60,
+    )
+
+
+def _format_tags(path):
+    result = subprocess.run(
+        ['ffprobe','-v','error','-show_entries','format_tags','-of','json',str(path)],
+        capture_output=True, text=True, check=True, timeout=20,
+    )
+    payload = json.loads(result.stdout or '{}')
+    return {str(key).lower(): str(value) for key, value in ((payload.get('format') or {}).get('tags') or {}).items()}
+
+
+def _sensitive_metadata(tags: dict[str, str]) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in tags.items()
+        if key in {'title', 'comment', 'description', 'location', 'location-eng'}
+        or 'location' in key
+        or value in {'SecretTitle', 'SecretComment'}
+    }
+
+
+def test_silent_video_metadata_is_stripped_before_publish(tmp_path):
+    path = tmp_path / 'silent.mp4'
+    _make_silent_video_with_metadata(path)
+    assert media_sanitizer.has_audio_stream(str(path)) is False
+    assert _sensitive_metadata(_format_tags(path))
+    assert media_sanitizer.strip_video_audio_in_place(str(path)) is False
+    assert media_sanitizer.has_audio_stream(str(path)) is False
+    assert media_sanitizer.has_video_stream(str(path)) is True
+    assert _sensitive_metadata(_format_tags(path)) == {}
+
+
+def test_silent_video_derivatives_strip_container_metadata(tmp_path):
+    source = tmp_path / 'silent.mp4'
+    _make_silent_video_with_metadata(source)
+    assert _sensitive_metadata(_format_tags(source))
+    from services.media_processor import _make_video_derivatives
+
+    video, _poster = _make_video_derivatives(source, tmp_path)
+    assert media_sanitizer.has_audio_stream(str(video)) is False
+    assert _sensitive_metadata(_format_tags(video)) == {}
 
 
 def test_strip_fails_closed_on_garbage_input(tmp_path):

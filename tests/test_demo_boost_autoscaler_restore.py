@@ -32,6 +32,17 @@ def test_expired_boost_restores_default_idle_window_then_marks_off(monkeypatch):
     assert any("status='OFF'" in sql for sql in executed)
 
 
+def test_restore_uses_configured_scaledown_windows(monkeypatch):
+    monkeypatch.setenv("MODAL_AI_GPU_SCALEDOWN_WINDOW", "45")
+    monkeypatch.setenv("MODAL_AI_IMAGE_CPU_SCALEDOWN_WINDOW", "20")
+    gpu, cpu, executed = _install(monkeypatch, _expired_row(), restore_ok=True)
+    assert demo_boost.status()["active"] is False
+    gpu.update_autoscaler.assert_called_once_with(min_containers=0, max_containers=1, scaledown_window=45)
+    cpu.update_autoscaler.assert_called_once_with(min_containers=0, max_containers=1, scaledown_window=20)
+    assert any("status='OFF'" in sql for sql in executed)
+    assert demo_boost._configured_scaledown("MODAL_AI_GPU_SCALEDOWN_WINDOW") == 45
+
+
 def test_failed_restore_keeps_row_non_off_so_next_poll_retries(monkeypatch):
     _gpu, _cpu, executed = _install(monkeypatch, _expired_row(), restore_ok=False)
     assert demo_boost.status()["active"] is False

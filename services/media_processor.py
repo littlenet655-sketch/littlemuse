@@ -152,7 +152,7 @@ def _make_video_derivatives(source_path: Path, temp_dir: Path) -> tuple[Path, Pa
             "-i", str(clean_video),
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-            "-an", str(faststart_path),
+            "-an", "-map_metadata", "-1", str(faststart_path),
         ]
         poster_cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",

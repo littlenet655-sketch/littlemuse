@@ -80,17 +80,37 @@ def _set_autoscaler(seconds: int) -> None:
     cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=bounded)
 
 
-def _restore_autoscaler() -> bool:
-    """Restore the 30s idle window. Returns False when Modal rejected it.
+def _configured_scaledown(env_name: str) -> int:
+    """Restore the deployed idle window, not a hardcoded 30s."""
+    raw = (os.getenv(env_name) or str(DEFAULT_SCALEDOWN_SECONDS)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_SCALEDOWN_SECONDS
+    return max(1, min(value, 60 * 65))
 
+
+def _restore_autoscaler() -> bool:
+    """Restore each function's configured idle window. Returns False on Modal error.
+
+    Expiry restoration is lazy on the existing status() poll path (and stop()).
+    There is no permanent scheduled GPU worker just to restore the window.
     Callers must keep the boost row non-OFF on failure so the next status poll
-    retries; otherwise an up-to-65-minute T4/CPU idle window would stay attached
-    to the deployed functions until the next deploy.
+    retries; otherwise a long T4/CPU idle window would stay attached until
+    the next deploy.
     """
     try:
         gpu, cpu = _modal_functions()
-        gpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
-        cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
+        gpu.update_autoscaler(
+            min_containers=0,
+            max_containers=1,
+            scaledown_window=_configured_scaledown("MODAL_AI_GPU_SCALEDOWN_WINDOW"),
+        )
+        cpu.update_autoscaler(
+            min_containers=0,
+            max_containers=1,
+            scaledown_window=_configured_scaledown("MODAL_AI_IMAGE_CPU_SCALEDOWN_WINDOW"),
+        )
         return True
     except Exception:
         return False

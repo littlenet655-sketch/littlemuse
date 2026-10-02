@@ -78,7 +78,8 @@ def test_service_enqueues_r2_media_before_deleting():
     for col in ("source_media_path", "media_path", "poster_path", "story_music_path",
                 "object_key"):
         assert col in src
-    assert "ON CONFLICT(reference)" in src
+    assert "ENQUEUE_DELETE_SQL" in src
+    assert "ON CONFLICT(reference)" in text("services/media_outbox.py")
 
 
 def test_service_resets_settings_to_defaults():

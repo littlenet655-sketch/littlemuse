@@ -7,7 +7,13 @@ DBMATE_SHA = "b002d5249d53d0c6c482ed761b5a806c6fb9a364fcc5f9db3e8763c1d9e40e1d"
 
 
 def test_every_dbmate_download_is_checksum_verified():
-    for rel in ("Dockerfile", "Dockerfile.web", "modal_web.py"):
+    for rel in (
+        "Dockerfile",
+        "Dockerfile.web",
+        "modal_web.py",
+        ".github/workflows/ci.yml",
+        ".github/workflows/role-e2e.yml",
+    ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "dbmate-linux-amd64" in text, rel
         assert DBMATE_SHA in text and "sha256sum -c" in text, rel

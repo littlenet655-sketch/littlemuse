@@ -60,14 +60,9 @@ def _enqueue_ref(cur, reference, source_table, source_id) -> bool:
     ref = str(reference or "")
     if not ref.startswith(R2_REFERENCE_PREFIX):
         return False
-    cur.execute(
-        """INSERT INTO media_delete_outbox(reference,source_table,source_id)
-           VALUES(%s,%s,%s)
-           ON CONFLICT(reference) DO UPDATE
-             SET completed_at=NULL,last_error=NULL,source_table=EXCLUDED.source_table,
-                 source_id=COALESCE(EXCLUDED.source_id,media_delete_outbox.source_id)""",
-        (ref, source_table, source_id),
-    )
+    from services.media_outbox import ENQUEUE_DELETE_SQL
+
+    cur.execute(ENQUEUE_DELETE_SQL, (ref, source_table, source_id))
     return True
 
 

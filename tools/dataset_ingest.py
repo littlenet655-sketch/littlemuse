@@ -144,7 +144,8 @@ def _make_reel_delivery(source: Path, temp_dir: Path) -> tuple[Path, Path | None
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
             "-an", "-vf", "scale=720:-2", "-c:v", "libx264", "-preset", "medium",
-            "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(delivery),
+            "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "-map_metadata", "-1", str(delivery),
         ],
         check=True,
     )

@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 
 process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.test.invalid';
 
-import { ApiError, setUnauthorizedHandler } from '../src/api/client';
-import { retryDelayMs, shouldRetryRequest } from '../src/api/errors';
+import { QueryClient } from '@tanstack/react-query';
+import { ApiError, apiRequest, setUnauthorizedHandler } from '../src/api/client';
+import { retryDelayMs, shouldRetryQuery, shouldRetryRequest } from '../src/api/errors';
 import { fetchReelsV2, refreshCuratedReelPlayback, refreshReelPlayback } from '../src/api/kidsFeed';
 import { isQuizRequiredError } from '../src/video/quizGate';
 
@@ -33,6 +34,31 @@ describe('HTTP 428 quiz latch is a domain state, never a retryable failure', () 
         assert.equal(shouldRetryRequest(method, attempt, 428), false, `${method}#${attempt}`);
       }
     }
+  });
+
+  it('generic query retry predicate returns false for HTTP 428 / quiz_required', () => {
+    const quiz = new ApiError(428, 'quiz_required', 'Complete your Brain Break to continue.', 'quiz');
+    assert.equal(shouldRetryQuery(0, quiz), false);
+    assert.equal(shouldRetryQuery(1, quiz), false);
+    assert.equal(shouldRetryQuery(0, new ApiError(503, 'server_unavailable', 'busy')), true);
+    assert.equal(shouldRetryQuery(1, new ApiError(503, 'server_unavailable', 'busy')), false);
+  });
+
+  it('generic QueryClient GET of HTTP 428 is one network attempt and still quiz-required', async () => {
+    stubFetch([QUIZ_428, QUIZ_428]);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: shouldRetryQuery, retryDelay: 0 } },
+    });
+    const err = await client.fetchQuery({
+      queryKey: ['probe-428'],
+      queryFn: () => apiRequest('/api/mobile/v2/reels/41/playback', {}, 'tok'),
+    }).catch((e: unknown) => e);
+    client.clear();
+    assert.equal(calls.length, 1, 'a 428 must not consume the generic query retry');
+    assert.equal(shouldRetryQuery(0, err), false);
+    assert.ok(err instanceof ApiError);
+    assert.equal((err as ApiError).status, 428);
+    assert.equal(isQuizRequiredError(err), true);
   });
 
   it('retry policy stays bounded for genuinely transient errors', () => {
