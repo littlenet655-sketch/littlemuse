@@ -44,4 +44,4 @@ These numbers are the **CURRENT FINAL RELEASE RESULT**. They were recorded on th
 
 **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**
 
-Not fully production verified. Not blocked solely because external infrastructure, Git LFS model payloads, or device testing remain. See `release_docs/DEPLOYMENT_READINESS.md` and `release_docs/KNOWN_LIMITATIONS.md`.
+Not fully production verified. Custom LittleNet model payloads are now present in this tree and locally load-verified. Remaining external requirements are infrastructure and device testing. See `release_docs/DEPLOYMENT_READINESS.md` and `release_docs/KNOWN_LIMITATIONS.md`.

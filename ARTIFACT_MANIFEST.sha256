@@ -1,12 +1,12 @@
 # LittleNet ARTIFACT_MANIFEST.sha256
 # Generated from the final documentation state on release-candidate.
 # SHA-256 is of the file bytes on disk.
-# Custom LittleNet checkpoints below are GIT LFS POINTERS - NOT trained-model checksums.
+# Custom LittleNet checkpoints below are the actual trained payloads (SHA-256 of file bytes).
 
-## Custom LittleNet model files (GIT LFS POINTER ONLY - NOT ACTUAL TRAINED MODEL PAYLOAD)
-0b524a3267c9a6bbfd499447bcf9c4aae3cbfc7bbdd35ec906953c49674c73f1  models/littlenet_core_safety_v2.pth  (133 bytes)  # GIT LFS POINTER - NOT ACTUAL TRAINED MODEL PAYLOAD
-b52307100f905081b76cfb731d1c4e21f30b50a3a543b0f2c6a37d62ee7064a2  models/littlenet_weapons_violence_v3.pth  (133 bytes)  # GIT LFS POINTER - NOT ACTUAL TRAINED MODEL PAYLOAD
-71f215edce2e1f26bd8e3d08b7609017ef52a326d3295e63041c71f79944c06f  models/littlenet_text_safety/model.safetensors  (134 bytes)  # GIT LFS POINTER - NOT ACTUAL TRAINED MODEL PAYLOAD
+## Custom LittleNet model files (actual trained payloads)
+8a9ccfbfd5f59b65143bb90131750db75ff54b895e82d31af04b1e2ccafd431c  models/littlenet_core_safety_v2.pth  (16335485 bytes)
+f028ddfa0264ad9570ec6411666143eb57ec9f9159ca218dd6e27f2c413591e8  models/littlenet_weapons_violence_v3.pth  (16327011 bytes)
+7eb1f37efdd95a1f363ed76377e65e512c2f986140a50fea404cdcd5598fe875  models/littlenet_text_safety/model.safetensors  (541351212 bytes)
 
 ## Ultralytics YOLO weights (real files in this tree; NOT custom LittleNet checkpoints)
 f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  yolov8n.pt  (6549796 bytes)
@@ -28,7 +28,7 @@ c69772dba426549e965a9f13036a27f658b6ad4ff73ec875f033391852676426  requirements-t
 
 ## Current release documentation (hashes match these committed files)
 a1fd20e682b270d0490ea3356269e673e01cb399ac87d3578defbbc6d6eb9fbb  README.md  (30243 bytes)
-37c1239359f8b64940f8797e23de312f4d84219742813c4d689a99ce368f26e0  RELEASE_IDENTITY.md  (2220 bytes)
+30c5f639fc238ac1a5caf96ef9b260c7ac080f503e0017c17693020a566ae06a  RELEASE_IDENTITY.md  (2409 bytes)
 f9312f03e23a187b3525ae2e14b5dbc20e819302e9ca628bc7fe2dabb6a720d9  DATABASE_READINESS.md  (20671 bytes)
 4dfe4f3bb167356363df443897d72237400f35c02d6a9ecdd6dc2f0c98936345  SCHEMA_OVERVIEW.md  (2351 bytes)
 aadf6468bf83343ec63a66d7cd11b9be4124d6288e140c4762621f2b5a6922c8  R2_STORAGE_MAP.md  (7030 bytes)
@@ -38,8 +38,8 @@ ad89bc81f5bff3637da883a2ccb8c2c4fbec742b3f8a3311d4931360d3547ec1  CURATED_MEDIA_
 695adfe475fccd88a15e1962b33d154c246a309deafbb5aa7597404366f15f7d  APK_BUILD_INSTRUCTIONS.md  (1415 bytes)
 e0af7c28dc426efc3c121045a051747a1731e86190fe04efc796408f08112e4f  SECURITY_AUDIT_REPORT.md  (36980 bytes)
 7acc91300a39c4c3daba4d0a2ace3173450a24234c0fbf9fc1ef3a249f3f214a  release_docs/TEST_RESULTS.md  (2524 bytes)
-1195be25df8ee015ee3fb00c3db4fac4bb6519585f063207cff8c5da4c576341  release_docs/DEPLOYMENT_READINESS.md  (2615 bytes)
-ee3c58983273d0f7a3ac7edb9ce3b6c569ea04154defc87caef9e9fcad34f8f6  release_docs/KNOWN_LIMITATIONS.md  (2641 bytes)
+784f76b30cebba69dde566bfe1400260c71d920e72aabbbb9806a0d07ead6552  release_docs/DEPLOYMENT_READINESS.md  (2662 bytes)
+1df340378f25b92ce449c7b2293ce32103de618a5487f478cd1269e89f5710ff  release_docs/KNOWN_LIMITATIONS.md  (2037 bytes)
 cf8a0679e0da2ead4d129da5614145834df4224a4ddbcecb39a1142684bf7331  release_docs/FINAL_FIX_REPORT.md  (2837 bytes)
 e420dbf8ec07e18d974e3daae506aebe8dca459ee1530bfe137316d3ef1a02ea  release_docs/FILES_CHANGED.md  (2136 bytes)
 130ec50c122702b93613361494b30234bdffc3b7ed32e1f0de4171d5158c917c  release_docs/RELEASE_CHECKLIST.md  (1735 bytes)

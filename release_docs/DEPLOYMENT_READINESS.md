@@ -4,8 +4,8 @@
 
 The source at technical baseline `f4be262` is locally green. This documentation
 pass did not change executable source. The package is **not** fully production
-verified. It is **not** blocked solely because external infrastructure, Git LFS
-model payloads, or device testing remain.
+verified. Custom LittleNet model payloads are present and locally load-verified.
+Remaining blockers are external infrastructure and device testing.
 
 | Area | Status | Evidence |
 |---|---|---|
@@ -17,24 +17,23 @@ model payloads, or device testing remain.
 | Cloudflare R2 | EXTERNAL REQUIREMENT | live R2 was not contacted |
 | Resend | EXTERNAL REQUIREMENT | live email/OTP delivery was not contacted |
 | Modal | EXTERNAL REQUIREMENT | current Modal source was not deployed from this HEAD |
-| Custom model payloads | EXTERNAL REQUIREMENT | Git LFS pointers only in this tree |
+| Custom model payloads | LOCALLY VERIFIED | Real V2/V3 `.pth` and text `model.safetensors` load on CPU |
 | EAS preview APK | EXTERNAL REQUIREMENT | preview profile is internal APK; no cloud build from this source |
 | Physical device | EXTERNAL REQUIREMENT | no install/smoke from this exact source |
 | CI scanners | NOT RUN LOCALLY | `pip-audit`, `bandit`, `gitleaks` are CI-only; not source failures |
 
 ## External requirements before live submission
 
-1. Pull actual custom model payloads through Git LFS.
-2. Configure production secrets (never put them in Expo; only `EXPO_PUBLIC_API_BASE_URL` is public).
-3. Verify live Neon connection (direct endpoint; `sslmode=require`).
-4. Verify live Cloudflare R2 (private bucket, signed URLs, no public read).
-5. Verify Resend email/OTP delivery.
-6. Deploy current Modal source and verify settings (scale-to-zero, GPU confined to `ai_web` / `warm_models`).
-7. Run the EAS preview APK cloud build.
-8. Install the APK on an actual Android device.
-9. Run final physical-device smoke tests (`PHYSICAL_DEVICE_CHECKLIST.md`).
-10. Verify a legitimate live Parent Review event.
-11. Probe actual R2 Reel files with ffprobe.
+1. Configure production secrets (never put them in Expo; only `EXPO_PUBLIC_API_BASE_URL` is public).
+2. Verify live Neon connection (direct endpoint; `sslmode=require`).
+3. Verify live Cloudflare R2 (private bucket, signed URLs, no public read).
+4. Verify Resend email/OTP delivery.
+5. Deploy current Modal source and verify settings (scale-to-zero, GPU confined to `ai_web` / `warm_models`).
+6. Run the EAS preview APK cloud build.
+7. Install the APK on an actual Android device.
+8. Run final physical-device smoke tests (`PHYSICAL_DEVICE_CHECKLIST.md`).
+9. Verify a legitimate live Parent Review event.
+10. Probe actual R2 Reel files with ffprobe.
 
 Also run CI-only security tooling in CI: `pip-audit`, `bandit`, `gitleaks`.
 Do not treat their local absence as a source-code failure.
@@ -42,5 +41,5 @@ Do not treat their local absence as a source-code failure.
 ## What this status does not mean
 
 - It does not mean live production was exercised.
-- It does not mean the custom EfficientNet / text-safety checkpoints are present.
+- It does not mean the existing `LittleNet_DEPLOYMENT_READY_FIXED.zip` contains these payloads (that ZIP was frozen before this restore).
 - It does not mean an APK from this exact HEAD is already installed on a phone.
