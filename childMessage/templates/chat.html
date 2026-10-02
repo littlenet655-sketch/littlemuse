@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Chat · LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="chat-shell ig-chat-view">
+  <div class="ig-chat-header">
+    <a href="/messages/" class="ig-chat-back" aria-label="Back to messages">{{ ico.icon('chevron-left',24) }}</a>
+    <div class="ig-chat-peer-meta">
+      <div class="ig-chat-avatar-wrap"><span class="ig-chat-avatar-mini">{{ ico.icon('user',18) }}</span><span class="ig-chat-online-dot"></span></div>
+      <div class="ig-chat-peer-names"><b class="ig-chat-peer-title">{{ peer_name or 'Classmate' }}</b><span class="ig-chat-peer-sub">{{ ico.icon('shield',11) }} Approved classmate · Active</span></div>
+    </div>
+    <a href="/child/dashboard/" class="ig-chat-action" aria-label="Close chat">{{ ico.icon('close',20) }}</a>
+  </div>
+
+  <div class="messages ig-chat-stream" id="messages" data-peer="{{ peer_id }}" data-me="{{ session.user_id }}">
+    {% for m in messages %}
+    <div class="bubble {{ 'mine' if m.sender_child_id==session.user_id else '' }}" data-message-id="{{ m.child_message_id }}">
+      {% if m.message_type=='TEXT' %}<span>{{ m.message_text }}</span>
+      {% elif m.message_type=='IMAGE' %}<a href="/{{ m.media_path }}" target="_blank" rel="noopener"><img class="chat-media" src="/{{ m.media_path }}" loading="lazy" alt="Shared image"></a>
+      {% elif m.message_type=='VIDEO' %}<video class="chat-media" controls playsinline preload="metadata" src="/{{ m.media_path }}"></video>
+      {% elif m.message_type=='FILE' %}<a class="chat-file" href="/{{ m.media_path }}" target="_blank" rel="noopener">{{ ico.icon('file',16) }} Open attachment</a>
+      {% elif m.message_type=='VOICE' %}<span class="chat-file">Legacy audio message is unavailable in the current LittleNet interface.</span>
+      {% elif m.message_type=='AUDIO' %}<span class="chat-file">Legacy audio message is unavailable in the current LittleNet interface.</span>
+      {% elif m.message_type=='SHARED_POST' %}<a class="shared-post" href="/post/{{ m.shared_post_id }}/">▣ Shared safe post</a>{% endif %}
+
+      {% if m.moderation_status=='REVIEW' %}<small class="message-status">Waiting for parent review</small>
+      {% elif m.sender_child_id==session.user_id %}<small class="message-status">{% if m.is_seen %}Seen{% elif m.delivered_at %}Delivered{% else %}Sent{% endif %}</small>{% endif %}
+    </div>
+    {% else %}
+    <div class="ig-empty-feed"><h3>Start the conversation</h3><p>Messages are available only between parent-approved connections.</p></div>
+    {% endfor %}
+  </div>
+
+  <div class="ig-chat-composer-wrap">
+    <form class="chat-input ig-chat-main-form" method="post" action="/send-message/{{ peer_id }}/">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="button" class="ig-composer-icon-btn" data-chat-camera aria-label="Attach photo, video or document">{{ ico.icon('camera',22) }}</button>
+      <input name="message_text" class="ig-chat-text-input" autocomplete="off" maxlength="2000" placeholder="Message..." required>
+      <button class="ig-chat-send-btn" type="submit" aria-label="Send message">{{ ico.icon('send',20) }}</button>
+    </form>
+    <form class="chat-input" method="post" action="/send-media/{{ peer_id }}/" enctype="multipart/form-data" data-media-form style="display:none;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="file" id="chat-media-file" name="media" accept="image/*,video/*,.pdf,.docx,.txt" required data-chat-file>
+      <button class="icon-btn" type="submit">Attach</button>
+    </form>
+  </div>
+</div>
+<script src="/static/js/chat.js"></script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "LittleNet",
+    "slug": "littlenet",
+    "version": "1.0.2",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/app_logo.png",
+    "splash": {
+      "image": "./assets/app_logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF9F2"
+    },
+    "android": {
+      "package": "com.littlenet.app",
+      "versionCode": 3,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/app_logo.png",
+        "backgroundColor": "#FFF9F2"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "usesCleartextTraffic": false
+    },
+    "ios": {
+      "bundleIdentifier": "com.littlenet.app",
+      "supportsTablet": true
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "LittleNet uses the camera only when you choose to capture content for a post, Story, or Reel."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "LittleNet uses a selected photo only when you choose to create a post.",
+          "cameraPermission": "LittleNet uses the camera only for content you choose to create.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/app_logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF9F2"
+        }
+      ],
+      "./plugins/parent-device-auth",
+      "expo-image"
+    ],
+    "owner": "akshu1245s-team",
+    "extra": {
+      "eas": {
+        "projectId": "c4ce834d-fd50-4504-a311-820c3372b6dc"
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "FINDING-001",
+    "severity": "P0",
+    "title": "Dataset Ingestion Blocker: Byte-Identical Duplicate Payload in Row 120 vs Row 34",
+    "file": "D:\\aitprojects\\database\\Member3Gardening.zip",
+    "line": 120,
+    "evidence": "Row 34 (Member3Animals/fun-animal-facts-for-kids.jpg) and Row 120 (Member3Gardening/fun-animal-facts-for-kids.jpg) share identical SHA-256 e9821bdd4fd24a00abf2965d542287e7b969704501f1323acb10b62e9672dd56. Metadata claims 'Garden Friends: Earthworms at Work' but payload is an animal-facts infographic. Exhaustive search confirmed no genuine earthworm source asset exists locally.",
+    "reproduction_command": "python -m tools.dataset_bundle_ingest --bundle D:\\aitprojects\\database\\LittleNet_Dataset_Part1_of_2.zip --bundle D:\\aitprojects\\database\\LittleNet_Dataset_Part2_of_2.zip --dataset-version v1",
+    "actual_behavior": "Staging adapter fails closed with RuntimeError: duplicate media bytes detected: 'fun-animal-facts-for-kids.jpg' and 'fun-animal-facts-for-kids.jpg', aborting dry-run ingestion.",
+    "required_fix": "Obtain genuine source image for Garden Friends: Earthworms at Work from original dataset collector, replace the Gardening payload, recalculate SHA-256, update CSV Row 120, and repackage Part 2 bundle. Do not generate synthetic imagery.",
+    "acceptance_test": "python -m tools.dataset_bundle_ingest completes dry run with 206 unique SHA-256 media assets and 0 duplicate errors."
+  },
+  {
+    "id": "FINDING-002",
+    "severity": "P0",
+    "title": "Local Host Tooling Gap: Flutter SDK Not Installed on Windows Workstation",
+    "file": "mobile_flutter/pubspec.yaml",
+    "line": 1,
+    "evidence": "'flutter' is not recognized as an internal or external command on host workstation. Android SDK (adb v37.0.1) and Java OpenJDK 17 are installed, but Flutter CLI binary is absent from PATH.",
+    "reproduction_command": "flutter --version",
+    "actual_behavior": "Local compilation of mobile_flutter cannot be completed directly on the host machine. Relies on remote CI runners (.github/workflows/flutter-native.yml).",
+    "required_fix": "Install Flutter SDK on the development machine (or utilize GitHub Actions runner) to execute local 'flutter pub get', 'flutter analyze', and 'flutter test'.",
+    "acceptance_test": "flutter analyze and flutter test pass cleanly with 0 errors on local host."
+  },
+  {
+    "id": "FINDING-003",
+    "severity": "P1",
+    "title": "Curated Dataset Not Yet Wired into Feed Recommendation API",
+    "file": "services/recommendation.py",
+    "line": 24,
+    "evidence": "Migration 20260908195500_curated_dataset_foundation.sql created curated_content, curated_media_assets, feed_sessions, and feed_session_items. However, services/recommendation.py:candidates() only queries the child 'posts' table.",
+    "reproduction_command": "grep -rn 'curated_content' services/ mobile/",
+    "actual_behavior": "Curated media items cannot be merged into child feeds or reels; children with 0 social connections experience empty-feed starvation.",
+    "required_fix": "Update recommendation candidate generator to sample from published curated_content, balance with social posts, and implement empty-graph curated fallback.",
+    "acceptance_test": "GET /api/mobile/feed/ returns curated candidates when child has 0 social connections."
+  },
+  {
+    "id": "FINDING-004",
+    "severity": "P1",
+    "title": "Authentication Scope Discrepancy: SMS and Certificate Auth Missing",
+    "file": "auth/parent_email_otp.py",
+    "line": 1,
+    "evidence": "0 references to SMS gateways or client X.509 certificates exist across the codebase. Email OTP via Resend is the only implemented 2FA mechanism.",
+    "reproduction_command": "grep -rn 'sms' auth/ mobile/",
+    "actual_behavior": "SMS authentication is completely absent. Certificate authentication refers only to standard server TLS verification.",
+    "required_fix": "Document 'SMS NOT IMPLEMENTED' in project submission. Do not claim SMS authentication. Clarify that 'certificate authentication' refers to TLS/HTTPS transport security.",
+    "acceptance_test": "Submission documentation accurately reflects email-only OTP and TLS transport encryption."
+  },
+  {
+    "id": "FINDING-005",
+    "severity": "P2",
+    "title": "YOLO Policy Vocabulary vs. Model Checkpoint Discrepancy",
+    "file": "safety/yolo_policy.py",
+    "line": 43,
+    "evidence": "config/safety_policy.yaml configures 98 distinct dangerous/review object labels across 7 families. The loaded yolov8n.pt model exposes 80 generic COCO classes with limited specialized weapon labels.",
+    "reproduction_command": "python audit/inspect_safety_policy.py",
+    "actual_behavior": "YAML policy vocabulary exceeds the single COCO-80 model detection scope. Specialized labels require multi-model ensembles or remote Modal AI vision models.",
+    "required_fix": "Document configured policy vocabulary separately from model checkpoint coverage in technical report.",
+    "acceptance_test": "Audit documentation explicitly reports both numbers (98 configured vs 80 COCO classes)."
+  }
+]

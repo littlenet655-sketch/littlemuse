@@ -1,0 +1,86 @@
+{% import '_icons.html' as ico %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="theme-color" content="#111827">
+  <link rel="stylesheet" href="/static/css/littlenet.css">
+  <title>Clips · LittleNet</title>
+</head>
+<body data-role="CHILD" class="clips-body">
+  <a class="reels-close" href="/child/dashboard/" aria-label="Back">
+    {{ ico.icon('chevron-left') }}
+  </a>
+
+  <div class="reels-page" data-label-educational="{{ t('educational_reel') }}" data-label-safe="{{ t('kids_safe') }}">
+    {% for r in reels %}
+    <section class="reel" data-double-like="{{ r.post_id }}">
+      <video data-autoplay muted loop playsinline preload="metadata" src="/{{ r.media_path }}"></video>
+      <div class="reel-overlay"></div>
+      <span class="heart-burst" aria-hidden="true">♥</span>
+      <div class="clip-safety">{{ ico.icon('shield', 15) }} LittleNet checked</div>
+      
+      <div class="reel-meta">
+        <a href="/child/view-profile/{{ r.child_id }}/"><b>{{ r.full_name }}</b></a>
+        <p>{{ r.caption }}</p>
+        <span class="safety-chip">
+          {% if r.content_category in ['Science','Math','Technology','Education','Nature','Books','Coding','General Knowledge'] %}
+            📚 {{ t('educational_reel') }}
+          {% else %}
+            {{ ico.icon('shield', 13) }} {{ t('kids_safe') }}
+          {% endif %}
+        </span>
+      </div>
+
+      <div class="reel-actions">
+        <button data-like="{{ r.post_id }}" aria-label="Like">{{ ico.icon('heart') }}</button>
+        <a href="/post/{{ r.post_id }}/" aria-label="Comments">{{ ico.icon('comment') }}</a>
+        <button data-share-post="{{ r.post_id }}" aria-label="Share with approved friend">{{ ico.icon('send') }}</button>
+        <button data-save-post="{{ r.post_id }}" aria-label="Save">{{ ico.icon('bookmark') }}</button>
+        <button class="reel-sound" data-reel-sound aria-label="Sound">{{ ico.icon('volume') }}</button>
+        {% if r.child_id != session.get('user_id') %}
+          <button data-report-post="{{ r.post_id }}" aria-label="Report">{{ ico.icon('more') }}</button>
+        {% endif %}
+      </div>
+    </section>
+    {# Non-blocking periodic quiz nudge: a dismissible card between reels. #}
+    {% if loop.index == 2 and quiz_due %}
+    <section class="reel quiz-prompt-card" id="quiz-prompt-card" aria-label="Brain break quiz prompt">
+      <div class="quiz-prompt-inner">
+        <button type="button" class="quiz-prompt-dismiss" aria-label="Dismiss quiz prompt" onclick="dismissQuizPrompt()">✕</button>
+        <div class="quiz-prompt-badge">🧠 Brain Break</div>
+        <h2>Time for a quick brain break!</h2>
+        <p>A short quiz is ready for you. Your clips keep playing — no rush.</p>
+        <a class="btn primary" href="/quiz/start/">Take the quiz</a>
+      </div>
+    </section>
+    <script>
+      function dismissQuizPrompt() {
+        var card = document.getElementById('quiz-prompt-card');
+        if (card) card.remove();
+        try { sessionStorage.setItem('quizPromptDismissed', '1'); } catch (e) {}
+      }
+      try {
+        if (sessionStorage.getItem('quizPromptDismissed') === '1') {
+          var card = document.getElementById('quiz-prompt-card');
+          if (card) card.remove();
+        }
+      } catch (e) {}
+    </script>
+    {% endif %}
+    {% else %}
+    <div class="empty-reels">
+      <div>{{ ico.icon('clips', 48) }}</div>
+      <h2>No safe Clips yet</h2>
+      <p>Create something fun or educational.</p>
+      <a class="btn primary" href="/child/upload-post/">Create a Clip</a>
+    </div>
+    {% endfor %}
+  </div>
+
+  <script src="/static/js/littlenet.js"></script>
+  <script src="/static/js/feed_quiz.js" defer></script>
+</body>
+</html>

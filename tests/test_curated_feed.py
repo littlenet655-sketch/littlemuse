@@ -1,0 +1,638 @@
+"""Comprehensive tests for the curated content and merged feed recommendation architecture."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+from services.curated_feed import (
+    apply_category_diversity,
+    authorize_curated_media,
+    fetch_curated_candidates,
+    fetch_social_candidates,
+    get_feed_page,
+    merge_candidates,
+    normalize_curated_item,
+    normalize_social_item,
+    record_feed_impression,
+    search_curated_content,
+)
+from services.recommendation import candidates, personalized_posts
+
+
+def _dummy_curated_row(
+    content_id=1,
+    title="Soil Science",
+    category="Science & Gardening",
+    category_slug="gardening",
+    is_educational=True,
+    min_age=4,
+    max_age=18,
+    audience="ALL",
+    publish_status="PUBLISHED",
+    moderation_status="ALLOWED",
+    is_safe=True,
+    is_reel=False,
+    delivery_key="curated/v1/gardening/ab/test.jpg",
+):
+    return {
+        "content_id": content_id,
+        "creator_id": 7,
+        "creator_display_name": "AIT Star Student",
+        "creator_username": "ait_star_student",
+        "creator_avatar_reference": None,
+        "title": title,
+        "caption": f"Educational content {title}",
+        "audience_age_group": audience,
+        "min_age": min_age,
+        "max_age": max_age,
+        "is_reel": is_reel,
+        "editorial_weight": 1.0,
+        "published_at": "2026-09-08T12:00:00Z",
+        "asset_id": "00000000-0000-0000-0000-000000000001",
+        "media_type": "IMAGE",
+        "delivery_object_key": delivery_key,
+        "original_object_key": delivery_key,
+        "poster_object_key": None,
+        "thumbnail_object_key": None,
+        "mime_type": "image/jpeg",
+        "width": 1024,
+        "height": 768,
+        "duration_seconds": None,
+        "file_size_bytes": 100000,
+        "moderation_status": moderation_status,
+        "is_safe": is_safe,
+        "category_id": 1,
+        "category_slug": category_slug,
+        "category": category,
+        "category_active": True,
+        "is_educational": is_educational,
+        "publish_status": publish_status,
+    }
+
+
+def _dummy_social_row(post_id=101, category="Nature & Animals", is_reel=False):
+    return {
+        "post_id": post_id,
+        "child_id": 42,
+        "content_category": category,
+        "caption": "My pet rabbit eating carrots",
+        "media_type": "IMAGE",
+        "media_path": "uploads/r2/posts/rabbit.jpg",
+        "is_reel": is_reel,
+        "is_story": False,
+        "audience_age_group": "ALL",
+        "moderation_status": "ALLOWED",
+        "is_safe": True,
+        "full_name": "Alice Friend",
+        "profile_picture": None,
+        "likes": 5,
+        "comments_count": 2,
+        "is_following": True,
+        "created_at": "2026-09-08T10:00:00Z",
+    }
+
+
+def test_empty_social_graph_returns_curated_content(monkeypatch):
+    """A child with zero social connections must still receive safe curated content."""
+    child_id = 15
+
+    # Mock empty social connections
+    import child.service as cs
+
+    monkeypatch.setattr(cs, "discoverable_child_ids", lambda cid: [])
+
+    # Mock effective categories and age
+    import services.curated_feed as cf
+
+    monkeypatch.setattr(cf, "effective_categories", lambda cid: ["Science & Gardening", "Nature & Animals"])
+    monkeypatch.setattr(cf, "_child_real_age", lambda cid: 10)
+    monkeypatch.setattr(cf, "_age_group", lambda cid: "9-11")
+
+    # Mock database returning published curated items
+    sample_curated = [
+        _dummy_curated_row(content_id=1, title="Earthworms at Work", category="Science & Gardening"),
+        _dummy_curated_row(content_id=2, title="Honeybee Pollination", category="Nature & Animals"),
+    ]
+    monkeypatch.setattr(cf, "fetch_all", lambda sql, params: sample_curated)
+
+    social_candidates = fetch_social_candidates(child_id, surface="FEED")
+    assert social_candidates == [], "Social candidates must be empty for 0-friend child"
+
+    curated_candidates = fetch_curated_candidates(child_id, surface="FEED")
+    assert len(curated_candidates) == 2
+    assert curated_candidates[0]["source_type"] == "CURATED"
+    assert curated_candidates[0]["source_id"] == 1
+
+    # Merged candidates must not be empty!
+    all_candidates = candidates(child_id, surface="FEED")
+    assert len(all_candidates) == 2
+    assert all_candidates[0]["source_type"] == "CURATED"
+
+
+def test_legacy_missing_media_is_not_rendered_as_a_broken_feed_tile(monkeypatch):
+    import services.curated_feed as cf
+
+    valid=normalize_social_item(_dummy_social_row(1))
+    assert cf._social_media_renderable(valid) is True
+
+    missing=normalize_social_item({**_dummy_social_row(2), "media_path": "uploads/legacy/missing.jpg"})
+    monkeypatch.setattr(cf.os.path, "exists", lambda path: False)
+    assert cf._social_media_renderable(missing) is False
+
+    stale=normalize_social_item({**_dummy_social_row(3), "media_path": "posts/clean.jpg"})
+    assert cf._social_media_renderable(stale) is False
+
+    text_post=normalize_social_item({**_dummy_social_row(4), "media_type": "TEXT", "media_path": None})
+    assert cf._social_media_renderable(text_post) is True
+
+
+def test_curated_identity_is_hydrated_from_editorial_relation():
+    row = _dummy_curated_row(content_id=10)
+    item = normalize_curated_item(row)
+    assert item["source_type"] == "CURATED"
+    assert item["creator_id"] == 7
+    assert item["creator_username"] == "ait_star_student"
+    assert item["author_name"] == "AIT Star Student"
+    assert item.get("child_id") is None
+
+
+def test_curated_creator_migration_uses_relational_creator_id():
+    migration = (ROOT / "db/migrations/20260924000003_curated_creator_relational_alignment.sql").read_text(encoding="utf-8")
+    service = (ROOT / "services/curated_feed.py").read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGSERIAL" in migration
+    assert "PRIMARY KEY (creator_id)" in migration
+    assert "ADD COLUMN IF NOT EXISTS creator_id BIGINT" in migration
+    assert "REFERENCES curated_creators(creator_id)" in migration
+    assert "JOIN curated_creators cr ON cr.creator_id = cc.creator_id" in service
+    assert "creator_payload" not in service
+    assert '"creator_id": int(creator_id)' in service
+
+
+def test_social_and_curated_merge(monkeypatch):
+    """When both social and curated items exist, they are merged in a balanced feed."""
+    social_items = [normalize_social_item(_dummy_social_row(1)), normalize_social_item(_dummy_social_row(2))]
+    curated_items = [normalize_curated_item(_dummy_curated_row(10)), normalize_curated_item(_dummy_curated_row(11))]
+
+    merged = merge_candidates(social_items, curated_items)
+    assert len(merged) == 4
+    source_types = [item["source_type"] for item in merged]
+    assert "SOCIAL" in source_types
+    assert "CURATED" in source_types
+
+
+def test_category_diversity_max_two_consecutive():
+    """No more than 2 consecutive items from the same category when alternatives exist."""
+    items = [
+        {"category": "Gardening", "id": 1},
+        {"category": "Gardening", "id": 2},
+        {"category": "Gardening", "id": 3},
+        {"category": "Animals", "id": 4},
+        {"category": "Animals", "id": 5},
+    ]
+    balanced = apply_category_diversity(items, max_consecutive=2)
+    categories = [b["category"] for b in balanced]
+
+    # Verify no 3 consecutive identical categories
+    for i in range(len(categories) - 2):
+        assert not (categories[i] == categories[i + 1] == categories[i + 2]), f"Violated at index {i}: {categories}"
+
+
+def test_blocked_and_unapproved_curated_media_rejected(monkeypatch):
+    """Curated media authorization strictly rejects BLOCKED, REVIEW, PENDING, and unpublished media."""
+    import services.curated_feed as cf
+
+    monkeypatch.setattr(cf, "child_surface_open", lambda cid: True)
+    monkeypatch.setattr(cf, "effective_categories", lambda cid: ["Science & Gardening"])
+    monkeypatch.setattr(cf, "_child_real_age", lambda cid: 10)
+
+    # 1. Blocked asset
+    blocked_row = _dummy_curated_row(content_id=99, moderation_status="BLOCKED", is_safe=False)
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: blocked_row)
+    with pytest.raises(PermissionError, match="content_blocked_or_unapproved"):
+        authorize_curated_media(child_id=1, content_id=99)
+
+    # 2. Review status
+    review_row = _dummy_curated_row(content_id=98, moderation_status="REVIEW", is_safe=False)
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: review_row)
+    with pytest.raises(PermissionError, match="content_blocked_or_unapproved"):
+        authorize_curated_media(child_id=1, content_id=98)
+
+    # 3. Draft / unpublished
+    draft_row = _dummy_curated_row(content_id=97, publish_status="DRAFT")
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: draft_row)
+    with pytest.raises(PermissionError, match="content_not_published"):
+        authorize_curated_media(child_id=1, content_id=97)
+
+    # 4. Age ineligible (child is 10, content is 14-18)
+    age_row = _dummy_curated_row(content_id=96, min_age=14, max_age=18)
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: age_row)
+    with pytest.raises(PermissionError, match="age_ineligible"):
+        authorize_curated_media(child_id=1, content_id=96)
+
+    # 5. Parent-disabled category
+    cat_row = _dummy_curated_row(content_id=95, category="Cooking")
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: cat_row)
+    with pytest.raises(PermissionError, match="category_restricted_by_parent"):
+        authorize_curated_media(child_id=1, content_id=95)
+
+
+def test_impression_recording_requires_valid_session_item(monkeypatch):
+    """Impression recording fails if item was not part of the active feed session."""
+    import services.curated_feed as cf
+
+    # Mock invalid session validation query
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: None)
+    recorded = record_feed_impression(
+        child_id=5,
+        session_id="00000000-0000-0000-0000-000000000001",
+        source_type="CURATED",
+        source_id=999,
+        surface="FEED",
+    )
+    assert recorded is False, "Untrusted source_id not in session must be rejected"
+
+    # Mock valid session validation query
+    monkeypatch.setattr(cf, "fetch_one", lambda sql, params: {"1": 1})
+    executed = []
+    monkeypatch.setattr(cf, "execute", lambda sql, params: executed.append((sql, params)))
+
+    recorded_ok = record_feed_impression(
+        child_id=5,
+        session_id="00000000-0000-0000-0000-000000000001",
+        source_type="CURATED",
+        source_id=1,
+        surface="FEED",
+        watched_ms=1500,
+        completed=True,
+    )
+    assert recorded_ok is True
+    assert len(executed) == 1
+    assert "INSERT INTO content_impressions" in executed[0][0]
+
+
+def test_search_curated_content_safely(monkeypatch):
+    """Search returns only published, allowed, safe curated content matching terms."""
+    import services.curated_feed as cf
+
+    monkeypatch.setattr(cf, "effective_categories", lambda cid: ["Science & Gardening"])
+    monkeypatch.setattr(cf, "_child_real_age", lambda cid: 10)
+
+    matched_rows = [
+        _dummy_curated_row(content_id=1, title="Garden Friends: Earthworms at Work"),
+    ]
+    monkeypatch.setattr(cf, "fetch_all", lambda sql, params: matched_rows)
+
+    results = search_curated_content(child_id=3, query="earthworms", limit=10)
+    assert len(results) == 1
+    assert results[0]["source_id"] == 1
+    assert "Earthworms" in results[0]["title"]
+
+
+def test_feed_session_cursor_pagination(monkeypatch):
+    """Cursor advances through session items with correct next_cursor and has_more values."""
+    import services.curated_feed as cf
+
+    # Mock get_or_create_feed_session to return 5 items
+    dummy_items = [normalize_curated_item(_dummy_curated_row(i)) for i in range(1, 6)]
+    monkeypatch.setattr(cf, "get_or_create_feed_session", lambda cid, surf, sess: ("test-sess-uuid", dummy_items))
+    monkeypatch.setattr(cf, "_has_refill_candidates", lambda cid, surf, sess, mode: False)
+
+    # Page 1: cursor=0, limit=2
+    p1 = get_feed_page(child_id=1, surface="FEED", cursor=0, limit=2)
+    assert len(p1["items"]) == 2
+    assert p1["cursor"] == 0
+    assert p1["next_cursor"] == 2
+    assert p1["has_more"] is True
+
+    # Page 2: cursor=2, limit=2
+    p2 = get_feed_page(child_id=1, surface="FEED", cursor=2, limit=2)
+    assert len(p2["items"]) == 2
+    assert p2["cursor"] == 2
+    assert p2["next_cursor"] == 4
+    assert p2["has_more"] is True
+
+    # Page 3: cursor=4, limit=2 (only 1 item remaining)
+    p3 = get_feed_page(child_id=1, surface="FEED", cursor=4, limit=2)
+    assert len(p3["items"]) == 1
+    assert p3["cursor"] == 4
+    assert p3["next_cursor"] is None
+    assert p3["has_more"] is False
+
+
+
+
+def test_feed_session_boundary_can_advertise_safe_refill(monkeypatch):
+    import services.curated_feed as cf
+
+    dummy_items = [normalize_curated_item(_dummy_curated_row(i)) for i in range(1, 4)]
+    monkeypatch.setattr(cf, "get_or_create_feed_session", lambda cid, surf, sess: ("sess-a", dummy_items))
+    monkeypatch.setattr(cf, "_has_refill_candidates", lambda cid, surf, sess, mode: True)
+
+    page = get_feed_page(child_id=1, surface="FEED", cursor=0, limit=10)
+    assert page["has_more"] is False
+    assert page["can_refill"] is True
+    assert page["exhaustion_reason"] == "SESSION_END"
+    assert all(item["feed_session_id"] == "sess-a" for item in page["items"])
+
+
+def test_refill_session_excludes_immediately_previous_session(monkeypatch):
+    import services.curated_feed as cf
+
+    previous = {("CURATED", 1), ("SOCIAL", 2)}
+    monkeypatch.setattr(cf, "_session_source_keys", lambda cid, surf, sid: previous if sid == "old-sess" else set())
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [
+        normalize_curated_item(_dummy_curated_row(1)),
+        normalize_curated_item(_dummy_curated_row(3)),
+    ])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [
+        normalize_social_item(_dummy_social_row(2)),
+        normalize_social_item(_dummy_social_row(4)),
+    ])
+    monkeypatch.setattr(cf, "_served_window_keys", lambda *a, **k: set())
+    monkeypatch.setattr(cf, "_last_served_map", lambda *a, **k: {})
+
+    import services.recommendation as rec
+    monkeypatch.setattr(rec, "rank_candidates", lambda cid, rows: rows)
+    monkeypatch.setattr(rec, "apply_diversity_and_balance", lambda rows, max_consecutive=2: rows)
+
+    writes = []
+    monkeypatch.setattr(cf, "execute", lambda sql, params=(), returning=False: {"session_id": "new-sess"} if returning else writes.append((sql, params)))
+
+    class _Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    class _Conn:
+        def cursor(self): return _Cursor()
+        def commit(self): pass
+        def rollback(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(cf, "get_db_connection", lambda: _Conn())
+    monkeypatch.setattr("psycopg2.extras.execute_values", lambda cur, sql, records: writes.append((sql, records)))
+
+    sess, rows = cf.get_or_create_feed_session(1, "FEED", None, exclude_session_id="old-sess")
+    keys = {(r["source_type"], int(r["source_id"])) for r in rows}
+    assert sess == "new-sess"
+    assert ("CURATED", 1) not in keys
+    assert ("SOCIAL", 2) not in keys
+    assert ("CURATED", 3) in keys
+    assert ("SOCIAL", 4) in keys
+
+
+def test_continuous_feed_refill_traverses_over_100_unique_items_and_terminates(monkeypatch):
+    """A tiny materialized session must not look like global catalog exhaustion.
+
+    Simulate fourteen 9-item sessions (126 eligible items). The client/server
+    contract walks ordinary cursors inside a session, then refills into the
+    next session. The final session must terminate with NO_ELIGIBLE_CONTENT
+    instead of spinning forever or repeating the previous session.
+    """
+    import services.curated_feed as cf
+
+    sessions = {}
+    source_id = 1
+    for session_index in range(14):
+        session_id = f"sess-{session_index}"
+        items = []
+        for _ in range(9):
+            items.append({
+                "source_type": "CURATED",
+                "source_id": source_id,
+                "post_id": source_id,
+                "category": "Science",
+            })
+            source_id += 1
+        sessions[session_id] = items
+
+    def fake_get_or_create(child_id, surface="FEED", session_id=None, exclude_session_id=None):
+        if session_id:
+            return session_id, sessions[session_id]
+        if exclude_session_id:
+            current = int(exclude_session_id.split("-")[1])
+            next_index = current + 1
+            if next_index >= len(sessions):
+                return exclude_session_id, sessions[exclude_session_id]
+            next_id = f"sess-{next_index}"
+            return next_id, sessions[next_id]
+        return "sess-0", sessions["sess-0"]
+
+    def fake_has_refill(child_id, surface, session_id, mode):
+        return int(session_id.split("-")[1]) < len(sessions) - 1
+
+    monkeypatch.setattr(cf, "get_or_create_feed_session", fake_get_or_create)
+    monkeypatch.setattr(cf, "_has_refill_candidates", fake_has_refill)
+
+    page = get_feed_page(child_id=77, surface="FEED", cursor=0, limit=5)
+    seen = []
+    session_transitions = 0
+    safety = 0
+
+    while True:
+        safety += 1
+        assert safety < 100, "pagination/refill entered an infinite loop"
+        seen.extend((item["source_type"], item["source_id"]) for item in page["items"])
+        assert all(item["feed_session_id"] == page["session_id"] for item in page["items"])
+
+        if page["has_more"]:
+            page = get_feed_page(
+                child_id=77,
+                surface="FEED",
+                cursor=page["next_cursor"],
+                limit=5,
+                session_id=page["session_id"],
+            )
+            continue
+
+        if page["can_refill"]:
+            previous = page["session_id"]
+            page = get_feed_page(
+                child_id=77,
+                surface="FEED",
+                cursor=0,
+                limit=5,
+                refill_from_session_id=previous,
+            )
+            assert page["session_id"] != previous
+            session_transitions += 1
+            continue
+
+        break
+
+    assert len(seen) == 126
+    assert len(set(seen)) == 126
+    assert session_transitions == 13
+    assert page["has_more"] is False
+    assert page["can_refill"] is False
+    assert page["exhaustion_reason"] == "NO_ELIGIBLE_CONTENT"
+
+
+def _install_fake_session_store(monkeypatch):
+    """Fake the session persistence layer with an in-memory store.
+
+    Returns (cf_module, store). The store records sessions in creation order
+    with a fake tick so 'least-recently-served' ordering is deterministic.
+    """
+    import services.curated_feed as cf
+
+    store = {"sessions": [], "tick": 0}
+
+    def fake_session_keys(child_id, surface, session_id):
+        if not session_id:
+            return set()
+        for s in store["sessions"]:
+            if s["id"] == session_id:
+                return {(it["source_type"], int(it["source_id"])) for it in s["items"]}
+        return set()
+
+    def fake_window_keys(child_id, surface, hours=24):
+        keys = set()
+        for s in store["sessions"]:
+            keys |= {(it["source_type"], int(it["source_id"])) for it in s["items"]}
+        return keys
+
+    def fake_last_served(child_id, surface, hours=24):
+        out = {}
+        for s in store["sessions"]:
+            for it in s["items"]:
+                out[(it["source_type"], int(it["source_id"]))] = s["tick"]
+        return out
+
+    def fake_execute(sql, params=(), returning=False):
+        if returning:
+            sid = f"sess-{len(store['sessions'])}"
+            store["sessions"].append({"id": sid, "items": [], "tick": store["tick"]})
+            store["tick"] += 1
+            return {"session_id": sid}
+        raise AssertionError("unexpected non-returning execute in test")
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    def fake_execute_values(cur, sql, records):
+        for sid, pos, stype, src_id in records:
+            for s in store["sessions"]:
+                if s["id"] == sid:
+                    s["items"].append({"source_type": stype, "source_id": src_id})
+
+    monkeypatch.setattr(cf, "_session_source_keys", fake_session_keys)
+    monkeypatch.setattr(cf, "_served_window_keys", fake_window_keys)
+    monkeypatch.setattr(cf, "_last_served_map", fake_last_served)
+    monkeypatch.setattr(cf, "execute", fake_execute)
+    monkeypatch.setattr(cf, "get_db_connection", lambda: _Conn())
+    monkeypatch.setattr("psycopg2.extras.execute_values", fake_execute_values)
+
+    import services.recommendation as rec
+    monkeypatch.setattr(rec, "rank_candidates", lambda cid, rows: rows)
+    monkeypatch.setattr(rec, "apply_diversity_and_balance", lambda rows, max_consecutive=2: rows)
+    return cf, store
+
+
+def test_small_catalog_never_repeats_deterministic_order_back_to_back(monkeypatch):
+    """The reported defect: a 5-reel catalog re-served the identical order.
+
+    Session 1 (fresh) serves reels 1-5. Session 2 (fresh, same window) has no
+    unseen content, so it must take the rotation fallback — least-recently-
+    served first with the deterministic daily offset — never the same order.
+    """
+    import datetime
+
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 6)]
+    for idx, r in enumerate(reels):
+        r["editorial_weight"] = 5 - idx  # deterministic base order 1..5
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    sess1, items1 = cf.get_or_create_feed_session(1, "REELS")
+    order1 = [int(r["source_id"]) for r in items1]
+    assert order1 == [1, 2, 3, 4, 5]
+
+    sess2, items2 = cf.get_or_create_feed_session(1, "REELS")
+    order2 = [int(r["source_id"]) for r in items2]
+    assert sess2 != sess1
+    assert sorted(order2) == [1, 2, 3, 4, 5]
+    # Rotation fallback: base recency order [1..5] rotated by the daily offset.
+    expected_offset = (1 + datetime.date.today().toordinal()) % 5
+    expected = [1, 2, 3, 4, 5][expected_offset:] + [1, 2, 3, 4, 5][:expected_offset]
+    assert order2 == expected
+
+
+def test_rotation_serves_least_recently_served_first(monkeypatch):
+    """When the catalog is exhausted, order is recency-sorted then rotated.
+
+    The stale reels (tick 0) sort before the fresh one (tick 5); the daily
+    rotation offset then spins that base order so consecutive windows never
+    restart identically.
+    """
+    import datetime
+
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 4)]
+    for r in reels:
+        r["editorial_weight"] = 1.0
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    # Reel 3 was served most recently (tick 5); reels 1-2 are stale (tick 0).
+    store["sessions"] = [
+        {"id": "old-a", "items": [
+            {"source_type": "CURATED", "source_id": 1},
+            {"source_type": "CURATED", "source_id": 2},
+        ], "tick": 0},
+        {"id": "old-b", "items": [
+            {"source_type": "CURATED", "source_id": 3},
+        ], "tick": 5},
+    ]
+    # Exhaust the window so the rotation path triggers.
+    monkeypatch.setattr(cf, "_served_window_keys", lambda *a, **k: {("CURATED", 1), ("CURATED", 2), ("CURATED", 3)})
+
+    _, items = cf.get_or_create_feed_session(9, "REELS")
+    order = [int(r["source_id"]) for r in items]
+    assert sorted(order) == [1, 2, 3]
+    base = [1, 2, 3]  # recency-sorted: stale first
+    offset = (9 + datetime.date.today().toordinal()) % 3
+    assert order == base[offset:] + base[:offset]
+
+
+def test_rotation_offset_is_deterministic_per_child_and_day(monkeypatch):
+    import services.curated_feed as cf
+
+    assert cf._rotation_offset(7, 5) == cf._rotation_offset(7, 5)
+    assert cf._rotation_offset(7, 0) == 0
+    # Different children land on different offsets for the same catalog size
+    # (probabilistically; the space is 5 wide so a collision is possible but
+    # the construction must at least depend on child_id).
+    offsets = {cf._rotation_offset(cid, 5) for cid in range(1, 6)}
+    assert len(offsets) > 1
+
+
+def test_refill_probe_is_false_when_window_exhausted(monkeypatch):
+    """can_refill must not advertise rotation repeats as new content."""
+    cf, store = _install_fake_session_store(monkeypatch)
+    reels = [normalize_curated_item(_dummy_curated_row(i, is_reel=True)) for i in range(1, 4)]
+    monkeypatch.setattr(cf, "fetch_curated_candidates", lambda cid, surf, limit=60: [dict(r) for r in reels])
+    monkeypatch.setattr(cf, "fetch_social_candidates", lambda cid, surf, limit=60: [])
+
+    sess, _ = cf.get_or_create_feed_session(3, "REELS")
+    # Everything served inside the window: no *new* content for a refill.
+    assert cf._has_refill_candidates(3, "REELS", sess, "for_you") is False

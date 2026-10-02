@@ -1,0 +1,346 @@
+{% extends 'base.html' %}
+{% block title %}Learning & Challenges — LittleNet{% endblock %}
+
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="learning-page-shell">
+  <!-- Page Header -->
+  <section class="kid-page-head" style="padding: 16px 16px 8px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+      <div>
+        <span class="eyebrow" style="font-size: 11px; font-weight: 800; color: #0095F6; text-transform: uppercase; letter-spacing: 0.06em;">Learn & Grow</span>
+        <h1 style="font-size: 24px; font-weight: 800; color: #0F172A; margin: 4px 0 2px; letter-spacing: -0.02em;">Learning Challenges</h1>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Micro-activities for cyber safety, puzzles, and science.</p>
+      </div>
+      <div class="points-pill" id="total-points-pill" style="margin: 0; background: linear-gradient(135deg, #EFF6FF, #DBEAFE); color: #1D4ED8; border: 1px solid #BFDBFE; font-weight: 800; padding: 8px 14px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px;">
+        {{ ico.icon('sparkles', 18) }} 
+        <span id="total-points-val" style="font-size: 15px;">{{ points }}</span> pts
+      </div>
+    </div>
+  </section>
+
+  <!-- Challenges Deck -->
+  <div class="learning-list" style="padding: 10px 14px 40px; display: grid; gap: 16px;">
+    {% for c in challenges %}
+    <article class="learning-card kid-card" id="challenge-card-{{ c.challenge_id }}" style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 18px; padding: 18px; box-shadow: 0 4px 14px rgba(15,23,42,0.04); transition: transform 0.2s ease, box-shadow 0.2s ease;">
+      
+      <!-- Card Header -->
+      <div class="learning-card-head" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <span class="challenge-kind" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 10px; border-radius: 999px; {% if c.challenge_type=='CYBER_SAFETY' %}background: #EFF6FF; color: #0095F6;{% elif c.challenge_type=='PUZZLE' %}background: #FAF5FF; color: #7C3AED;{% else %}background: #FFF1F2; color: #E11D48;{% endif %}">
+          {% if c.challenge_type=='CYBER_SAFETY' %}
+            {{ ico.icon('shield', 15) }}
+          {% elif c.challenge_type=='PUZZLE' %}
+            {{ ico.icon('sparkles', 15) }}
+          {% else %}
+            {{ ico.icon('book', 15) }}
+          {% endif %}
+          {{ c.challenge_type|replace('_',' ')|title }}
+        </span>
+        <span class="challenge-reward" style="font-size: 13px; font-weight: 800; color: #0F172A; background: #F1F5F9; padding: 4px 10px; border-radius: 8px;">
+          +{{ c.points }} pts
+        </span>
+      </div>
+
+      <!-- Title & Details -->
+      <h3 style="font-size: 17px; font-weight: 750; color: #0F172A; margin: 0 0 6px;">{{ c.title }}</h3>
+      <p style="font-size: 13px; color: #64748B; margin: 0 0 12px; line-height: 1.45;">{{ c.description }}</p>
+
+      <!-- Challenge Prompt Box -->
+      <div class="challenge-prompt" style="background: #F8FAFC; border-left: 4px solid #0095F6; border-radius: 0 12px 12px 0; padding: 12px 14px; font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 14px; line-height: 1.4;">
+        {{ c.prompt }}
+      </div>
+
+      <!-- Alert Notification Area for This Card -->
+      <div class="challenge-feedback-slot" id="feedback-{{ c.challenge_id }}" style="display: none; margin-bottom: 14px;"></div>
+
+      {% if c.completed %}
+      <!-- Already Completed State -->
+      <div class="challenge-completed-badge" style="display: flex; align-items: center; gap: 8px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 750; font-size: 13px; padding: 10px 14px; border-radius: 12px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Completed · {{ c.points_awarded }} pts earned</span>
+      </div>
+      {% else %}
+      <!-- Interactive Form -->
+      <form class="challenge-ajax-form" method="post" action="/learning/challenge/{{ c.challenge_id }}/" data-challenge-id="{{ c.challenge_id }}" data-points="{{ c.points }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        
+        <div class="field" style="margin-bottom: 12px;">
+          {% if c.expected_answer %}
+          <input type="text" 
+                 name="response" 
+                 class="challenge-input-field"
+                 required 
+                 autocomplete="off"
+                 placeholder="{{ t('your_answer') or 'Type your answer here...' }}"
+                 style="width: 100%; min-height: 46px; border: 1.5px solid #CBD5E1; background: #FAFAFA; border-radius: 12px; padding: 10px 14px; font-size: 14px; color: #0F172A; outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;">
+          {% else %}
+          <textarea name="response" 
+                    class="challenge-input-field"
+                    rows="3" 
+                    required 
+                    placeholder="{{ t('write_response') or 'Write your thoughts here...' }}"
+                    style="width: 100%; border: 1.5px solid #CBD5E1; background: #FAFAFA; border-radius: 12px; padding: 10px 14px; font-size: 14px; color: #0F172A; outline: none; transition: border-color 0.15s ease;"></textarea>
+          {% endif %}
+        </div>
+
+        <button type="submit" 
+                class="challenge-submit-btn" 
+                id="btn-submit-{{ c.challenge_id }}"
+                style="width: 100%; min-height: 48px; background: linear-gradient(135deg, #0095F6, #1D4ED8); color: #FFFFFF; border: none; border-radius: 12px; font-size: 14px; font-weight: 750; letter-spacing: 0.02em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(0, 149, 246, 0.3); transition: all 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);">
+          <span class="btn-text">Complete Challenge</span>
+          <span class="btn-arrow" style="font-size: 16px;">→</span>
+        </button>
+      </form>
+      {% endif %}
+
+    </article>
+    {% else %}
+    <div class="empty-state" style="text-align: center; padding: 48px 20px; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 20px;">
+      <div style="font-size: 40px; margin-bottom: 12px;">📚</div>
+      <h3 style="font-size: 18px; font-weight: 750; color: #0F172A; margin: 0 0 6px;">{{ t('no_challenges') or 'No challenges available right now' }}</h3>
+      <p style="font-size: 13px; color: #64748B; margin: 0;">Check back soon for new learning puzzles!</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Celebratory Success Modal -->
+<div id="quiz-celebration-modal" class="quiz-modal-backdrop" style="display: none; position: fixed; inset: 0; z-index: 999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+  <div class="quiz-modal-dialog" style="background: #FFFFFF; border-radius: 24px; max-width: 380px; width: 100%; padding: 28px 24px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.2); animation: modalBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;">
+    
+    <div style="width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, #EFF6FF, #DBEAFE); border: 2px solid #BFDBFE; display: grid; place-items: center; margin: 0 auto 16px; font-size: 38px; box-shadow: 0 8px 20px rgba(0, 149, 246, 0.2);">
+      🎉
+    </div>
+
+    <h2 style="font-size: 24px; font-weight: 800; color: #0F172A; margin: 0 0 6px;">Awesome Job!</h2>
+    <p style="font-size: 14px; color: #0095F6; font-weight: 700; margin: 0 0 8px;">Correct Answer!</p>
+    <p id="modal-points-text" style="font-size: 15px; color: #334155; margin: 0 0 20px; line-height: 1.4;">
+      You earned <b style="color: #1D4ED8;">+15 points</b> ⭐
+    </p>
+
+    <button type="button" id="modal-close-btn" style="width: 100%; min-height: 48px; background: linear-gradient(135deg, #0095F6, #1D4ED8); color: #FFFFFF; border: none; border-radius: 14px; font-size: 14px; font-weight: 750; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 149, 246, 0.35); transition: transform 0.14s ease;">
+      Keep Going! 🚀
+    </button>
+  </div>
+</div>
+
+<!-- Full Screen Canvas for Confetti Blast -->
+<canvas id="celebration-canvas" style="position: fixed; inset: 0; pointer-events: none; z-index: 1000; display: none;"></canvas>
+
+<style>
+@keyframes modalBounce {
+  0% { transform: scale(0.7); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes cardShakeAnim {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.shake-card {
+  animation: cardShakeAnim 0.4s ease-in-out;
+}
+
+.challenge-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 149, 246, 0.4) !important;
+}
+
+.challenge-submit-btn:active {
+  transform: scale(0.98);
+}
+
+.challenge-input-field:focus {
+  border-color: #0095F6 !important;
+  background: #FFFFFF !important;
+  box-shadow: 0 0 0 3px rgba(0, 149, 246, 0.15) !important;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const modal = document.getElementById('quiz-celebration-modal');
+  const modalCloseBtn = document.getElementById('modal-close-btn');
+  const modalPointsText = document.getElementById('modal-points-text');
+  const canvas = document.getElementById('celebration-canvas');
+  const totalPointsVal = document.getElementById('total-points-val');
+
+  function playSuccessChime() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, now);
+      osc.frequency.setValueAtTime(880, now + 0.1);
+      osc.frequency.setValueAtTime(1174.66, now + 0.2);
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.75);
+    } catch (e) {}
+  }
+
+  function launchConfettiBlast() {
+    if (!canvas) return;
+    canvas.style.display = 'block';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const ctx = canvas.getContext('2d');
+    
+    const colors = ['#0095F6', '#EF4444', '#F59E0B', '#06B6D4', '#8B5CF6', '#EC4899', '#3B82F6'];
+    const particles = [];
+    const count = 75;
+
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: canvas.width / 2 + (Math.random() * 100 - 50),
+        y: canvas.height / 2 + (Math.random() * 60 - 30),
+        vx: (Math.random() - 0.5) * 16,
+        vy: -Math.random() * 14 - 4,
+        size: Math.random() * 8 + 6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * 360,
+        rSpeed: (Math.random() - 0.5) * 10,
+        opacity: 1,
+        life: 0
+      });
+    }
+
+    let animFrame;
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.45;
+        p.vx *= 0.98;
+        p.rotation += p.rSpeed;
+        p.life++;
+        if (p.life > 45) {
+          p.opacity -= 0.025;
+        }
+
+        if (p.opacity > 0) {
+          alive = true;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate((p.rotation * Math.PI) / 180);
+          ctx.globalAlpha = Math.max(0, p.opacity);
+          ctx.fillStyle = p.color;
+          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
+          ctx.restore();
+        }
+      });
+
+      if (alive) {
+        animFrame = requestAnimationFrame(render);
+      } else {
+        canvas.style.display = 'none';
+        cancelAnimationFrame(animFrame);
+      }
+    }
+    render();
+  }
+
+  document.querySelectorAll('.challenge-ajax-form').forEach(function(form) {
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const challengeId = form.getAttribute('data-challenge-id');
+      const submitBtn = form.querySelector('.challenge-submit-btn');
+      const btnText = submitBtn.querySelector('.btn-text');
+      const feedbackSlot = document.getElementById('feedback-' + challengeId);
+      const card = document.getElementById('challenge-card-' + challengeId);
+      const inputField = form.querySelector('.challenge-input-field');
+
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.75';
+      const origText = btnText.textContent;
+      btnText.textContent = 'Checking Answer...';
+
+      try {
+        const formData = new FormData(form);
+        const res = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+          },
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (data.ok && data.correct) {
+          playSuccessChime();
+          launchConfettiBlast();
+
+          if (totalPointsVal && data.new_total_points !== undefined) {
+            totalPointsVal.textContent = data.new_total_points;
+          }
+
+          modalPointsText.innerHTML = 'You earned <b style="color: #0095F6; font-size: 17px;">+' + data.points_awarded + ' points</b> ⭐ for completing <b>' + (data.title || 'this challenge') + '</b>!';
+          modal.style.display = 'flex';
+
+          feedbackSlot.style.display = 'none';
+          form.style.display = 'none';
+          
+          const completedDiv = document.createElement('div');
+          completedDiv.className = 'challenge-completed-badge';
+          completedDiv.style.cssText = 'display: flex; align-items: center; gap: 8px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-weight: 750; font-size: 13px; padding: 10px 14px; border-radius: 12px;';
+          completedDiv.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg><span>Completed · ' + data.points_awarded + ' pts earned</span>';
+          card.appendChild(completedDiv);
+
+        } else {
+          card.classList.remove('shake-card');
+          void card.offsetWidth;
+          card.classList.add('shake-card');
+
+          feedbackSlot.style.display = 'block';
+          feedbackSlot.innerHTML = '<div style="background: #FEF2F2; border: 1.5px solid #FECACA; border-radius: 12px; padding: 11px 14px; display: flex; align-items: center; gap: 10px; color: #DC2626; font-size: 13px; font-weight: 700;"><span style="font-size: 18px;">❌</span><span>Incorrect answer! Please check the prompt clue and try again.</span></div>';
+
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '1';
+          btnText.textContent = 'Try Again ↻';
+          if (inputField) {
+            inputField.focus();
+          }
+        }
+      } catch (err) {
+        form.submit();
+      }
+    });
+  });
+
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener('click', function() {
+      modal.style.display = 'none';
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

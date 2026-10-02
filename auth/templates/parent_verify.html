@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parent Email Verification | LittleNet</title>
+  <meta name="theme-color" content="#0095F6">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 20%,#eff6ff 0%,#f8fafc 75%);font-family:'Plus Jakarta Sans',sans-serif;color:#0f172a;padding:28px 16px}.wrap{max-width:580px;margin:0 auto}.card{background:#fff;border:1px solid #e2e8f0;border-radius:28px;padding:30px;box-shadow:0 20px 50px rgba(15,23,42,.10);position:relative;overflow:hidden}.card:before{content:'';position:absolute;left:0;right:0;top:0;height:6px;background:linear-gradient(90deg,#0095F6,#1D4ED8,#60a5fa)}.badge{display:inline-flex;align-items:center;gap:8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:900;text-transform:uppercase}.badge img{width:20px;height:20px;border-radius:5px}.title{font-size:25px;font-weight:900;margin:14px 0 5px}.sub{font-size:13px;color:#64748b;line-height:1.55;margin:0 0 20px}.alert{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:12px 14px;border-radius:13px;font-size:13px;font-weight:700;margin-bottom:16px}.child{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:14px 16px;margin-bottom:18px}.child b{display:block;font-size:13px}.child span{font-size:12px;color:#64748b}.instruction{background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:12px 14px;color:#1e40af;font-size:13px;font-weight:700;margin-bottom:12px}.section{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:#1d4ed8;margin:22px 0 12px}.field{margin-bottom:13px}.field label{display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:6px}.input{width:100%;height:47px;border:1.5px solid #e2e8f0;border-radius:13px;background:#f8fafc;padding:0 13px;font:600 14px 'Plus Jakarta Sans',sans-serif}.input:focus{outline:none;border-color:#0095F6;background:#fff;box-shadow:0 0 0 3px rgba(0,149,246,.12)}.consent{display:flex;align-items:flex-start;gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:13px;padding:13px;margin:18px 0;font-size:12px;color:#475569;line-height:1.5}.submit{width:100%;height:53px;border:0;border-radius:15px;background:linear-gradient(135deg,#0095F6,#1D4ED8);color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 10px 24px rgba(0,149,246,.25)}.submit:disabled{opacity:.5;cursor:not-allowed}.security{font-size:11px;color:#64748b;text-align:center;margin-top:14px;line-height:1.5}@media(max-width:520px){.card{padding:25px 18px}.title{font-size:22px}}
+  </style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <div class="badge"><img src="/static/icons/app_logo.png" alt="LittleNet"><span>Guardian Verification</span></div>
+  <h1 class="title">Verify your parent account</h1>
+  <p class="sub">Confirm your details below. LittleNet will email a 6-digit verification code to the parent address to prove ownership — there is no camera or face step.</p>
+
+  {% if error %}<div class="alert">⚠️ {{ error }}</div>{% endif %}
+  <div class="child"><b>{{ child.child_name }} · @{{ child.child_username }}</b><span>Age {{ child.child_age }} · {{ child.child_email }}</span></div>
+
+  <div class="instruction">📧 The verification code goes to <strong>{{ child.parent_email }}</strong>. Make sure you can access that inbox.</div>
+
+  <form method="POST" id="verifyForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="auto_approve" value="1">
+
+    <div class="section">Guardian details</div>
+    <div class="field"><label for="parentName">Parent full name</label><input class="input" id="parentName" type="text" name="parent_name" value="{{ child.parent_name }}" required></div>
+    <div class="field"><label for="parentDob">Parent date of birth (18+)</label><input class="input" id="parentDob" type="date" name="dob" required></div>
+    {% if not parent_exists %}<div class="field"><label for="parentPassword">Set Parent Mode password</label><input class="input" id="parentPassword" type="password" name="password" minlength="8" required autocomplete="new-password"></div>{% endif %}
+
+    <label class="consent"><input type="checkbox" name="consent" value="1" id="consent" required><span>I confirm that I am the legal adult parent or guardian of <strong>{{ child.child_name }}</strong> and consent to email-based identity verification for child-safety supervision.</span></label>
+    <button class="submit" id="submitBtn" type="submit">Send Verification Code</button>
+  </form>
+  <div class="security">LittleNet verifies parent identity through email ownership. The code expires in 10 minutes and is limited to 5 attempts.</div>
+</div></div>
+<script>
+(() => {
+  const dob = document.getElementById('parentDob');
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear() - 18, now.getMonth(), now.getDate());
+  dob.max = cutoff.toISOString().slice(0, 10);
+})();
+</script>
+</body>
+</html>

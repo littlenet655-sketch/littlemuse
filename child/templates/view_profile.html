@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-profile-page">
+  <!-- Profile Header -->
+  <header class="ig-profile-header">
+    <div class="ig-profile-top-row">
+      <div class="ig-profile-avatar-container">
+        <img class="ig-profile-avatar-img" src="/{{ profile.profile_picture if profile and profile.profile_picture else 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ profile.full_name }}">
+        <span class="ig-profile-safety-badge" title="LittleNet AI Verified">{{ ico.icon('shield', 13) }}</span>
+      </div>
+
+      <div class="ig-profile-stats">
+        <div class="ig-stat-col">
+          <b>{{ counts.posts }}</b>
+          <span>posts</span>
+        </div>
+        <div class="ig-stat-col">
+          <b>{{ counts.followers }}</b>
+          <span>followers</span>
+        </div>
+        <div class="ig-stat-col">
+          <b>{{ counts.following }}</b>
+          <span>following</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bio Section -->
+    <div class="ig-profile-bio">
+      <h2 class="ig-bio-name">{{ profile.full_name }}</h2>
+      <p class="ig-bio-text">{{ profile.bio if profile and profile.bio else '🌟 Learning, sharing and staying safe on LittleNet.' }}</p>
+    </div>
+
+    <!-- Action Buttons Row (Instagram Style) -->
+    <div class="ig-profile-actions">
+      <button class="ig-btn {% if is_following or is_pending %}ig-btn-secondary{% else %}ig-btn-primary{% endif %}" data-follow="{{ target_user_id }}" style="flex: 1;">
+        {{ 'Following' if is_following else 'Requested' if is_pending else 'Follow' }}
+      </button>
+
+      {% if (not child_controls or child_controls.allow_messaging) and can_message %}
+      <a href="/chat/{{ target_user_id }}/" class="ig-btn ig-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; flex: 1;">
+        {{ ico.icon('send', 16) }} Message
+      </a>
+      {% elif not child_controls or child_controls.allow_messaging %}
+      <button class="ig-btn ig-btn-outline" type="button" disabled title="You can message once you both follow each other and a parent has approved the connection" style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; opacity: .6; cursor: not-allowed;">
+        {{ ico.icon('send', 16) }} Message
+      </button>
+      {% endif %}
+
+      <form method="post" action="/mute/{{target_user_id}}/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="ig-btn ig-btn-outline" title="Mute User" style="padding: 0 10px;">
+          Mute
+        </button>
+      </form>
+
+      <form method="post" action="/block/{{target_user_id}}/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="ig-btn ig-btn-outline" title="Block User" style="padding: 0 10px; color: #dc2626;">
+          Block
+        </button>
+      </form>
+    </div>
+  </header>
+
+  <!-- Profile Grid Tabs -->
+  <div class="ig-grid-tabs">
+    <div class="ig-tab active">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    </div>
+  </div>
+
+  <!-- 3-Column Instagram Post Grid -->
+  <div class="ig-post-grid">
+    {% for p in posts %}
+    <a class="ig-grid-tile" href="/post/{{ p.post_id }}/">
+      {% if p.media_type=='IMAGE' %}
+        <img loading="lazy" src="/{{ p.media_path }}" alt="Post">
+      {% elif p.media_type=='VIDEO' %}
+        <video muted playsinline preload="metadata" src="/{{ p.media_path }}"></video>
+        <span class="ig-tile-badge">{{ ico.icon('clips', 14) }}</span>
+      {% elif p.media_type=='AUDIO' %}
+        <div class="ig-audio-tile">{{ ico.icon('volume', 28) }}</div>
+      {% else %}
+        <div class="ig-text-tile grid-text">{{ p.caption }}</div>
+      {% endif %}
+    </a>
+    {% else %}
+    <div class="ig-empty-grid">
+      <div class="ig-empty-camera">{{ ico.icon('camera', 42) }}</div>
+      <h3>No Posts Yet</h3>
+      <p>When {{ profile.full_name }} shares safe photos and clips, they appear here.</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

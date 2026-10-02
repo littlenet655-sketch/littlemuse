@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Reset the LittleNet app state on the device (clears storage incl. any
+# in-memory-only auth window, which is process memory anyway).
+# Usage: ./reset-app [serial]
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+SERIAL="${1:-emulator-5554}"
+require_bins
+echo "Clearing app data for com.littlenet.app on $SERIAL ..."
+"$ADB" -s "$SERIAL" shell pm clear com.littlenet.app
+echo "Done."

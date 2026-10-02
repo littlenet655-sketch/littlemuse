@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Verify Parent Email | LittleNet{% endblock %}
+{% block content %}
+<div class="auth-shell">
+  <div class="auth-card" style="max-width:460px;">
+    <div class="auth-brand-wrap">
+      <img src="/static/icons/app_logo.png?v=official-shield-ad60e5d" alt="LittleNet Logo" style="width:64px;height:64px;border-radius:16px;object-fit:cover;box-shadow:0 8px 24px rgba(0,149,246,.22);">
+      <h1 class="brand auth-title">Verify your email</h1>
+      {% if delivery_error %}
+      <p class="auth-subtitle">Your parent account is pending, but LittleNet could not deliver the OTP to <strong>{{ masked_email }}</strong>. This is a server mail-delivery problem, not a browser problem.</p>
+      {% else %}
+      <p class="auth-subtitle">We sent a 6-digit code to <strong>{{ masked_email }}</strong>. Enter it below to continue to the required live blink check.</p>
+      {% endif %}
+    </div>
+
+    {% if error %}
+    <div class="auth-alert auth-alert-error" role="alert">
+      <span class="alert-icon">⚠️</span><span>{{ error }}</span>
+    </div>
+    {% endif %}
+    {% if delivery_error %}
+    <div class="auth-alert auth-alert-error" role="alert">
+      <span class="alert-icon">✉️</span><span>{{ delivery_error }}</span>
+    </div>
+    {% endif %}
+    {% if notice %}
+    <div style="background:#ECFDF5;border:1px solid #A7F3D0;color:#047857;border-radius:12px;padding:10px 12px;margin-bottom:14px;font-size:13px;font-weight:700;">{{ notice }}</div>
+    {% endif %}
+
+    <form method="post" action="/verify-parent-email/" class="auth-form" autocomplete="one-time-code">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="auth-field">
+        <label class="field-label" for="parent-email-otp">6-digit verification code</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔐</span>
+          <input id="parent-email-otp" name="otp" class="auth-input" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6" placeholder="000000" required autofocus autocomplete="one-time-code" style="letter-spacing:8px;font-size:22px;font-weight:800;text-align:center;">
+        </div>
+        <small style="display:block;color:#64748B;font-size:11px;margin-top:6px;">The code expires after 10 minutes and locks after repeated incorrect attempts.</small>
+      </div>
+      <button type="submit" class="btn primary auth-submit-btn">
+        <span>Verify Email & Continue to Live Blink</span><span class="btn-arrow">→</span>
+      </button>
+    </form>
+
+    <form method="post" action="/verify-parent-email/resend/" style="margin-top:12px;text-align:center;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn" style="background:#F1F5F9;color:#334155;border:1px solid #CBD5E1;width:100%;">Resend verification code</button>
+    </form>
+
+    <div class="parent-info-card" style="margin-top:16px;">
+      <span class="info-icon">🛡️</span>
+      <span>Your Parent account is activated as soon as email ownership is verified.</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+name: Build LittleNet APK Locally
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-local-apk]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      NODE_ENV: production
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.LITTLENET_LIVE_URL }}
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+      - name: Verify Git LFS model artifacts are real binaries
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(git lfs ls-files -n 2>/dev/null || true); do
+            if [ ! -f "$f" ]; then echo "MISSING LFS FILE: $f"; fail=1; continue; fi
+            if head -c 200 "$f" | grep -q "version https://git-lfs.github.com/spec/v1"; then
+              echo "LFS POINTER STUB (not a real binary): $f"; fail=1
+            fi
+          done
+          for f in models/littlenet_core_safety_v2.pth models/littlenet_weapons_violence_v3.pth models/littlenet_text_safety/model.safetensors; do
+            if [ ! -f "$f" ]; then echo "MISSING REQUIRED MODEL: $f"; fail=1; fi
+          done
+          exit $fail
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: mobile_app/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify release backend and committed app identity
+        run: |
+          python - <<'PY'
+          import json,os,sys
+          url=os.environ.get('EXPO_PUBLIC_API_BASE_URL','').strip().rstrip('/')
+          if not url.startswith('https://') or 'localhost' in url or '127.0.0.1' in url:
+              sys.exit(f'EXPO_PUBLIC_API_BASE_URL must be a public HTTPS backend, got {url!r}')
+          app=json.load(open('mobile_app/app.json',encoding='utf-8')).get('expo',{})
+          owner=str(app.get('owner') or '').strip()
+          project_id=str(((app.get('extra') or {}).get('eas') or {}).get('projectId') or '').strip()
+          package=str((app.get('android') or {}).get('package') or '').strip()
+          if owner != 'akshu1245s-team':
+              sys.exit(f'app.json Expo owner mismatch: {owner!r}')
+          if project_id != 'c4ce834d-fd50-4504-a311-820c3372b6dc':
+              sys.exit(f'app.json EAS projectId mismatch: {project_id!r}')
+          if package != 'com.littlenet.app':
+              sys.exit(f'Android package mismatch: {package!r}')
+          PY
+          curl --connect-timeout 10 --max-time 30 --fail-with-body -sS "${EXPO_PUBLIC_API_BASE_URL%/}/api/mobile/v1/health" | tee mobile-health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('mobile-health.json',encoding='utf-8'))
+          if body.get('ok') is not True or body.get('client') != 'react-native':
+              raise SystemExit(f'Mobile API identity mismatch: {body}')
+          PY
+      - name: Install mobile dependencies
+        working-directory: mobile_app
+        run: npm ci
+      - name: Validate mobile source
+        working-directory: mobile_app
+        run: |
+          npm run typecheck
+          npm test
+          npx expo install --check
+      - name: Generate native Android project
+        working-directory: mobile_app
+        run: npx expo prebuild --platform android --clean --no-install
+      - name: Build standalone release APK
+        working-directory: mobile_app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Collect and verify APK
+        run: |
+          set -euo pipefail
+          APK="$(find mobile_app/android/app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          test -s "$APK"
+          cp "$APK" LittleNet-current-main.apk
+          unzip -t LittleNet-current-main.apk >/dev/null
+          sha256sum LittleNet-current-main.apk | tee LittleNet-current-main.apk.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: LittleNet-current-main-apk
+          path: |
+            LittleNet-current-main.apk
+            LittleNet-current-main.apk.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Guided smoke suite for the Parent device-auth architecture.
+# Usage: ./run-parent-auth-smoke [serial] [biometric|pin|unsecured]
+#
+# This is a *guided* harness, not a blind UI bot: it drives everything adb
+# can drive (app launch, background/foreground, fingerprint simulation,
+# logcat capture) and asks the operator to confirm each on-screen
+# observation. Results are appended to a timestamped report file.
+#
+# Prerequisites per profile:
+#   biometric : run start-biometric-avd first (fingerprint enrolled + PIN set)
+#   pin       : run start-pin-avd first (PIN set, no biometrics)
+#   unsecured : run start-unsecured-avd first (no lock at all)
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+SERIAL="${1:-emulator-5554}"
+PROFILE="${2:-biometric}"
+REPORT="$SCRIPT_DIR/smoke-${PROFILE}-${SERIAL}-$(date +%Y%m%d-%H%M%S).md"
+PKG="com.littlenet.app"
+
+require_bins
+
+pass=0; fail=0
+note() { echo "$*" | tee -a "$REPORT"; }
+ask() { # ask <scenario text> -> records PASS/FAIL
+  local text="$1"
+  echo ""
+  echo "SCENARIO: $text"
+  read -r -p "Result? [p]ass / [f]ail / [s]kip: " ans
+  case "$ans" in
+    p|P) echo "PASS: $text" | tee -a "$REPORT"; pass=$((pass+1));;
+    f|F) echo "FAIL: $text" | tee -a "$REPORT"; fail=$((fail+1));;
+    *)   echo "SKIP: $text" | tee -a "$REPORT";;
+  esac
+}
+launch() {
+  "$ADB" -s "$SERIAL" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null
+  sleep 3
+}
+bg_app()  { "$ADB" -s "$SERIAL" shell input keyevent KEYCODE_APP_SWITCH; sleep 1; "$ADB" -s "$SERIAL" shell input keyevent KEYCODE_HOME; sleep 1; }
+fg_app()  { launch; }
+
+{
+  echo "# Parent device-auth smoke — profile: $PROFILE, device: $SERIAL"
+  echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$REPORT"
+
+echo "Starting logcat capture in background..."
+"$ADB" -s "$SERIAL" logcat -c
+"$ADB" -s "$SERIAL" logcat -v threadtime > "${REPORT%.md}.logcat.txt" &
+LOGCAT_PID=$!
+trap 'kill $LOGCAT_PID 2>/dev/null || true' EXIT
+
+case "$PROFILE" in
+  biometric)
+    launch
+    ask "1. Open Parent Mode -> system biometric prompt appears"
+    echo "   -> now simulate the fingerprint:"
+    "$SCRIPT_DIR/simulate-fingerprint" "$SERIAL" touch
+    ask "2. Simulated fingerprint succeeds -> Parent Mode opens"
+    ask "3. Second protected action within 5 min does NOT prompt again"
+    bg_app
+    fg_app
+    ask "4. Background -> return invalidates authorization (prompt appears again)"
+    "$SCRIPT_DIR/simulate-fingerprint" "$SERIAL" touch
+    ask "5. Fingerprint again -> Parent Mode opens"
+    launch
+    ask "6. Cancel the prompt -> Parent Mode / action is blocked"
+    ask "7. Failed biometric (wrong finger) -> protected action blocked"
+    ask "8. Logout invalidates the 5-minute auth window (prompt required again)"
+    ask "9. Session/account change invalidates the auth window"
+    ;;
+  pin)
+    launch
+    ask "1. Parent Mode remains available with PIN-only device"
+    ask "2. System falls back to DEVICE_CREDENTIAL (PIN entry screen, no fingerprint UI)"
+    ask "3. Correct PIN opens Parent Mode"
+    ask "4. Cancel prevents entry"
+    ask "5. Sensitive Parent actions remain gated (each prompts)"
+    ask "6. Second action within 5 min does NOT prompt again"
+    bg_app; fg_app
+    ask "7. Background/logout/session-change invalidates the window"
+    note "CONFIRMED: no LittleNet custom PIN exists — only the Android system credential was used."
+    ;;
+  unsecured)
+    launch
+    ask "1. Parent Mode is BLOCKED with exact message: \"Set up a screen lock on this phone to use Parent Mode.\""
+    ask "2. Security-settings button opens the system Settings screen"
+    ask "3. No sensitive API action executes (watch logcat / network)"
+    ask "4. Direct navigation to ParentControls / ParentChildDetail / ParentSafetyReview / ParentSettings cannot bypass the gate"
+    ;;
+  *)
+    die "unknown profile: $PROFILE (expected biometric|pin|unsecured)"
+    ;;
+esac
+
+kill $LOGCAT_PID 2>/dev/null || true
+trap - EXIT
+{
+  echo ""
+  echo "## Summary"
+  echo "PASS: $pass  FAIL: $fail"
+  echo "Logcat: ${REPORT%.md}.logcat.txt"
+} | tee -a "$REPORT"
+echo ""
+echo "Report written to $REPORT"
+[ "$fail" -eq 0 ]

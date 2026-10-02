@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block content %}{% import '_post.html' as ui %}{% import '_icons.html' as ico %}
+<div class="section-title feed-heading"><span>Your feed</span><span class="tiny-status">{{ico.icon('shield',14)}} Protected</span></div>
+{% for p in posts %}{{ui.post_card(p)}}{% else %}<div class="empty-state"><div class="empty-illustration">{{ico.icon('home',42)}}</div><h3>Your feed is ready</h3><p>Posts from you and parent-approved connections will appear here.</p><a class="btn primary" href="/discover/">Find friends</a></div>{% endfor %}{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'parent_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+<style>.time-shell{max-width:680px;margin:0 auto}.time-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px}.time-field label{display:block;font-size:12px;font-weight:750;color:#334155;margin-bottom:6px}.time-field input[type=number]{width:100%;min-height:46px;border:1px solid #cbd5e1;border-radius:11px;padding:8px 12px;font-size:15px}.time-toggle{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:13px;border:1px solid #e2e8f0;border-radius:12px;background:#fafafa}</style>
+<div class="time-shell"><div class="time-head"><div><h2 style="margin:0;">Screen time</h2><p class="text-muted" style="margin:4px 0 0;">Set the daily Kids Mode limit for this child.</p></div><a class="btn outline" href="/parent/usage-report/?child_id={{ child_id }}">Usage report</a></div><form class="parent-card" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="child_id" value="{{ child_id }}"><div class="time-field"><label for="daily-limit">Daily limit (minutes)</label><input id="daily-limit" type="number" min="1" max="1440" name="daily_limit" required value="{{ limit.daily_limit_minutes if limit else 60 }}"><small class="text-muted">1–1440 minutes per day.</small></div><label class="time-toggle"><input type="checkbox" name="strict_mode" {% if limit and limit.strict_mode %}checked{% endif %}><span><b>Lock LittleNet when the limit is reached</b><br><small class="text-muted">The child sees the time-limit screen until the next usage window.</small></span></label><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;"><a class="btn outline" href="/parent/dashboard/">Cancel</a><button class="btn primary" type="submit">{{ ico.icon('check',15) }} Save screen time</button></div></form>
+{% if extension_requests %}
+<div class="parent-card" style="margin-top:18px;"><h3 style="margin:0 0 4px;">Extra-time requests</h3><p class="text-muted" style="margin:0 0 12px;">Your child asked for more time today. Approving adds bonus minutes for today only — it does not change the daily base limit.</p>
+{% for r in extension_requests %}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #e2e8f0;">
+<div><b>{{ r.child_name or 'Your child' }}</b> asked for <b>{{ r.requested_minutes }} minutes</b><br><small class="text-muted">Requested {{ r.created_at }}</small></div>
+<div style="display:flex;gap:8px;align-items:center;">
+<form method="post" style="display:flex;gap:8px;align-items:center;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="child_id" value="{{ child_id }}"><input type="hidden" name="action" value="approve_extension"><input type="hidden" name="request_id" value="{{ r.request_id }}"><input type="number" name="granted_minutes" min="1" max="720" value="{{ r.requested_minutes }}" style="width:76px;min-height:40px;border:1px solid #cbd5e1;border-radius:9px;padding:6px 8px;" title="Minutes to grant"><button class="btn primary" type="submit">{{ ico.icon('check',14) }} Approve</button></form>
+<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="child_id" value="{{ child_id }}"><input type="hidden" name="action" value="reject_extension"><input type="hidden" name="request_id" value="{{ r.request_id }}"><button class="btn outline" type="submit">Reject</button></form>
+</div></div>
+{% endfor %}</div>
+{% endif %}
+</div>
+{% endblock %}

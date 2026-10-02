@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %}Create Parent Account | LittleNet{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-brand-wrap">
+      <div class="auth-logo-badge" style="background:none;box-shadow:none;padding:0;">
+        <img src="/static/icons/app_logo.png?v=official-shield-ad60e5d" alt="LittleNet Logo" style="width:64px;height:64px;border-radius:16px;object-fit:cover;box-shadow:0 8px 24px rgba(0,149,246,.28);">
+      </div>
+      <h1 class="brand auth-title">Parent Account</h1>
+      <p class="auth-subtitle">Create your verified parent or guardian account</p>
+    </div>
+
+    {% if error %}
+    <div class="auth-alert auth-alert-error" role="alert">
+      <span class="alert-icon">⚠️</span>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/register-parent/" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="auth-field">
+        <label class="field-label" for="parent-fullname">Parent Full Name</label>
+        <div class="input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" id="parent-fullname" name="full_name" class="auth-input" placeholder="e.g. Dr. Ramesh Kumar" required autocomplete="name">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="parent-username">Parent Username</label>
+        <div class="input-wrap">
+          <span class="input-icon">🏷️</span>
+          <input type="text" id="parent-username" name="username" class="auth-input" placeholder="e.g. dad_ramesh" required pattern="[A-Za-z0-9_.]{3,30}" autocomplete="username">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="parent-email">Email Address</label>
+        <div class="input-wrap">
+          <span class="input-icon">✉️</span>
+          <input type="email" id="parent-email" name="email" class="auth-input" placeholder="parent@example.com" required autocomplete="email">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="parent-dob">Date of Birth</label>
+        <div class="input-wrap">
+          <span class="input-icon">📅</span>
+          <input type="date" id="parent-dob" name="dob" class="auth-input" required>
+        </div>
+        <small style="display:block;color:#64748B;font-size:11px;margin-top:4px;text-align:left;">You must be at least 18 years old. LittleNet validates this again on the server.</small>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="parent-password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" id="parent-password" name="password" class="auth-input" placeholder="Minimum 8 characters" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="auth-field" style="text-align:left;margin-top:12px;">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#475569;cursor:pointer;">
+          <input type="checkbox" name="guardian_declaration" value="1" required style="margin-top:3px;">
+          <span>I certify that I am the legal adult parent or guardian responsible for child safety and supervision.</span>
+        </label>
+      </div>
+
+      <button type="submit" class="btn primary auth-submit-btn" style="background:linear-gradient(135deg,#2563EB,#1D4ED8);box-shadow:0 8px 18px rgba(37,99,235,.3);">
+        <span>Continue to Email Verification</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+
+    <div class="parent-info-card">
+      <span class="info-icon">ℹ️</span>
+      <span>Next, LittleNet sends a 6-digit email OTP. Once the email is verified, your Parent account is activated. There is no arithmetic challenge and no face check.</span>
+    </div>
+
+    <div class="auth-signup-box">
+      Already registered? <a href="/login/?mode=parent" class="signup-link parent-link">Log in as Parent</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

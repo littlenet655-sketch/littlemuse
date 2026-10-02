@@ -1,0 +1,23 @@
+=== LITTLE NET AUDIT ENVIRONMENT ===
+OS: Windows-10-10.0.26200-SP0 (Windows 10)
+Machine: AMD64
+Python: 3.11.15 (C:\Users\aksha\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe)
+Git Branch: feature/submission-rebuild-v2
+Git HEAD SHA: 6a4a21e03c88b9acdc098cf8d0a3013d996693e3
+Git Status: 
+?? audit/
+?? database/seeds/
+----------------------------------------
+Flutter: NOT INSTALLED (flutter executable not found on host)
+Dart: NOT INSTALLED (dart executable not found on host)
+Java / JDK: 
+openjdk version "17.0.17" 2025-10-21 LTS
+OpenJDK Runtime Environment Microsoft-12574423 (build 17.0.17+10-LTS)
+OpenJDK 64-Bit Server VM Microsoft-12574423 (build 17.0.17+10-LTS, mixed mode, sharing)
+Android SDK: C:\Users\aksha\AppData\Local\Android\Sdk
+adb: 
+Android Debug Bridge version 1.0.41
+Version 37.0.1-15733141
+Installed as C:\Users\aksha\AppData\Local\Android\Sdk\platform-tools\adb.exe
+Running on Windows 10.0.26200
+ffmpeg: NOT IN PATH (PyAV v17.1.0 used in Python environment for media decoding)

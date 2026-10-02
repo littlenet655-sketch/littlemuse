@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "outDir": "test-dist",
+    "rootDir": ".",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "tests/**/*.ts",
+    "src/components/ParentModeGate.tsx",
+    "src/api/**/*.ts",
+    "src/auth/session.ts",
+    "src/auth/backends.ts",
+    "src/navigation/gates.ts",
+    "src/kids/social.ts",
+    "src/quiz/decision.ts",
+    "src/screens/otpCells.ts",
+    "src/video/types.ts",
+    "src/video/quizGate.ts",
+    "src/video/playbackPolicy.ts",
+    "src/video/reelPlaybackMetrics.ts"
+  ]
+}

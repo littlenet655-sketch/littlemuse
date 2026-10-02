@@ -1,0 +1,31 @@
+{% import '_icons.html' as ico %}
+{% macro post_card(p) %}
+<article class="ig-post" data-post-card="{{ p.post_id }}">
+  <header class="ig-post-header">
+    <a class="ig-post-avatar-link" href="/child/view-profile/{{ p.child_id }}/"><div class="ig-mini-ring"><img class="ig-post-avatar" src="/{{ p.profile_picture }}" data-hide-error alt="{{ p.full_name }}"></div></a>
+    <div class="ig-post-user-meta"><a class="ig-post-username" href="/child/view-profile/{{ p.child_id }}/">{{ p.username or p.full_name }}</a>{% if p.content_category %}<span class="ig-post-category">{{ p.content_category }} • <span class="ig-safety-text">Safe</span></span>{% endif %}</div>
+    {% if p.child_id != session.get('user_id') %}<button class="ig-more-btn" type="button" data-report-post="{{ p.post_id }}" aria-label="More options">{{ ico.icon('more',20) }}</button>{% endif %}
+  </header>
+
+  <div class="ig-post-media" data-double-like="{{ p.post_id }}">
+    <span class="heart-burst" aria-hidden="true">♥</span>
+    {% if p.media_type=='IMAGE' %}<img loading="lazy" src="/{{ p.media_path }}" alt="Post by {{ p.full_name }}">
+    {% elif p.media_type=='VIDEO' %}<video data-autoplay muted playsinline loop preload="metadata" src="/{{ p.media_path }}"></video>
+    {% elif p.media_type=='AUDIO' %}<div class="text-post"><strong>Legacy audio post unavailable</strong><span>This older post type is no longer used in LittleNet.</span></div>
+    {% else %}<div class="text-post">{{ p.caption }}</div>{% endif %}
+  </div>
+
+  <div class="ig-post-actions">
+    <div class="ig-actions-left">
+      <button class="ig-action-btn reaction-btn" data-like="{{ p.post_id }}" aria-label="Like" aria-pressed="false"><span class="icon-off">{{ ico.icon('heart',24) }}</span><span class="icon-on ig-heart-liked" aria-hidden="true">♥</span></button>
+      <a class="ig-action-btn" href="/post/{{ p.post_id }}/" aria-label="Comment">{{ ico.icon('comment',24) }}</a>
+      <button class="ig-action-btn" type="button" data-share-post="{{ p.post_id }}" aria-label="Share">{{ ico.icon('send',22) }}</button>
+    </div>
+    <div class="ig-actions-right"><button class="ig-action-btn save-btn" type="button" data-save-post="{{ p.post_id }}" aria-label="Save" aria-pressed="false">{{ ico.icon('bookmark',24) }}</button></div>
+  </div>
+  <div class="ig-likes-row"><b><span data-like-count="{{ p.post_id }}">{{ p.likes or 0 }}</span> likes</b></div>
+  {% if p.caption and p.media_type!='TEXT' %}<div class="ig-caption-row"><a class="ig-caption-user" href="/child/view-profile/{{ p.child_id }}/">{{ p.username or p.full_name }}</a><span class="ig-caption-text">{{ p.caption }}</span></div>{% endif %}
+  <a class="ig-comments-link" href="/post/{{ p.post_id }}/">View comments</a>
+  <div class="ig-time-row">{{ p.created_at }}</div>
+</article>
+{% endmacro %}

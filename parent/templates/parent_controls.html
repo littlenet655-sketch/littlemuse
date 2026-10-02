@@ -1,0 +1,18 @@
+{% extends 'parent_base.html' %}{% block content %}
+<h2>{{t('parent_controls')}} · {{child.full_name}}</h2>{% if error %}<div class="form-error" role="alert">{{error}}</div>{% endif %}
+<form class="parent-card" method="post">
+<input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="child_id" value="{{child_id}}">
+<p class="muted">{{t('server_enforced')}}</p>
+<div class="control-grid">
+<label class="toggle-row"><span>{{t('posting')}}</span><input type="checkbox" name="allow_posting" {% if controls.allow_posting %}checked{% endif %}></label>
+<label class="toggle-row"><span>{{t('reels_feature')}}</span><input type="checkbox" name="allow_reels" {% if controls.allow_reels %}checked{% endif %}></label>
+<label class="toggle-row"><span>{{t('stories')}}</span><input type="checkbox" name="allow_stories" {% if controls.allow_stories %}checked{% endif %}></label>
+<label class="toggle-row"><span>{{t('messaging')}}</span><input type="checkbox" name="allow_messaging" {% if controls.allow_messaging %}checked{% endif %}></label>
+<label class="toggle-row"><span>{{t('discover_feature')}}</span><input type="checkbox" name="allow_discover" {% if controls.allow_discover %}checked{% endif %}></label>
+<label class="toggle-row emphasis"><span>{{t('educational_feed')}}</span><input type="checkbox" name="educational_only_feed" {% if controls.educational_only_feed %}checked{% endif %}></label>
+</div>
+
+<fieldset class="quiet-hours-fieldset"><legend>Quiet hours</legend><p class="muted">Pause Kids Mode automatically during sleep, study or family time. This is enforced on the server.</p><label class="toggle-row emphasis"><span>Enable quiet hours</span><input type="checkbox" name="quiet_hours_enabled" {% if controls.quiet_hours_enabled %}checked{% endif %}></label><div class="time-pair"><label>Starts<input type="time" name="quiet_start" value="{{controls.quiet_start}}" required></label><label>Ends<input type="time" name="quiet_end" value="{{controls.quiet_end}}" required></label></div></fieldset>
+<h3>{{t('allowed_categories')}}</h3><div class="category-grid">{% for cat in categories %}<label><input type="checkbox" name="allowed_categories" value="{{cat}}" {% if cat in controls.allowed_categories %}checked{% endif %}> {{cat}}</label>{% endfor %}</div>
+<br><button class="btn primary">{{t('save')}}</button>
+</form>{% endblock %}

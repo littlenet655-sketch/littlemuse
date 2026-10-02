@@ -1,0 +1,6 @@
+{% extends 'parent_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+<style>.sub-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}.deleted-row{display:flex;gap:12px;align-items:flex-start}.deleted-icon{width:36px;height:36px;border-radius:10px;background:#fef2f2;color:#b91c1c;display:grid;place-items:center;flex:none}.deleted-meta{font-size:11px;color:#64748b}</style>
+<div class="sub-head"><div><h2 style="margin:0;">Deleted posts</h2><p class="text-muted">Audit view of posts removed by children.</p></div><a class="btn outline" href="/parent/dashboard/">← Dashboard</a></div>{% for p in posts %}<article class="parent-card"><div class="deleted-row"><div class="deleted-icon">{{ ico.icon('lock',16) }}</div><div><b>{{ p.full_name }}</b><p style="margin:5px 0;color:#334155;">{{ p.caption or 'No caption' }}</p><div class="deleted-meta">{{ p.media_type|title }} · deleted {{ p.deleted_at }}</div></div></div></article>{% else %}<div class="parent-card" style="text-align:center;padding:28px;"><b>No deleted posts</b><p class="text-muted">Deleted content will appear here for parent audit.</p></div>{% endfor %}
+{% endblock %}

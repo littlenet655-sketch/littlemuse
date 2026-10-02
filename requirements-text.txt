@@ -1,0 +1,25 @@
+# Text-only moderation dependencies.
+#
+# Why this file exists: parent/routes.py's create_child flow calls
+# safety.text_service.check_text() on registration metadata (child name,
+# school, class, location, bio) before allowing account creation. That
+# currently pulls in the *entire* requirements-ai.txt stack transitively
+# (NudeNet and Ultralytics/YOLO) even
+# though none of those models are used for text. That couples basic parent
+# onboarding to a multi-GB install and several unrelated model downloads
+# that have nothing to do with checking a name field.
+#
+# Install this alone (on top of requirements-core.txt) for any deployment
+# that needs working text moderation without needing to install the full
+# vision/audio pipeline yet:
+#
+#   pip install -r requirements-core.txt -r requirements-text.txt
+#
+-r requirements-core.txt
+numpy==1.26.4
+torch==2.13.0
+transformers==5.10.0  # v5 verified end-to-end with littlenet_text_safety (5.10.0: minimum fixing pip-audit CVEs in 5.0.0; checkpoint re-verified: bullying text -> 0.998)
+detoxify==0.5.2
+# Declared dependency of detoxify==0.5.2 (requires sentencepiece>=0.1.94);
+# needed by its multilingual (XLM-RoBERTa) toxicity model tokenizer.
+sentencepiece==0.2.2

@@ -1,0 +1,80 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="dashboard-title">
+  <div>
+    <span class="eyebrow">Identity &amp; Governance</span>
+    <h2>User Management</h2>
+    <p class="text-muted">Browse, filter, and manage parent, child, and administrator accounts.</p>
+  </div>
+</div>
+
+<form class="admin-filter" method="get" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+  <input name="q" value="{{ q }}" placeholder="Search name, email or username" style="flex: 1; min-width: 200px; padding: 10px 14px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 13px;">
+  <select name="role" style="padding: 10px 14px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 13px; background: #fff;">
+    <option value="">All Roles</option>
+    {% for x in ['CHILD','PARENT','ADMIN'] %}
+    <option value="{{ x }}" {% if role == x %}selected{% endif %}>{{ x.title() }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" style="padding: 10px 14px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 13px; background: #fff;">
+    <option value="">All States</option>
+    {% for x in ['ACTIVE','PENDING_APPROVAL','REJECTED','SUSPENDED'] %}
+    <option value="{{ x }}" {% if status == x %}selected{% endif %}>{{ x.replace('_',' ').title() }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn primary" type="submit" style="padding: 10px 18px; border-radius: 12px;">Filter</button>
+</form>
+
+<div class="admin-table-list">
+  {% for u in users %}
+  <article class="admin-row" style="display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 10px; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="width: 40px; height: 40px; border-radius: 12px; background: {% if u.role == 'CHILD' %}#EFF6FF; color: #0095F6;{% elif u.role == 'PARENT' %}#EFF6FF; color: #1D4ED8;{% else %}#F5F3FF; color: #6D28D9;{% endif %} display: grid; place-items: center; font-weight: 800; font-size: 15px;">
+        {{ u.full_name[0] | upper if u.full_name else '?' }}
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <b style="font-size: 14px; color: #0F172A;">{{ u.full_name }}</b>
+          <span class="decision-chip {% if u.role == 'CHILD' %}allow{% elif u.role == 'PARENT' %}review{% else %}primary{% endif %}" style="font-size: 10px; padding: 2px 8px;">
+            {{ u.role }}
+          </span>
+          <span class="decision-chip {% if u.account_status == 'ACTIVE' %}allow{% elif u.account_status == 'PENDING_APPROVAL' %}review{% else %}block{% endif %}" style="font-size: 10px; padding: 2px 8px;">
+            {{ u.account_status.replace('_',' ') }}
+          </span>
+        </div>
+        <p style="margin: 3px 0 0; font-size: 12px; color: #64748B;">
+          {{ u.email }} · @{{ u.username }}
+        </p>
+      </div>
+    </div>
+
+    {% if u.role != 'ADMIN' %}
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <form method="post" action="/admin/user/{{ u.user_id }}/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn {% if u.account_status != 'SUSPENDED' %}danger{% else %}primary{% endif %}" name="action" value="{{ 'ACTIVATE' if u.account_status == 'SUSPENDED' else 'SUSPEND' }}" style="font-size: 12px; padding: 6px 14px; border-radius: 8px;">
+          {{ 'Activate' if u.account_status == 'SUSPENDED' else 'Suspend' }}
+        </button>
+      </form>
+      <form method="post" action="/admin/user/{{ u.user_id }}/" style="margin: 0;" data-confirm="Are you sure you want to permanently delete this {{ u.role.lower() }} account (@{{ u.username }})? This action cannot be undone and will delete all associated data.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger" name="action" value="DELETE" style="font-size: 12px; padding: 6px 14px; border-radius: 8px; background: #DC2626; color: #FFFFFF;">
+          Delete
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </article>
+  {% else %}
+  <div class="parent-empty" style="text-align: center; padding: 48px 20px; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 18px;">
+    <div style="width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px; background: #F8FAFC; color: #64748B; display: grid; place-items: center;">
+      {{ ico.icon('user', 32) }}
+    </div>
+    <h3 style="font-size: 18px; margin: 0 0 6px;">No Users Found</h3>
+    <p style="color: #64748B; font-size: 13px; margin: 0;">Try clearing or adjusting your search filters.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Post · LittleNet{% endblock %}
+{% block content %}
+{% import '_post.html' as ui %}
+{% import '_icons.html' as ico %}
+<style>.post-detail-shell{max-width:640px;margin:0 auto;padding-bottom:80px}.comment-panel{margin:12px}.comment-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9}.comment-row:last-of-type{border-bottom:0}.comment-avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#eff6ff;color:#2563eb;flex:none}.comment-copy{font-size:13px;color:#334155}.comment-form{display:flex;gap:8px;margin-top:12px}.comment-form input{flex:1;min-width:0;border:1px solid #cbd5e1;border-radius:999px;padding:10px 14px}</style>
+<div class="post-detail-shell">{{ ui.post_card(post) }}<section class="form-card comment-panel"><div style="display:flex;align-items:center;gap:7px;"><span>{{ ico.icon('comment',19) }}</span><h3 style="margin:0;">Comments</h3></div>{% for c in comments %}<div class="comment-row"><div class="comment-avatar">{{ ico.icon('user',14) }}</div><div class="comment-copy"><b>{{ c.full_name }}</b><div>{{ c.comment_text }}</div></div></div>{% else %}<p class="muted">No comments yet. Start a kind conversation.</p>{% endfor %}<form method="post" action="/comment/{{ post.post_id }}/" class="comment-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="comment" maxlength="1000" required autocomplete="off" placeholder="Add a kind comment..."><button class="btn primary" type="submit">Post</button></form><p class="muted" style="font-size:11px;margin:9px 0 0;">Comments are checked by LittleNet safety rules before becoming visible.</p></section></div>
+{% endblock %}

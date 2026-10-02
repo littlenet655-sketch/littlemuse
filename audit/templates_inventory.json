@@ -1,0 +1,618 @@
+[
+  {
+    "path": "admin/templates/admin_audit.html",
+    "referenced_in_python": true,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "admin/templates/admin_base.html",
+    "referenced_in_python": false,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "admin/templates/admin_dashboard.html",
+    "referenced_in_python": true,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "admin/templates/admin_moderation.html",
+    "referenced_in_python": true,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "admin/templates/admin_reports.html",
+    "referenced_in_python": true,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "admin/templates/admin_users.html",
+    "referenced_in_python": true,
+    "is_admin_operator": true,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "auth/templates/approval_success.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/approved.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/approve_child.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/approve_confirm.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/child_register.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/face_enroll.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/face_login.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/login.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/mode_select.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_email_verify.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_liveness_verify.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_register.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_registered.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_register_direct.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/parent_verify.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "auth/templates/registered.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": true
+  },
+  {
+    "path": "child/templates/child_dashboard.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/child_settings.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/create_profile.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/discover.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/edit_profile.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/feature_restricted.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/live_safety.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/notifications.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/people_list.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/profile.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/quiet_hours.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/recommended.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/stories_viewer.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/time_limit_reached.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "child/templates/view_profile.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "childMessage/templates/chat.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "childMessage/templates/chat_list.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "mailg/templates/approval_email.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "mailg/templates/parent_invitation.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/activity.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/behavior.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/child_connections.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/child_posts.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/child_profile_view.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/content_approval.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/deleted_posts.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/follow_requests.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_base.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_controls.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_create_child.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": true,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_dashboard.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_notifications.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/parent_settings.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/safety_review.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/time_limit.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "parent/templates/usage_report.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "playwright-report/index.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/learning.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/parent_learning_report.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/parent_quiz_report.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/parent_quiz_settings.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": true,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/quiz_card.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "quiz/templates/quiz_result.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/404.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/500.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/base.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/csrf_error.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/_icons.html",
+    "referenced_in_python": false,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "templates/_post.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/feed.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/my_posts.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/post_detail.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/reels.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/saved_posts.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  },
+  {
+    "path": "uploadPost/templates/upload_post.html",
+    "referenced_in_python": true,
+    "is_admin_operator": false,
+    "is_parent": false,
+    "is_child": false,
+    "is_auth": false
+  }
+]

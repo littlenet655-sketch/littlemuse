@@ -1,0 +1,3 @@
+Run the real production R2 image/Reel release probe after successful Modal deployment.
+Retry with DB fingerprint at 2026-09-23 release audit.
+Retry after migrating Modal-connected live DB and selecting child_a/child_b.

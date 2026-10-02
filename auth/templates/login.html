@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}LittleNet: Safe Social Network for Kids{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-brand-wrap">
+      <div class="auth-logo-badge" style="background:none;box-shadow:none;padding:0;">
+        <img src="/static/icons/app_logo.png?v=official-shield-ad60e5d" alt="LittleNet Logo" width="64" height="64" fetchpriority="high" style="width:64px;height:64px;border-radius:16px;object-fit:cover;box-shadow:0 8px 24px rgba(0,149,246,.28);">
+      </div>
+      <h1 class="brand auth-title">LittleNet</h1>
+      <p class="auth-subtitle" id="mode-subtitle">
+        {% if mode=='parent' %}Parent supervision, screen-time &amp; safety controls
+        {% elif mode=='admin' %}Safety moderator &amp; platform admin sign-in
+        {% else %}A safe, AI-guided social world for children{% endif %}
+      </p>
+    </div>
+
+    {% if mode!='admin' %}
+    <div class="mode-pill-toggle" role="tablist" aria-label="Select login mode">
+      <a href="/login/?mode=kids" class="pill-btn {% if mode!='parent' %}active kid-active{% endif %}" id="tab-kids" role="tab" aria-selected="{{ 'true' if mode!='parent' else 'false' }}">
+        {{ ico.icon('user',16,'pill-icon') }} <span>Kids Mode</span>
+      </a>
+      <a href="/login/?mode=parent" class="pill-btn {% if mode=='parent' %}active parent-active{% endif %}" id="tab-parent" role="tab" aria-selected="{{ 'true' if mode=='parent' else 'false' }}">
+        {{ ico.icon('shield',16,'pill-icon') }} <span>Parent Mode</span>
+      </a>
+    </div>
+    {% endif %}
+
+    {% set display_error = error or request.args.get('error') %}
+    {% if display_error %}
+    <div class="auth-alert auth-alert-error" role="alert">
+      <svg class="alert-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+      <span>{{ display_error }}</span>
+    </div>
+    {% endif %}
+
+    {% if approval_token %}
+    <div class="auth-alert auth-alert-pending" role="status">
+      <div class="pending-title">{{ ico.icon('clock',15) }} Parent verification required</div>
+      <p class="pending-desc">This child account is waiting for its linked parent or guardian to finish the required verification step. The account stays locked until that verification is completed.</p>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/login/" id="auth-form" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" id="auth-mode-input" value="{{ mode or 'kids' }}">
+      <input type="hidden" name="next" value="{{ request.form.get('next') or request.args.get('next', '') }}">
+
+      <div class="auth-field">
+        <label for="auth-identifier" class="field-label" id="label-identifier">
+          {% if mode=='parent' %}Parent Email Address{% elif mode=='admin' %}Admin Email Address{% else %}Username or Child Email{% endif %}
+        </label>
+        <div class="input-wrap">
+          <span class="input-icon">{{ ico.icon('user',17) }}</span>
+          <input type="text" name="email" id="auth-identifier" class="auth-input" placeholder="{% if mode=='parent' %}parent@example.com{% elif mode=='admin' %}admin@example.com{% else %}Enter username or child email{% endif %}" required autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label for="auth-password" class="field-label">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">{{ ico.icon('lock',17) }}</span>
+          <input type="password" name="password" id="auth-password" class="auth-input" placeholder="Enter your password" required minlength="6" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="current-password">
+          <button type="button" id="toggle-pwd-btn" class="pwd-toggle-btn" aria-label="Show or hide password">
+            <span class="pwd-icon-show">{{ ico.icon('eye',17) }}</span>
+            <span class="pwd-icon-hide" hidden>{{ ico.icon('eye-off',17) }}</span>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn primary auth-submit-btn" id="auth-submit-btn"><span>Log In</span><span class="btn-arrow">&rarr;</span></button>
+    </form>
+
+    {% if mode=='admin' %}
+    <div class="auth-signup-box"><span class="signup-text">Admin and moderator accounts are provisioned by the platform team.</span></div>
+    {% else %}
+    <div class="auth-signup-box">
+      <span class="signup-text">{% if mode=='parent' %}New to LittleNet?{% else %}Need a child account? A parent creates and verifies it first.{% endif %}</span>
+      <div class="signup-links"><a href="/register-parent/" class="signup-link parent-link">{{ ico.icon('shield',13,'link-bullet') }} Parent Sign Up</a></div>
+      {% if mode=='parent' %}<p class="signup-hint">After signing up, create and manage child accounts from Parent Mode.</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="auth-admin-link">
+      {% if mode!='admin' %}<a href="/admin-login/">{{ ico.icon('lock',13) }} Safety Moderator &amp; Admin Portal</a>
+      {% else %}<a href="/login/">{{ ico.icon('user',13) }} Back to regular sign-in</a>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

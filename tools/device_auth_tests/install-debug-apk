@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Install the locally built debug APK onto a running emulator/device.
+# Usage: ./install-debug-apk [serial] [apk-path]
+# Default APK: <repo>/mobile_app/android/app/build/outputs/apk/debug/app-debug.apk
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SERIAL="${1:-emulator-5554}"
+APK="${2:-$REPO_ROOT/mobile_app/android/app/build/outputs/apk/debug/app-debug.apk}"
+
+require_bins
+[ -f "$APK" ] || die "APK not found: $APK (build it with: cd mobile_app/android && ./gradlew assembleDebug)"
+
+echo "Installing $(basename "$APK") on $SERIAL ..."
+"$ADB" -s "$SERIAL" install -r -t "$APK"
+echo "Installed. Launch with:"
+echo "  adb -s $SERIAL shell monkey -p com.littlenet.app -c android.intent.category.LAUNCHER 1"

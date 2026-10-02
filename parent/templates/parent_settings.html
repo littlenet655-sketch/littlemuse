@@ -1,0 +1,98 @@
+{% extends 'parent_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<style>
+.parent-settings-shell{max-width:820px;margin:0 auto;padding-bottom:56px}.ps-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:20px}.ps-kicker{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#0095f6}.ps-title{margin:4px 0;font-size:26px;color:#0f172a}.ps-sub{margin:0;color:#64748b;font-size:13px}.ps-card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:18px 20px;margin-bottom:16px}.ps-card h3{margin:0 0 5px;font-size:15px;color:#0f172a}.ps-card p{margin:0 0 14px;color:#64748b;font-size:12px;line-height:1.5}.ps-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ps-choice{display:flex;align-items:flex-start;gap:9px;padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#fafafa;font-size:13px;color:#0f172a}.ps-choice input{margin-top:2px}.ps-field{display:flex;flex-direction:column;gap:6px}.ps-field label{font-size:11px;font-weight:750;color:#475569}.ps-field input,.ps-field select{min-height:42px;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;background:#fff;color:#0f172a}.ps-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}.ps-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ps-link{display:flex;align-items:center;gap:8px;padding:11px 12px;border:1px solid #e2e8f0;border-radius:12px;text-decoration:none;color:#0f172a;font-size:12px;font-weight:700;background:#fff}.ps-alert{padding:12px 14px;border-radius:12px;margin-bottom:14px;font-size:13px;font-weight:700}.ps-alert.ok{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.ps-alert.err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.ps-empty{text-align:center;padding:32px 20px}.ps-status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800;background:#eff6ff;color:#1d4ed8}@media(max-width:700px){.ps-grid,.ps-links{grid-template-columns:1fr}.ps-head{flex-direction:column}.ps-title{font-size:22px}}
+</style>
+
+<div class="parent-settings-shell">
+  <div class="ps-head">
+    <div>
+      <span class="ps-kicker">Control Center</span>
+      <h1 class="ps-title">{{ ico.icon('settings',24) }} Parent Settings &amp; Controls</h1>
+      <p class="ps-sub">One place for safety level, screen time, quiet hours and feature access.</p>
+    </div>
+    {% if children and children|length > 1 %}
+    <div class="ps-field" style="min-width:190px;"><label for="child-switcher">Supervising child</label><select id="child-switcher">{% for k in children %}<option value="{{ k.user_id }}" {% if k.user_id==child_id %}selected{% endif %}>{{ k.full_name }}</option>{% endfor %}</select></div>
+    {% endif %}
+  </div>
+
+  {% if success %}<div class="ps-alert ok">✓ {{ success }}</div>{% endif %}
+  {% if error %}<div class="ps-alert err">{{ error }}</div>{% endif %}
+
+  {% if not child %}
+  <div class="ps-card ps-empty">
+    <div style="font-size:32px;margin-bottom:8px;">👨‍👩‍👧</div>
+    <h3>No child account is linked yet</h3>
+    <p>Create and verify a child account first. Settings will appear here after the child is linked.</p>
+    <a class="btn primary" href="/parent/create-child/">Create Child Account</a>
+  </div>
+  {% else %}
+  <div class="ps-card" style="display:flex;justify-content:space-between;gap:16px;align-items:center;">
+    <div><h3>{{ child.full_name }}</h3><p style="margin:0;">@{{ child.username }} · Parent-managed Kids Mode</p></div>
+    <span class="ps-status">{% if child.account_status=='SUSPENDED' %}Paused{% else %}Active &amp; protected{% endif %}</span>
+  </div>
+
+  <form method="post" action="/parent/settings/?child_id={{ child_id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="child_id" value="{{ child_id }}">
+
+    <section class="ps-card">
+      <h3>Emergency account pause</h3><p>Stops the child from using the app until you switch access back on.</p>
+      <label class="ps-choice"><input type="checkbox" name="pause_account" {% if child.account_status=='SUSPENDED' %}checked{% endif %}><span><b>Pause this child account</b><br><small style="color:#64748b;">Use only when you need an immediate temporary lock.</small></span></label>
+    </section>
+
+    <section class="ps-card">
+      <h3>AI moderation sensitivity</h3><p>Choose how aggressively LittleNet routes content to allow, review or block.</p>
+      <div class="ps-grid">
+        {% for value,label,desc in [('STANDARD','Standard','Balanced filtering'),('STRICT','Strict · Recommended','Higher protection'),('VERY_STRICT','Very Strict','Maximum review and blocking')] %}
+        <label class="ps-choice"><input type="radio" name="safety_level" value="{{ value }}" {% if safety.safety_level==value %}checked{% endif %}><span><b>{{ label }}</b><br><small style="color:#64748b;">{{ desc }}</small></span></label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="ps-card">
+      <h3>Screen time &amp; quiet hours</h3><p>Limits are enforced by Parent Mode and shown read-only to the child.</p>
+      <div class="ps-grid" style="margin-bottom:12px;">
+        <div class="ps-field"><label>Daily usage limit (minutes)</label><input type="number" name="daily_limit" min="1" max="1440" value="{{ limit.daily_limit_minutes if limit else 60 }}"></div>
+        <label class="ps-choice" style="align-self:end;"><input type="checkbox" name="strict_mode" {% if limit and limit.strict_mode %}checked{% endif %}><span><b>Hard lockout</b><br><small style="color:#64748b;">Lock when the daily limit is reached</small></span></label>
+      </div>
+      <label class="ps-choice" style="margin-bottom:12px;"><input type="checkbox" name="quiet_hours_enabled" {% if controls.quiet_hours_enabled %}checked{% endif %}><span><b>Enable night quiet hours</b><br><small style="color:#64748b;">Blocks app use during the selected bedtime window</small></span></label>
+      <div class="ps-grid"><div class="ps-field"><label>Quiet hours start</label><input type="time" name="quiet_start" value="{{ controls.quiet_start }}"></div><div class="ps-field"><label>Quiet hours end</label><input type="time" name="quiet_end" value="{{ controls.quiet_end }}"></div></div>
+    </section>
+
+    <section class="ps-card">
+      <h3>Feature access</h3><p>Turn individual Kids Mode surfaces on or off for this child.</p>
+      <div class="ps-grid">
+        {% for name,label,desc in [('allow_reels','Reels','Short-form video feed'),('allow_stories','Stories','24-hour story sharing'),('allow_messaging','Messages','Approved-friend messaging'),('allow_posting','Posting','Create feed posts, clips and stories'),('allow_discover','Discover','Search and recommendations'),('educational_only_feed','Educational-only feed','Restrict feed categories to learning content')] %}
+        <label class="ps-choice"><input type="checkbox" name="{{ name }}" {% if controls[name] %}checked{% endif %}><span><b>{{ label }}</b><br><small style="color:#64748b;">{{ desc }}</small></span></label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="ps-card">
+      <h3>Allowed content categories</h3><p>Select the categories this child may see and publish within.</p>
+      <div class="ps-grid">{% for cat in categories %}<label class="ps-choice"><input type="checkbox" name="allowed_categories" value="{{ cat }}" {% if cat in controls.allowed_categories %}checked{% endif %}><span>{{ cat }}</span></label>{% endfor %}</div>
+    </section>
+
+    <div class="ps-actions"><a class="btn outline" href="/parent/dashboard/">Cancel</a><button class="btn primary" type="submit">{{ ico.icon('check',16) }} Save &amp; enforce settings</button></div>
+  </form>
+
+  <section class="ps-card" style="margin-top:18px;">
+    <h3>More parent tools</h3><p>Open detailed views without hunting through the dashboard.</p>
+    <div class="ps-links">
+      <a class="ps-link" href="/parent/usage-report/?child_id={{ child_id }}">{{ ico.icon('clock',16) }} Usage report</a>
+      <a class="ps-link" href="/parent/activity/?child_id={{ child_id }}">{{ ico.icon('sparkles',16) }} Activity history</a>
+      <a class="ps-link" href="/parent/child-posts/?child_id={{ child_id }}">{{ ico.icon('book',16) }} Child posts</a>
+      <a class="ps-link" href="/parent/child-connections/?child_id={{ child_id }}">{{ ico.icon('user',16) }} Connections</a>
+      <a class="ps-link" href="/parent/content-approval/?child_id={{ child_id }}">{{ ico.icon('shield',16) }} Interests &amp; goals</a>
+      <a class="ps-link" href="/parent/deleted-posts/">{{ ico.icon('lock',16) }} Deleted posts</a>
+    </div>
+  </section>
+  {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded',function(){const s=document.getElementById('child-switcher');if(s)s.addEventListener('change',function(){location.href='/parent/settings/?child_id='+encodeURIComponent(s.value);});});
+</script>
+{% endblock %}

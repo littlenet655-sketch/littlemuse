@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}LittleNet: {{ t('kids_mode') }} & {{ t('parent_mode') }}{% endblock %}
+
+{% block content %}
+<div class="mode-select-banner" style="display:none;" aria-hidden="true">
+  <span>{{ t('kids_mode') }}</span>
+  <span>{{ t('parent_mode') }}</span>
+</div>
+{% include 'login.html' %}
+{% endblock %}

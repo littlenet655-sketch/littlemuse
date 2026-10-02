@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# PROFILE A — biometric device.
+# Boots (creating if needed) the AVD with a secure screen lock + enrolled
+# fingerprint. API level comes from $AVD_API (default 34).
+#
+# Fingerprint enrollment on the emulator cannot be fully scripted with
+# public adb commands, so this script boots the AVD and prints the exact
+# manual steps (Settings > Security > Fingerprint) plus the emulator-console
+# alternative. Everything after enrollment is automated by run-parent-auth-smoke.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+AVD_NAME="${1:-ln_biometric}"
+PORT="${2:-5554}"
+
+require_bins
+command -v "$EMULATOR_BIN" >/dev/null || die "emulator binary not found. Install the Android 'emulator' package."
+command -v "$AVDMANAGER" >/dev/null || die "avdmanager not found. Install cmdline-tools."
+
+ensure_avd "$AVD_NAME"
+boot_avd_bg "$AVD_NAME" "$PORT"
+
+SERIAL="$(serial_for "$PORT")"
+cat <<EOF
+
+PROFILE A ready on $SERIAL
+--------------------------
+1. Enroll a fingerprint (one-time per AVD):
+     a) Open Settings > Security & privacy > Device lock > Fingerprint,
+        or run:  adb -s $SERIAL emu finger touch 1
+        (the emulator console 'finger touch <id>' both enrolls-on-first-use
+        and authenticates, depending on whether a prompt is showing)
+     b) Follow the on-screen enrollment flow using repeated
+        'adb -s $SERIAL emu finger touch 1' touches.
+   Verify enrollment:  adb -s $SERIAL shell dumpsys fingerprint | grep -i enrolled
+2. Set a backup screen lock (PIN) in Settings > Security & privacy > Device lock.
+3. Run the automated smoke suite:
+     ./run-parent-auth-smoke "$SERIAL" biometric
+4. Collect logs any time with:
+     ./collect-logcat "$SERIAL"
+EOF

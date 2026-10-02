@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Session Refresh | LittleNet{% endblock %}
+
+{% block content %}
+<div class="form-card" style="text-align: center; padding: 36px 20px;">
+  <div style="font-size: 48px; margin-bottom: 12px;">🛡️</div>
+  <h2>Security Session Updated</h2>
+  <p style="color: var(--ln-muted, #6B7280); font-size: 14px; margin: 10px 0 24px; line-height: 1.5;">
+    For your child's safety and privacy protection, security tokens refresh periodically.
+  </p>
+  <div style="display: flex; flex-direction: column; gap: 10px; max-width: 280px; margin: 0 auto;">
+    <a href="/login/" class="btn primary" style="min-height: 44px; display: flex; align-items: center; justify-content: center;">
+      🔄 Return to Sign In
+    </a>
+  </div>
+</div>
+{% endblock %}

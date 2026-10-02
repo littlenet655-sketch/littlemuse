@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Settings and activity · LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-settings-container">
+  <header class="ig-settings-header">
+    <a href="/child/profile/" class="ig-settings-back" aria-label="Back to profile">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </a>
+    <h1 class="ig-settings-title" style="display:inline-flex;align-items:center;gap:8px;">{{ ico.icon('settings',22) }} <span>Settings and activity</span></h1>
+    <span style="width:24px"></span>
+  </header>
+
+  <section class="ig-settings-group">
+    <div class="ig-group-header-row"><span class="ig-group-label">Your account</span><span class="ig-brand-tag">{{ ico.icon('shield',13) }} LittleNet</span></div>
+    <div class="ig-settings-card">
+      <a href="/child/create-profile/" class="ig-menu-row">
+        <div class="ig-menu-icon-wrap">{{ ico.icon('user',20) }}</div>
+        <div class="ig-menu-text"><b class="ig-menu-primary">Profile &amp; personal details</b><span class="ig-menu-secondary">Name, school details, bio, skills and interests</span></div><span class="ig-menu-chevron">›</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="ig-settings-group">
+    <span class="ig-group-label">How you use LittleNet</span>
+    <div class="ig-settings-card">
+      <a href="/saved/" class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('bookmark',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Saved posts</b><span class="ig-menu-secondary">Posts you bookmarked for later</span></div><span class="ig-menu-chevron">›</span></a>
+      <a href="/notifications/" class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('bell',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Activity &amp; notifications</b><span class="ig-menu-secondary">Likes, comments, friend requests and safety updates</span></div><span class="ig-menu-chevron">›</span></a>
+      <a href="/learning/" class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('book',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Learning &amp; quizzes</b><span class="ig-menu-secondary">Brain Boost, quizzes and learning challenges</span></div><span class="ig-menu-chevron">›</span></a>
+      <div class="ig-menu-row" aria-label="Time management is managed by Parent Mode">
+        <div class="ig-menu-icon-wrap">{{ ico.icon('clock',20) }}</div>
+        <div class="ig-menu-text"><b class="ig-menu-primary">Time management</b><span class="ig-menu-secondary">{{ used_minutes or 0 }} of {{ daily_limit or 60 }} min used today · managed by Parent Mode</span></div>
+        <span class="ig-pill-indicator">{{ daily_limit or 60 }}m limit</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="ig-settings-group">
+    <span class="ig-group-label">Safety &amp; privacy</span>
+    <div class="ig-settings-card">
+      <a href="/live-safety/" class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('shield',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Safety Center</b><span class="ig-menu-secondary">See how LittleNet checks content before sharing</span></div><span class="ig-menu-chevron">›</span></a>
+      <a href="/following/" class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('user',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Friends &amp; classmates</b><span class="ig-menu-secondary">Only approved connections can interact with you</span></div><span class="ig-menu-chevron">›</span></a>
+      <div class="ig-menu-row"><div class="ig-menu-icon-wrap">{{ ico.icon('lock',20) }}</div><div class="ig-menu-text"><b class="ig-menu-primary">Account privacy</b><span class="ig-menu-secondary">Kids Safe privacy is enforced and parent-managed</span></div><span class="ig-status-tag">Protected</span></div>
+    </div>
+  </section>
+
+  <section class="ig-settings-group">
+    <span class="ig-group-label">Account actions</span>
+    <div class="ig-settings-card" style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+      <form method="post" action="/switch-mode/" style="margin:0;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="ig-action-btn-primary">{{ ico.icon('shield',18) }} Switch to Parent Mode</button></form>
+      <form method="post" action="/logout/" style="margin:0;"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="ig-action-btn-danger">Log Out</button></form>
+    </div>
+  </section>
+</div>
+{% endblock %}

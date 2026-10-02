@@ -1,0 +1,77 @@
+{% extends 'parent_base.html' %}
+{% block content %}
+<div class="dashboard-title">
+  <div>
+    <h2>Add Child Account</h2>
+    <p>Create and instantly link a safe Kids Mode account under your supervision.</p>
+  </div>
+</div>
+
+{% if error %}
+<div class="auth-alert auth-alert-error" style="background: #FEE2E2; border: 1px solid #FECACA; color: #991B1B; padding: 10px 14px; border-radius: 12px; margin-bottom: 16px;">
+  <span>⚠️ {{ error }}</span>
+</div>
+{% endif %}
+
+<form class="parent-card" method="post" style="max-width: 540px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="field" style="margin-bottom: 12px;">
+    <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 4px;">Choose Child Username</label>
+    <input name="username" class="auth-input" placeholder="e.g. kiddo_star" required pattern="[A-Za-z0-9_.]{3,30}" style="width: 100%; border: 1px solid #CBD5E1; border-radius: 10px; padding: 10px;">
+  </div>
+
+  <div class="field" style="margin-bottom: 12px;">
+    <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 4px;">Child Password</label>
+    <input name="password" type="password" minlength="8" class="auth-input" placeholder="At least 8 characters" required style="width: 100%; border: 1px solid #CBD5E1; border-radius: 10px; padding: 10px;">
+  </div>
+
+  <div class="field" style="margin-bottom: 14px;">
+    <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 4px;">Child Age</label>
+    <input name="age" type="number" min="4" max="18" value="10" required style="width: 100%; border: 1px solid #CBD5E1; border-radius: 10px; padding: 10px;">
+  </div>
+
+  <!-- Smart Defaults Badge -->
+  <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 12px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #166534;">
+    <b>🛡️ Pre-configured Safety & Screen Time:</b>
+    <ul style="margin: 6px 0 0 16px; padding: 0;">
+      <li>60 minutes daily screen time limit</li>
+      <li>Strict AI multimodal content moderation</li>
+      <li>Approved friends-only messaging</li>
+    </ul>
+  </div>
+
+  <!-- Optional Customization -->
+  <details style="margin-bottom: 18px; border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 14px; font-size: 13px;">
+    <summary style="cursor: pointer; font-weight: 700; color: #0095F6;">⚙️ Customize Limits & Permissions (Optional)</summary>
+    <div style="margin-top: 12px; display: grid; gap: 10px;">
+      <div class="field">
+        <label style="font-size: 12px;">Child Full Name (Optional)</label>
+        <input name="full_name" placeholder="Leave blank to use username" style="width: 100%; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px;">
+      </div>
+      <div class="field">
+        <label style="font-size: 12px;">Daily Screen Time (minutes)</label>
+        <input name="daily_limit" type="number" min="1" max="1440" value="60" style="width: 100%; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px;">
+      </div>
+      <div class="field">
+        <label style="font-size: 12px;">AI Safety Level</label>
+        <select name="safety_level" style="width: 100%; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px; background: #fff;">
+          <option value="STRICT" selected>STRICT (Recommended for Kids)</option>
+          <option value="VERY_STRICT">VERY_STRICT (Educational Only)</option>
+          <option value="STANDARD">STANDARD (Teenagers)</option>
+        </select>
+      </div>
+      {% for n,l in [('allow_posting','Posting'),('allow_reels','Clips/Reels'),('allow_stories','Stories'),('allow_messaging','Messaging'),('allow_discover','Discover')] %}
+      <label class="toggle-row" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>{{ l }}</span>
+        <input type="checkbox" name="{{ n }}" value="1" checked>
+      </label>
+      {% endfor %}
+    </div>
+  </details>
+
+  <button class="btn primary" type="submit" style="width: 100%; min-height: 44px;">
+    <span>Create & Link Child Account</span>
+  </button>
+</form>
+{% endblock %}

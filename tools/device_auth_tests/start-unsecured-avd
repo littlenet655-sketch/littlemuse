@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# PROFILE C — no device security at all (no biometric, no PIN/pattern/password).
+# Parent Mode must be blocked with the exact message:
+#   "Set up a screen lock on this phone to use Parent Mode."
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+AVD_NAME="${1:-ln_unsecured}"
+PORT="${2:-5558}"
+
+require_bins
+ensure_avd "$AVD_NAME"
+boot_avd_bg "$AVD_NAME" "$PORT"
+SERIAL="$(serial_for "$PORT")"
+
+echo "Clearing any screen lock (expect failure if none set — that is fine)..."
+"$ADB" -s "$SERIAL" shell locksettings clear --old 1234 >/dev/null 2>&1 || true
+"$ADB" -s "$SERIAL" shell locksettings set-disabled false >/dev/null 2>&1 || true
+
+cat <<EOF
+
+PROFILE C ready on $SERIAL (no screen lock, no biometrics)
+-----------------------------------------------------------
+Expected app behaviour:
+  * Tapping Parent Mode shows: "Set up a screen lock on this phone to use Parent Mode."
+  * The security-settings button opens the system Settings.
+  * No sensitive API action executes; deep links cannot bypass ParentModeGate.
+Run:  ./run-parent-auth-smoke "$SERIAL" unsecured
+EOF

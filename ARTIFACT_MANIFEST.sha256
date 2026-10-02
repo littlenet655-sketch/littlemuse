@@ -1,0 +1,5 @@
+0b524a3267c9a6bbfd499447bcf9c4aae3cbfc7bbdd35ec906953c49674c73f1  models/littlenet_core_safety_v2.pth  (133 bytes)  # LFS POINTER, not trained weights
+71f215edce2e1f26bd8e3d08b7609017ef52a326d3295e63041c71f79944c06f  models/littlenet_text_safety/model.safetensors  (134 bytes)  # LFS POINTER, not trained weights
+b52307100f905081b76cfb731d1c4e21f30b50a3a543b0f2c6a37d62ee7064a2  models/littlenet_weapons_violence_v3.pth  (133 bytes)  # LFS POINTER, not trained weights
+3851dfbf39ed2a076b1f39215cc22dba64eb5646f282bf964703785b0bed6a41  yolov8n-oiv7.pt  (7226939 bytes)
+f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  yolov8n.pt  (6549796 bytes)

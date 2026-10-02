@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}{% import '_post.html' as ui %}<div class="section-title"><span>{{t('for_you')}}</span><span class="muted">{{t('based_interests')}}</span></div>{% for p in posts %}{{ui.post_card(p)}}{% else %}<div class="form-card"><p>{{t('recommendation_hint')}}</p></div>{% endfor %}{% endblock %}

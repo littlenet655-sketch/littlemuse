@@ -1,0 +1,179 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { childNextRoute, offlineGateReset, resolveChildRoute, screenForGate } from '../src/navigation/gates';
+import { isConnectivityFailure, quizLoadStatus, shouldProceedAfterRefresh } from '../src/quiz/decision';
+import { ApiError } from '../src/api/errors';
+import { validateResetInput } from '../src/auth/resetValidation';
+import { captureLivePhotoCore, CameraBlockedError, CameraCancelledError, CameraPermissionError } from '../src/camera/capture';
+
+describe('quiz latch is a nudge: routing never leaves the child', () => {
+  it('never routes to Quiz on a due quiz — the prompt card handles it', () => {
+    assert.equal(childNextRoute(true), 'KidsTabs');
+    assert.equal(childNextRoute(false), 'KidsTabs');
+  });
+
+  it('cold restore with quiz_required stays on the current route', () => {
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'KidsTabs'), 'KidsTabs');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false, 'ReelsTab'), 'ReelsTab');
+    assert.equal(resolveChildRoute({ quiz_required: true }, false), 'KidsTabs');
+  });
+
+  it('preserves ungated product routes', () => {
+    const clear = { quiz_required: false };
+    assert.equal(resolveChildRoute(clear, false, 'KidsTabs'), 'KidsTabs');
+    assert.equal(resolveChildRoute(clear, false, 'FeedTab'), 'FeedTab');
+    assert.equal(resolveChildRoute(clear, false, 'ReelsTab'), 'ReelsTab');
+    assert.equal(resolveChildRoute(clear, false, 'Chat'), 'Chat');
+  });
+
+  it('never forces a due quiz out of any product route', () => {
+    for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat'] as const) {
+      assert.equal(resolveChildRoute({ quiz_required: true }, false, route), route);
+    }
+  });
+
+  it('stays on the voluntarily opened Quiz screen once the latch clears', () => {
+    const clear = { quiz_required: false };
+    assert.equal(resolveChildRoute(clear, false, 'Quiz'), 'Quiz');
+  });
+
+  it('restart with unknown gate fails open to home (defect C1/C2)', () => {
+    assert.equal(resolveChildRoute(null, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(null, true), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, false), 'KidsTabs');
+    assert.equal(resolveChildRoute(undefined, true), 'KidsTabs');
+  });
+
+  it('quiz is not a route gate: no backend gate resolves to Quiz', () => {
+    assert.equal(screenForGate('quiz'), null);
+    assert.equal(screenForGate('parent_verification'), 'OtpVerify');
+    assert.equal(screenForGate('email_verification'), 'OtpVerify');
+    assert.equal(screenForGate('quiet_hours'), null);
+    assert.equal(screenForGate('screen_time'), null);
+  });
+});
+
+describe('quiz completion signal (authoritative refresh)', () => {
+  it('proceeds only when the refresh confirms the quiz was counted', () => {
+    assert.equal(shouldProceedAfterRefresh({ quiz_required: false }), true);
+    assert.equal(shouldProceedAfterRefresh({ quiz_required: true }), false);
+  });
+
+  it('never proceeds on unknown/failed refresh (stays on the quiz screen with retry)', () => {
+    assert.equal(shouldProceedAfterRefresh(null), false);
+    assert.equal(shouldProceedAfterRefresh(undefined), false);
+  });
+
+  it('required quiz with empty bank stays gated, never shows All done', () => {
+    assert.equal(quizLoadStatus(0), 'unavailable');
+    assert.equal(quizLoadStatus(3), 'ready');
+  });
+});
+
+describe('password reset input rules', () => {
+  it('accepts a complete valid reset', () => {
+    assert.equal(validateResetInput('123456', 'newpass123', 'newpass123'), null);
+  });
+
+  it('rejects short codes, short passwords, and mismatches', () => {
+    assert.ok(validateResetInput('123', 'newpass123', 'newpass123'));
+    assert.ok(validateResetInput('123456', 'short', 'short'));
+    assert.ok(validateResetInput('123456', 'newpass123', 'otherpass1'));
+  });
+});
+
+describe('camera permission UX states', () => {
+  const photo = { cancelled: false as const, base64: 'abc', width: 100, height: 100 };
+
+  it('captures when permission is already granted (camera only)', async () => {
+    let launched = 0;
+    const result = await captureLivePhotoCore({
+      getPermissions: async () => ({ granted: true, canAskAgain: true }),
+      requestPermissions: async () => { throw new Error('should not ask again'); },
+      launchCamera: async () => { launched += 1; return photo; },
+    });
+    assert.equal(result.base64, 'abc');
+    assert.equal(launched, 1);
+  });
+
+  it('asks once then captures when the user allows', async () => {
+    const result = await captureLivePhotoCore({
+      getPermissions: async () => ({ granted: false, canAskAgain: true }),
+      requestPermissions: async () => ({ granted: true, canAskAgain: true }),
+      launchCamera: async () => photo,
+    });
+    assert.equal(result.base64, 'abc');
+  });
+
+  it('denied-but-askable raises a retryable permission error', async () => {
+    await assert.rejects(
+      captureLivePhotoCore({
+        getPermissions: async () => ({ granted: false, canAskAgain: true }),
+        requestPermissions: async () => ({ granted: false, canAskAgain: true }),
+        launchCamera: async () => photo,
+      }),
+      (err: unknown) => err instanceof CameraPermissionError,
+    );
+  });
+
+  it('permanently denied raises a blocked error for the Open Settings path', async () => {
+    await assert.rejects(
+      captureLivePhotoCore({
+        getPermissions: async () => ({ granted: false, canAskAgain: false }),
+        requestPermissions: async () => ({ granted: false, canAskAgain: false }),
+        launchCamera: async () => photo,
+      }),
+      (err: unknown) => err instanceof CameraBlockedError,
+    );
+  });
+
+  it('cancelled camera stays in place without an error state', async () => {
+    await assert.rejects(
+      captureLivePhotoCore({
+        getPermissions: async () => ({ granted: true, canAskAgain: true }),
+        requestPermissions: async () => ({ granted: true, canAskAgain: true }),
+        launchCamera: async () => ({ cancelled: true as const }),
+      }),
+      (err: unknown) => err instanceof CameraCancelledError,
+    );
+  });
+
+  it('camera launch failure surfaces a retryable error', async () => {
+    await assert.rejects(
+      captureLivePhotoCore({
+        getPermissions: async () => ({ granted: true, canAskAgain: true }),
+        requestPermissions: async () => ({ granted: true, canAskAgain: true }),
+        launchCamera: async () => { throw new Error('camera busy'); },
+      }),
+      (err: unknown) => err instanceof Error && !(err instanceof CameraCancelledError),
+    );
+  });
+});
+
+describe('offline quiz fail-open (defect C1/C2 follow-up)', () => {
+  it('resets a stranded Quiz screen to KidsTabs when offline', () => {
+    assert.equal(offlineGateReset('Quiz', false), 'KidsTabs');
+  });
+
+  it('leaves every other route alone when offline', () => {
+    for (const route of ['KidsTabs', 'FeedTab', 'ReelsTab', 'Chat', 'ProfileTab'] as const) {
+      assert.equal(offlineGateReset(route, false), null);
+    }
+  });
+
+  it('never resets while online — the online gate sync stays authoritative', () => {
+    assert.equal(offlineGateReset('Quiz', true), null);
+    assert.equal(offlineGateReset('KidsTabs', true), null);
+  });
+
+  it('detects proven-unreachable servers vs server refusals', () => {
+    assert.equal(isConnectivityFailure(new ApiError(0, 'network_unreachable', 'no route')), true);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_timeout', 'timed out')), true);
+    assert.equal(isConnectivityFailure(new ApiError(500, 'server_error', 'oops')), false);
+    assert.equal(isConnectivityFailure(new ApiError(403, 'disabled_by_parent', 'no')), false);
+    assert.equal(isConnectivityFailure(new ApiError(0, 'request_cancelled', 'cancel')), false);
+    assert.equal(isConnectivityFailure(new Error('boom')), false);
+    assert.equal(isConnectivityFailure(null), false);
+    assert.equal(isConnectivityFailure(undefined), false);
+  });
+});

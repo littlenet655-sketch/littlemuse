@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}{{ profile.full_name if profile else session.get('username', 'Profile') }} (@{{ session.get('username') }}) · LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+<div class="ig-profile-page">
+  <header class="ig-profile-top-bar">
+    <a href="/child/upload-post/" class="ig-profile-bar-btn" aria-label="Create Post" title="Create"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></a>
+    <div class="ig-profile-bar-center"><span class="ig-profile-bar-user">{{ session.get('username') or (profile.username if profile else 'Explorer') }}</span><span class="ig-profile-bar-dot"></span></div>
+    <div class="ig-profile-bar-right"><span class="ig-profile-shield-badge" title="LittleNet Safe Network">{{ ico.icon('shield',15) }}</span><a href="/child/settings/" class="ig-profile-bar-btn" aria-label="Settings" title="Settings">{{ ico.icon('settings',22) }}</a></div>
+  </header>
+
+  <div class="ig-profile-header">
+    <div class="ig-profile-top-row">
+      <div class="ig-profile-avatar-column"><div class="ig-profile-bubble-wrap"><div class="ig-profile-vibe-bubble"><span>Today's vibe...</span></div><div class="ig-profile-avatar-box"><img class="ig-profile-avatar-img" src="/{{ profile.profile_picture if profile and profile.profile_picture else 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ profile.full_name if profile else 'Profile' }}"><a href="/child/upload-post/" class="ig-profile-add-badge" title="Add Story">+</a></div></div></div>
+      <div class="ig-profile-stats-column"><h2 class="ig-profile-name-text">{{ profile.full_name if profile else session.get('username') }}</h2><div class="ig-profile-stats-row"><div class="ig-stat-box"><b>{{ counts.posts }}</b><span>posts</span></div><a href="/followers/" class="ig-stat-box" style="text-decoration:none;color:inherit;"><b>{{ counts.followers }}</b><span>followers</span></a><a href="/following/" class="ig-stat-box" style="text-decoration:none;color:inherit;"><b>{{ counts.following }}</b><span>following</span></a></div></div>
+    </div>
+
+    <div class="ig-profile-bio-wrap"><div class="ig-profile-handle-pill"><span class="ig-handle-symbol">@</span><span class="ig-handle-name">{{ session.get('username') or 'explorer' }}</span><a href="/child/create-profile/" class="ig-handle-add-btn">Edit</a></div><p class="ig-profile-bio-text">{{ profile.bio if profile and profile.bio else '🌟 Sharing safe moments, learning and exploring on LittleNet.' }}</p></div>
+
+    <a href="/learning/" class="ig-profile-dashboard-card" style="text-decoration:none;"><b class="ig-dashboard-title">Your dashboard</b><span class="ig-dashboard-sub">↗ Learning challenges, quizzes and Safe Explorer progress</span></a>
+
+    <div class="ig-profile-actions-row">
+      <a href="/child/create-profile/" class="ig-btn-pill">Edit profile</a>
+      <form class="profile-photo-form" method="post" action="/child/upload-profile-picture/" enctype="multipart/form-data" data-profile-photo style="margin:0;flex:1;display:flex;gap:6px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="ig-btn-pill" style="cursor:pointer;flex:1;display:flex;align-items:center;justify-content:center;gap:4px;">Choose photo<input type="file" name="photo" accept="image/*" capture="user" required style="display:none;"></label>
+        <button type="submit" class="ig-btn-square" aria-label="Upload selected profile photo" title="Upload photo">{{ ico.icon('check',16) }}</button>
+      </form>
+      <a href="/saved/" class="ig-btn-pill">Saved</a>
+      <a href="/discover/" class="ig-btn-square" aria-label="Find Classmates" title="Find Friends">{{ ico.icon('user',17) }}+</a>
+    </div>
+
+    <div class="ig-highlights-tray">
+      <a href="/child/upload-post/" class="ig-highlight-item"><div class="ig-highlight-circle ig-new-circle"><span style="font-size:24px;font-weight:300;">+</span></div><span>New</span></a>
+      <a href="/learning/" class="ig-highlight-item"><div class="ig-highlight-circle">{{ ico.icon('book',20) }}</div><span>Brain Boost</span></a>
+      <a href="/live-safety/" class="ig-highlight-item"><div class="ig-highlight-circle">{{ ico.icon('shield',20) }}</div><span>Safety</span></a>
+    </div>
+  </div>
+
+  <div class="ig-grid-tabs">
+    <span class="ig-tab active" aria-label="Posts"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
+    <a href="/reels/" class="ig-tab" aria-label="Reels" style="color:inherit;text-decoration:none;">{{ ico.icon('clips',22) }}</a>
+    <a href="/quiz/start/" class="ig-tab" aria-label="Quiz & Boost" style="color:inherit;text-decoration:none;">🧠</a>
+    <a href="/saved/" class="ig-tab" aria-label="Saved" style="color:inherit;text-decoration:none;">{{ ico.icon('bookmark',22) }}</a>
+  </div>
+
+  <div class="ig-post-grid">
+    {% for p in posts %}
+    <a class="ig-grid-tile" href="/post/{{ p.post_id }}/">
+      {% if p.media_type=='IMAGE' %}<img loading="lazy" src="/{{ p.media_path }}" alt="Post">
+      {% elif p.media_type=='VIDEO' %}<video muted playsinline preload="metadata" src="/{{ p.media_path }}"></video><span class="ig-tile-badge">{{ ico.icon('clips',14) }}</span>
+      {% elif p.media_type=='AUDIO' %}<div class="ig-text-tile grid-text">Legacy post unavailable</div>
+      {% else %}<div class="ig-text-tile grid-text">{{ p.caption }}</div>{% endif %}
+    </a>
+    {% else %}
+    <div class="ig-empty-grid"><div class="ig-empty-camera">{{ ico.icon('camera',42) }}</div><h3>Share Photos &amp; Clips</h3><p>Your safe posts appear here.</p><a class="btn primary" href="/child/upload-post/">Share your first post</a></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Create Your Profile | LittleNet{% endblock %}
+
+{% block content %}
+<div class="profile-setup-wrap">
+  <div class="profile-card">
+    
+    <div class="profile-setup-header">
+      <div class="profile-setup-badge">✨</div>
+      <h2>Create Your Profile</h2>
+      <p>Tell your parent-approved friends a little bit about yourself!</p>
+    </div>
+
+    {% if error %}
+    <div class="error-banner">
+      <span>⚠️</span>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/child/create-profile/" class="profile-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="form-group">
+        <label for="prof-fullname">Full Name <span class="required">*</span></label>
+        <input type="text" 
+               id="prof-fullname" 
+               name="full_name" 
+               class="form-input" 
+               placeholder="Your name" 
+               value="{{ session.get('full_name', '') }}" 
+               required>
+      </div>
+
+      <div class="form-group">
+        <label for="prof-dob">Date of Birth</label>
+        <input type="date" 
+               id="prof-dob" 
+               name="date_of_birth" 
+               class="form-input">
+      </div>
+
+      <div class="form-group">
+        <label for="prof-bio">About Me / Bio</label>
+        <textarea id="prof-bio" 
+                  name="bio" 
+                  class="form-textarea" 
+                  placeholder="Share your favorite hobbies, sports, or what you like to do..." 
+                  rows="3"></textarea>
+      </div>
+
+      <details style="margin: 10px 0 16px; font-size: 13px;">
+        <summary style="cursor: pointer; font-weight: 700; color: #0095F6; padding: 4px 0;">+ Add Hobbies, Interests & Dreams (Optional)</summary>
+        <div style="margin-top: 10px; display: grid; gap: 10px;">
+          <div class="form-group" style="margin: 0;">
+            <label for="prof-skills">Skills & Hobbies <small>(comma separated)</small></label>
+            <input type="text" id="prof-skills" name="skills" class="form-input" placeholder="Drawing, Cricket, Piano, Chess">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label for="prof-interests">Interests <small>(comma separated)</small></label>
+            <input type="text" id="prof-interests" name="interests" class="form-input" placeholder="Space, Robotics, Dinosaurs, Coding">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label for="prof-ambitions">Ambitions & Dreams <small>(comma separated)</small></label>
+            <input type="text" id="prof-ambitions" name="ambitions" class="form-input" placeholder="Astronaut, Doctor, Game Developer">
+          </div>
+        </div>
+      </details>
+
+      <div class="form-actions" style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="submit" class="btn primary save-profile-btn">
+          <span>Save Profile</span>
+          <span>→</span>
+        </button>
+        <a href="/child/dashboard/" class="btn outline" style="text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; min-height: 42px;">
+          Skip to Feed 🚀
+        </a>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+{% endblock %}

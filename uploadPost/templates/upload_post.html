@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Create · LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-create-shell">
+  <div class="form-card create-card ig-create-card">
+    <div class="ig-create-topbar">
+      <a href="/child/dashboard/" class="ig-create-back" aria-label="Cancel">{{ ico.icon('chevron-left',22) }}</a>
+      <h1 class="ig-create-title">{{ t('create_post') }}</h1>
+      <span class="ig-create-shield-badge">{{ ico.icon('shield',14) }} AI Checked</span>
+    </div>
+
+    <div id="uploadStatus" class="upload-status muted" role="status"></div>
+
+    <form method="post" enctype="multipart/form-data" data-safe-upload class="ig-create-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="field ig-kind-field">
+        <label class="ig-field-label">{{ t('post_type') }}</label>
+        <div class="ig-kind-select-wrap">
+          <select name="kind" data-kind class="ig-kind-select">
+            <option value="post">{{ t('post') }} (Feed)</option>
+            <option value="reel">Clip (Reels)</option>
+            <option value="story">{{ t('story') }} (24h)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field ig-media-field">
+        <label class="ig-field-label">Photo or video</label>
+        <label class="upload-drop ig-upload-drop" id="uploadDropZone" style="position:relative;cursor:pointer;">
+          <div class="ig-drop-icon-circle" id="dropIconWrap">{{ ico.icon('camera',32) }}</div>
+          <span class="ig-drop-main-text" id="dropMainText">Choose a photo or video</span>
+          <small class="ig-drop-sub-text" id="dropSubText">Optional for text posts. LittleNet checks media before it is shared.</small>
+          <div id="mediaPreviewWrap" style="display:none;width:100%;max-height:320px;overflow:hidden;border-radius:12px;margin-top:10px;text-align:center;">
+            <img id="imagePreview" src="" alt="Selected preview" style="display:none;width:100%;max-height:260px;object-fit:contain;border-radius:10px;background:#000;">
+            <video id="videoPreview" controls playsinline style="display:none;width:100%;max-height:260px;border-radius:10px;background:#000;"></video>
+            <div id="fileInfoText" style="font-size:13px;font-weight:600;color:#6366f1;margin-top:8px;"></div>
+            <span style="display:inline-block;font-size:11px;color:#94a3b8;margin-top:4px;">Tap to change file</span>
+          </div>
+          <input name="media" id="media-input" type="file" accept="image/*,video/*">
+        </label>
+      </div>
+
+      <div class="field ig-caption-field"><label class="ig-field-label">{{ t('caption') }}</label><textarea name="caption" class="ig-caption-textarea" maxlength="2200" placeholder="Write a kind caption..."></textarea></div>
+
+      <div class="field ig-category-field">
+        <label class="ig-field-label">{{ t('category') }}</label>
+        <select name="content_category" class="ig-select-input">
+          {% for cat in (child_effective_categories if child_controls else ['Other','Science','Math','Art','Sports','Music','Technology','Education','Nature','Books','Coding','General Knowledge']) %}<option>{{ cat }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="field ig-age-field">
+        <label class="ig-field-label">{{ t('age_group') }}</label>
+        <select name="audience_age_group" class="ig-select-input"><option value="ALL">{{ t('all_ages') }}</option><option>6-8</option><option>9-11</option><option>12-13</option><option>14-18</option></select>
+      </div>
+
+      <button class="btn primary big-btn ig-publish-btn" type="submit">{{ ico.icon('shield',18) }} {{ t('publish') }} safely</button>
+    </form>
+    <p class="moderation-note ig-create-note">{{ ico.icon('check',15) }} {{ t('moderation_note') }}</p>
+  </div>
+</div>
+{% endblock %}

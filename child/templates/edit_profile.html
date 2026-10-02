@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Edit Profile | LittleNet{% endblock %}
+
+{% block content %}
+<div class="profile-setup-wrap">
+  <div class="profile-card">
+    <div class="profile-setup-header">
+      <h2>Edit Profile</h2>
+      <p>Update your personal bio and profile information</p>
+    </div>
+
+    {% if error %}
+    <div class="error-banner">
+      <span>⚠️</span>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/child/edit-profile/" class="profile-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="form-group">
+        <label for="edit-fullname">Full Name <span class="required">*</span></label>
+        <input type="text" 
+               id="edit-fullname" 
+               name="full_name" 
+               class="form-input" 
+               value="{{ profile.full_name or '' }}" 
+               required>
+      </div>
+
+      <div class="form-group">
+        <label for="edit-bio">Bio / About Me</label>
+        <textarea id="edit-bio" 
+                  name="bio" 
+                  class="form-textarea" 
+                  rows="3">{{ profile.bio or '' }}</textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn primary save-profile-btn">
+          <span>Save Changes</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

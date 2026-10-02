@@ -1,0 +1,69 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="dashboard-title">
+  <div>
+    <span class="eyebrow">User Protection &amp; Community Care</span>
+    <h2>Safety Reports</h2>
+    <p class="text-muted">Review, triage, and resolve safety flags submitted by children and parents.</p>
+  </div>
+</div>
+
+<div class="admin-table-list">
+  {% for r in reports %}
+  <article class="admin-row" style="flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="decision-chip {% if r.status == 'RESOLVED' %}allow{% elif r.status == 'REVIEWING' %}review{% else %}block{% endif %}">
+          {{ r.status }}
+        </span>
+        <b style="font-size: 14px; color: #0F172A;">
+          #{{ r.report_id }} · {{ r.target_type }} {{ r.target_id }}
+        </b>
+      </div>
+      <small style="color: #64748B; font-size: 12px;">
+        Reported by <b>{{ r.reporter_name }}</b> · {{ r.created_at }}
+      </small>
+    </div>
+
+    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 14px;">
+      <p style="margin: 0; font-size: 13px; color: #334155; font-weight: 600;">
+        Reason: <span style="font-weight: 400;">{{ r.reason }}</span>
+      </p>
+      {% if r.details %}
+      <p style="margin: 6px 0 0; font-size: 12px; color: #64748B;">
+        Details: {{ r.details }}
+      </p>
+      {% endif %}
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-top: 1px solid #F1F5F9; padding-top: 10px;">
+      <form method="post" action="/admin/report/{{ r.report_id }}/" style="margin: 0; display: flex; gap: 8px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn" name="status" value="REVIEWING" style="font-size: 12px; padding: 6px 12px;">Mark Reviewing</button>
+        <button class="btn primary" name="status" value="RESOLVED" style="font-size: 12px; padding: 6px 12px;">Resolve</button>
+        <button class="btn outline" name="status" value="DISMISSED" style="font-size: 12px; padding: 6px 12px;">Dismiss</button>
+      </form>
+
+      {% if r.target_type == 'POST' %}
+      <form method="post" action="/admin/post/{{ r.target_id }}/remove/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger" style="font-size: 12px; padding: 6px 12px;">
+          {{ ico.icon('trash', 14) }} Remove Reported Post
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  <div class="parent-empty" style="text-align: center; padding: 48px 20px; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 18px;">
+    <div style="width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px; background: #EFF6FF; color: #0095F6; display: grid; place-items: center;">
+      {{ ico.icon('shield', 32) }}
+    </div>
+    <h3 style="font-size: 18px; margin: 0 0 6px;">No Open Safety Reports</h3>
+    <p style="color: #64748B; font-size: 13px; margin: 0;">The LittleNet feed and direct messaging queues are completely clean.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

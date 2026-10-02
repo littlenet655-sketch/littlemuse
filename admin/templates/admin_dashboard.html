@@ -1,0 +1,9 @@
+{% extends 'admin_base.html' %}{% block content %}
+<div class="metric-grid">
+{% for key,label in [('children','Children'),('parents','Parents'),('active','Active users'),('suspended','Suspended'),('open_reports','Open reports'),('open_reviews','Parent-review queue'),('blocked_7d','Blocked · 7d'),('adult_blocks_7d','18+ blocks · 7d')] %}<div class="metric-card"><b>{{stats[key]}}</b><span>{{label}}</span></div>{% endfor %}
+</div>
+<div class="admin-grid"><section><h2>Open reports</h2>{% for r in reports %}<div class="parent-card"><b>#{{r.report_id}} · {{r.target_type}}</b><p>{{r.reason}}</p><small>Reported by {{r.reporter_name}} · {{r.status}}</small><form method="post" action="/admin/report/{{r.report_id}}/"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn" name="status" value="REVIEWING">Review</button><button class="btn primary" name="status" value="RESOLVED">Resolve</button></form></div>{% else %}<p class="muted">No open reports.</p>{% endfor %}<a class="btn" href="/admin/reports/">All reports</a></section>
+<section><h2>Recent moderation</h2>{% for e in events %}<div class="parent-card"><b>{{e.decision}} · {{e.content_type}}</b><p>{{e.full_name or 'Unknown child'}} · Risk {{e.risk_score}}%</p><small>{{e.reason}} · {{e.status}}</small></div>{% endfor %}<a class="btn" href="/admin/moderation/">Moderation console</a></section></div>
+<h2>7-day decision mix</h2><div class="btn-row">{% for d in decisions %}<span class="safety-chip">{{d.decision}} · {{d.n}}</span>{% else %}<span class="muted">No moderation events yet.</span>{% endfor %}</div>
+<h2>Recent moderator actions</h2>{% for a in audit %}<div class="parent-card"><b>{{a.action}}</b> · {{a.admin_name}}<br><small>{{a.target_type or ''}} {{a.target_id or ''}} · {{a.created_at}}</small></div>{% else %}<p class="muted">No moderator actions yet.</p>{% endfor %}
+{% endblock %}

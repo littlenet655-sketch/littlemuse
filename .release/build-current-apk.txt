@@ -1,0 +1,2 @@
+Build standalone release APK from current main after APK findings fixes.
+Backend deployment is green at the verified LittleMuse Modal URL; this build is the installable fallback because Expo cloud token is not configured in GitHub.

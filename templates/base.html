@@ -1,0 +1,75 @@
+{% import '_icons.html' as ico %}
+<!doctype html>
+<html lang="{{ (ui_language or 'EN')|lower }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="LittleNet - Child-Centric Social Platform with AI-based Content Filtering, Parental Oversight, Cyberbullying Protection, and Safe Learning.">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="theme-color" content="#FFF7ED">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="manifest" href="/static/manifest.json">
+  <title>{% block title %}LittleNet - Safe Child Social Platform{% endblock %}</title>
+  <link rel="dns-prefetch" href="//fonts.googleapis.com">
+  <link rel="dns-prefetch" href="//fonts.gstatic.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Grand+Hotel&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/littlenet.css">
+</head>
+<body data-role="{{ session.get('role','') }}">
+<div id="ln-progress" class="ln-progress-bar" aria-hidden="true"></div>
+
+{% if session.get('role') == 'CHILD' %}
+<aside class="ig-desktop-sidebar" aria-label="Desktop Navigation">
+  <div class="ig-desktop-top">
+    <a href="/child/dashboard/" class="ig-desktop-logo" aria-label="LittleNet Home">
+      {{ ico.brand_wordmark(30) }}
+    </a>
+    <nav class="ig-desktop-nav-menu" aria-label="Main Menu">
+      <a href="/child/dashboard/" class="ig-desktop-nav-link {% if request.path == '/child/dashboard/' %}active{% endif %}">{% if request.path == '/child/dashboard/' %}{{ ico.icon('home_filled',24) }}{% else %}{{ ico.icon('home',24) }}{% endif %}<span>Home</span></a>
+      {% if not child_controls or child_controls.allow_discover %}<a href="/discover/" class="ig-desktop-nav-link {% if '/discover' in request.path %}active{% endif %}">{{ ico.icon('search',24) }}<span>Search</span></a>{% endif %}
+      {% if not child_controls or child_controls.allow_reels %}<a href="/reels/" class="ig-desktop-nav-link {% if '/reels' in request.path %}active{% endif %}">{{ ico.icon('clips',24) }}<span>Reels</span></a>{% endif %}
+      {% if not child_controls or child_controls.allow_messaging %}<a href="/messages/" class="ig-desktop-nav-link {% if '/messages' in request.path or '/chat' in request.path %}active{% endif %}"><span class="ig-nav-icon-wrap">{{ ico.icon('send',24) }}</span><span>Messages</span></a>{% endif %}
+      <a href="/notifications/" class="ig-desktop-nav-link {% if '/notifications' in request.path %}active{% endif %}"><span class="ig-nav-icon-wrap">{{ ico.icon('heart',24) }}{% if unread_activity_count and unread_activity_count > 0 %}<span class="nav-badge ig-desktop-badge">{{ unread_activity_count }}</span>{% endif %}</span><span>Notifications</span></a>
+      {% if not child_controls or child_controls.allow_posting %}<a href="/child/upload-post/" class="ig-desktop-nav-link {% if '/upload-post' in request.path %}active{% endif %}"><svg class="ln-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg><span>Create</span></a>{% endif %}
+      <a href="/child/profile/" class="ig-desktop-nav-link {% if '/child/profile' in request.path %}active{% endif %}"><span class="ig-desktop-avatar-wrap"><img class="avatar" src="/{{ nav_avatar or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="Profile"></span><span>Profile</span></a>
+    </nav>
+  </div>
+  <div class="ig-desktop-bottom">
+    <a href="/child/settings/" class="ig-desktop-nav-link {% if '/child/settings' in request.path %}active{% endif %}">{{ ico.icon('settings',22) }}<span>Settings</span></a>
+    <form method="post" action="/switch-mode/" class="ig-desktop-switch-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="ig-desktop-nav-link ig-switch-btn" title="Switch to Parent Mode">{{ ico.icon('shield',22) }}<span>Parent Mode</span></button></form>
+  </div>
+</aside>
+{% endif %}
+
+<div class="app">
+  {% if session.get('role')=='CHILD' and request.path in ['/child/dashboard/', '/'] %}
+  <header class="topbar ig-topbar">
+    <a href="/child/dashboard/" class="ig-brand" aria-label="LittleNet">{{ ico.brand_wordmark(28) }}</a>
+    <div class="top-actions ig-top-actions">
+      <a href="/notifications/" class="icon-btn ig-icon-btn" aria-label="Activity & Requests" style="position:relative;">{{ ico.icon('heart',24) }}{% if unread_activity_count and unread_activity_count > 0 %}<span class="nav-badge" style="position:absolute;top:-3px;right:-3px;background:#EF4444;color:white;border-radius:999px;min-width:17px;height:17px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #FFFFFF;">{{ unread_activity_count }}</span>{% endif %}</a>
+      {% if not child_controls or child_controls.allow_messaging %}<a href="/messages/" class="icon-btn ig-icon-btn" aria-label="Direct Messages">{{ ico.icon('send',22) }}</a>{% endif %}
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="page">{% block content %}{% endblock %}</main>
+
+  {% if session.get('role')=='CHILD' %}
+  <nav class="bottom-nav ig-bottom-nav" aria-label="Navigation">
+    <a href="/child/dashboard/" class="nav-item ig-nav-item {% if request.path=='/child/dashboard/' %}active{% endif %}" aria-label="Home">{% if request.path=='/child/dashboard/' %}{{ ico.icon('home_filled',24) }}{% else %}{{ ico.icon('home',24) }}{% endif %}</a>
+    {% if not child_controls or child_controls.allow_discover %}<a href="/discover/" class="nav-item ig-nav-item {% if '/discover' in request.path %}active{% endif %}" aria-label="Search">{{ ico.icon('search',24) }}</a>{% endif %}
+    {% if not child_controls or child_controls.allow_posting %}<a href="/child/upload-post/" class="nav-item ig-nav-item ig-create-btn" aria-label="New Post"><svg class="ln-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></a>{% endif %}
+    {% if not child_controls or child_controls.allow_reels %}<a href="/reels/" class="nav-item ig-nav-item {% if '/reels' in request.path %}active{% endif %}" aria-label="Reels">{{ ico.icon('clips',24) }}</a>{% endif %}
+    <a href="/child/profile/" class="nav-item ig-nav-item ig-profile-tab {% if '/child/profile' in request.path %}active{% endif %}" aria-label="Profile"><span class="ig-nav-avatar"><img class="avatar" src="/{{ nav_avatar or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="Profile"></span></a>
+  </nav>
+  {% endif %}
+</div>
+<div class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+<script src="/static/js/littlenet.js"></script>
+<script src="/static/js/navigation_guard.js"></script>
+{% if session.get('role') == 'CHILD' %}<script src="/static/js/feed_quiz.js" defer></script>{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

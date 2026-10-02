@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% block title %}Messages · LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-dm-shell">
+
+  <!-- DM Top Bar matching Screenshot 1 -->
+  <header class="ig-dm-topbar">
+    <a href="/child/dashboard/" class="ig-dm-nav-btn" aria-label="Back to feed">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+    </a>
+    
+    <div class="ig-dm-user-center">
+      <span class="ig-dm-current-user">{{ session.get('username') or 'Messages' }}</span>
+      <span class="ig-dm-chevron">▾</span>
+      <span class="ig-dm-red-dot"></span>
+    </div>
+
+    <a href="/discover/" class="ig-dm-nav-btn" aria-label="New Message / Find Friends" title="New Message">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+    </a>
+  </header>
+
+  <!-- Search Bar matching Screenshot 1 -->
+  <div class="ig-dm-search-wrap">
+    <div class="ig-dm-searchbox">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8E8E8E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" placeholder="Search or ask LittleNet AI" class="ig-dm-search-input" aria-label="Search messages">
+    </div>
+  </div>
+
+  <!-- Notes Tray matching Screenshot 1 -->
+  <section class="ig-notes-tray" aria-label="Notes">
+    <div class="ig-notes-scroll">
+      
+      <!-- Your Note -->
+      <div class="ig-note-item your-note">
+        <div class="ig-note-bubble-wrap">
+          <div class="ig-note-bubble">
+            <span>Ready for...</span>
+          </div>
+          <div class="ig-note-avatar-box">
+            <img src="/{{ my_avatar or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="Your note" class="ig-note-avatar">
+            <span class="ig-note-plus-badge">+</span>
+          </div>
+        </div>
+        <span class="ig-note-author">Your note</span>
+        <span class="ig-note-sub">Location off</span>
+      </div>
+
+      <!-- Friends Notes -->
+      {% for n in notes_tray %}
+      <a href="/chat/{{ n.user_id }}/" class="ig-note-item">
+        <div class="ig-note-bubble-wrap">
+          <div class="ig-note-bubble">
+            <span>{{ n.note_text }}</span>
+          </div>
+          <div class="ig-note-avatar-box">
+            <img src="/{{ n.profile_picture or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ n.full_name }}" class="ig-note-avatar">
+          </div>
+        </div>
+        <span class="ig-note-author">{{ n.full_name.split(' ')[0] }}</span>
+      </a>
+      {% endfor %}
+
+    </div>
+  </section>
+
+  <!-- Messages Section Header matching Screenshot 1 -->
+  <div class="ig-dm-section-head">
+    <div class="ig-dm-section-title-wrap">
+      <span class="ig-dm-section-title">Messages</span>
+      <span class="ig-dm-mute-icon" title="Notifications">{{ ico.icon('bell', 16) }}</span>
+    </div>
+    <a href="/notifications/" class="ig-dm-requests-link">
+      Requests
+      {% if unread_activity_count and unread_activity_count > 0 %}
+      <span class="ig-requests-badge">{{ unread_activity_count }}</span>
+      {% endif %}
+    </a>
+  </div>
+
+  <!-- Conversations List matching Screenshot 1 -->
+  <div class="ig-dm-threads-list">
+    {% for c in conversations %}
+    <a href="/chat/{{ c.peer_id }}/" class="ig-dm-thread-item {% if c.is_unread %}unread{% endif %}">
+      <div class="ig-dm-thread-avatar-wrap">
+        <div class="{% if c.is_unread %}ig-dm-ring-unread{% else %}ig-dm-ring-normal{% endif %}">
+          <img src="/{{ c.peer_avatar or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ c.peer_name }}" class="ig-dm-thread-avatar">
+        </div>
+        <span class="ig-dm-online-dot"></span>
+      </div>
+
+      <div class="ig-dm-thread-info">
+        <div class="ig-dm-name-row">
+          <b class="ig-dm-thread-name">{{ c.peer_name }}</b>
+          <span class="ig-dm-verified-badge" title="LittleNet Approved">{{ ico.icon('shield', 12) }}</span>
+        </div>
+        <div class="ig-dm-snippet-row">
+          <span class="ig-dm-snippet">{{ c.last_snippet }}</span>
+          {% if c.time_ago %}
+          <span class="ig-dm-dot">&bull;</span>
+          <span class="ig-dm-time">{{ c.time_ago }}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="ig-dm-thread-right">
+        {% if c.is_unread %}
+        <span class="ig-dm-unread-dot" aria-label="Unread message"></span>
+        {% else %}
+        <span class="ig-dm-camera-icon" aria-hidden="true">
+          {{ ico.icon('camera', 18) }}
+        </span>
+        {% endif %}
+      </div>
+    </a>
+    {% else %}
+    <div class="ig-dm-empty-state">
+      <div class="ig-dm-empty-icon-wrap">
+        {{ ico.icon('send', 38) }}
+      </div>
+      <h3 class="ig-dm-empty-title">Your Safe Messages</h3>
+      <p class="ig-dm-empty-sub">Send safe messages, photos, and study notes with parent-approved classmates.</p>
+      <a class="ig-dm-empty-btn" href="/discover/">Find Classmates</a>
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,166 @@
+version: 1
+policy_name: littlenet-college-child-safety
+fail_closed: true
+
+thresholds:
+  adult_block: 0.40
+  weapon_review: 0.20
+  weapon_block: 0.45
+  levels:
+    STANDARD:
+      block: 0.78
+      review: 0.58
+    STRICT:
+      block: 0.68
+      review: 0.48
+    VERY_STRICT:
+      block: 0.58
+      review: 0.38
+
+hard_text_categories:
+  - GROOMING
+  - SEVERE_ABUSE
+  - SELF_HARM
+  - DANGEROUS_CHALLENGE
+
+adult_categories:
+  - ADULT
+  - SEXUAL
+  - NSFW
+  - NUDITY
+  - EXPLICIT
+  - SEXUAL_LANGUAGE
+
+# Detector labels are evidence only. The model must actually expose a label before
+# it can contribute to a decision. BLOCK families are immediate child-safety hard
+# blocks at weapon_block confidence; REVIEW families require parent/moderator review.
+object_families:
+  firearm:
+    action: BLOCK
+    labels:
+      - gun
+      - handgun
+      - pistol
+      - revolver
+      - rifle
+      - shotgun
+      - firearm
+      - machine gun
+      - submachine gun
+      - assault rifle
+      - sniper rifle
+      - automatic rifle
+      - air gun
+      - pellet gun
+      - bb gun
+      - musket
+      - carbine
+      - firearm weapon
+  explosive:
+    action: BLOCK
+    labels:
+      - bomb
+      - grenade
+      - explosive
+      - land mine
+      - landmine
+      - dynamite
+      - rocket launcher
+      - missile launcher
+      - improvised explosive device
+      - ied
+      - mortar
+      - torpedo
+      - mine
+      - explosive device
+  blade_weapon:
+    action: BLOCK
+    labels:
+      - dagger
+      - sword
+      - machete
+      - switchblade
+      - combat knife
+      - hunting knife
+      - kitchen knife
+      - bayonet
+      - katana
+      - cleaver
+      - throwing knife
+      - razor blade
+  other_weapon:
+    action: BLOCK
+    labels:
+      - crossbow
+      - bow and arrow
+      - weapon
+      - brass knuckles
+      - knuckle duster
+      - taser
+      - stun gun
+      - flamethrower
+      - spear
+      - harpoon
+      - slingshot
+      - nunchaku
+      - nunchucks
+  dangerous_tool:
+    action: REVIEW
+    labels:
+      - knife
+      - axe
+      - hatchet
+      - chainsaw
+      - saw
+      - power saw
+      - drill
+      - power drill
+      - hammer
+      - crowbar
+      - box cutter
+      - utility knife
+      - scissors
+      - nail gun
+  controlled_substance:
+    action: REVIEW
+    labels:
+      - cigarette
+      - cigar
+      - tobacco
+      - smoking pipe
+      - vape
+      - electronic cigarette
+      - beer
+      - wine
+      - liquor
+      - alcohol
+      - syringe
+      - hypodermic needle
+      - bong
+      - hookah
+      - cannabis
+      - marijuana
+      - drug paraphernalia
+  dangerous_context:
+    action: REVIEW
+    labels:
+      - ammunition
+      - bullet
+      - cartridge
+      - holster
+      - gun safe
+      - handcuffs
+      - police baton
+      - baton
+      - riot shield
+      - military weapon
+
+content_surfaces:
+  public_ugc:
+    failure_action: HOLD
+  direct_message:
+    failure_action: HOLD
+  comment:
+    failure_action: HOLD
+  educational_quiz:
+    failure_action: LOG_AND_ALLOW

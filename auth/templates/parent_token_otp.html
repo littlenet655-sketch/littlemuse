@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enter Verification Code | LittleNet</title>
+  <meta name="theme-color" content="#0095F6">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 20%,#eff6ff 0%,#f8fafc 75%);font-family:'Plus Jakarta Sans',sans-serif;color:#0f172a;padding:28px 16px}.wrap{max-width:520px;margin:0 auto}.card{background:#fff;border:1px solid #e2e8f0;border-radius:28px;padding:30px;box-shadow:0 20px 50px rgba(15,23,42,.10);position:relative;overflow:hidden}.card:before{content:'';position:absolute;left:0;right:0;top:0;height:6px;background:linear-gradient(90deg,#0095F6,#1D4ED8,#60a5fa)}.badge{display:inline-flex;align-items:center;gap:8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:900;text-transform:uppercase}.badge img{width:20px;height:20px;border-radius:5px}.title{font-size:25px;font-weight:900;margin:14px 0 5px}.sub{font-size:13px;color:#64748b;line-height:1.55;margin:0 0 20px}.alert{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:12px 14px;border-radius:13px;font-size:13px;font-weight:700;margin-bottom:16px}.notice{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;padding:12px 14px;border-radius:13px;font-size:13px;font-weight:700;margin-bottom:16px}.otp{width:100%;height:60px;border:2px solid #e2e8f0;border-radius:15px;background:#f8fafc;text-align:center;font:800 26px 'Plus Jakarta Sans',sans-serif;letter-spacing:12px;margin-bottom:14px}.otp:focus{outline:none;border-color:#0095F6;background:#fff;box-shadow:0 0 0 3px rgba(0,149,246,.12)}.submit{width:100%;height:53px;border:0;border-radius:15px;background:linear-gradient(135deg,#0095F6,#1D4ED8);color:#fff;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 10px 24px rgba(0,149,246,.25)}.resend{width:100%;margin-top:12px;background:none;border:0;color:#1d4ed8;font:800 13px 'Plus Jakarta Sans',sans-serif;cursor:pointer}.security{font-size:11px;color:#64748b;text-align:center;margin-top:14px;line-height:1.5}@media(max-width:520px){.card{padding:25px 18px}.title{font-size:22px}}
+  </style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <div class="badge"><img src="/static/icons/app_logo.png" alt="LittleNet"><span>Guardian Verification</span></div>
+  <h1 class="title">Enter the 6-digit code</h1>
+  <p class="sub">We sent a verification code to <strong>{{ masked_email }}</strong> to confirm you are {{ child.child_name }}'s parent or guardian.</p>
+
+  {% if error %}<div class="alert">⚠️ {{ error }}</div>{% endif %}
+  {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+
+  <form method="POST" autocomplete="one-time-code">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input class="otp" type="text" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" required aria-label="6-digit verification code">
+    <button class="submit" type="submit">Verify &amp; Continue</button>
+  </form>
+  <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="resend" value="1">
+    <button class="resend" type="submit">Didn't get the code? Resend</button>
+  </form>
+  <div class="security">The code expires in 10 minutes. After 5 incorrect attempts you will need a new code.</div>
+</div></div>
+</body>
+</html>

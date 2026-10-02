@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% block title %}Home — LittleNet{% endblock %}
+{% block content %}
+{% import '_post.html' as ui %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-desktop-layout">
+
+  <!-- Center Main Column (Feed & Stories) -->
+  <div class="ig-desktop-main">
+
+    {# ── XP / Streak welcome banner ── #}
+    <div class="dashboard-welcome">
+      <div class="dw-avatar-wrap">
+        <img class="dw-avatar" src="/{{ profile.profile_picture if profile and profile.profile_picture else 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="You">
+        <span class="dw-online-dot" aria-hidden="true"></span>
+      </div>
+      <div class="dw-text">
+        <span class="dw-greeting">Hey, {{ (profile.full_name if profile else session.get('username') or 'Explorer').split(' ')[0] }}! 👋</span>
+        <span class="dw-sub">Stay safe &amp; keep learning ✨</span>
+      </div>
+      <a href="/quiz/start/" class="dw-quiz-pill" aria-label="Take quiz">
+        🧠 Quiz
+      </a>
+    </div>
+
+    {# ── Stories Tray ── #}
+    {% if not child_controls or child_controls.allow_stories %}
+    <section class="ig-stories-tray" aria-label="Stories">
+      <div class="ig-stories-scroll">
+        <a class="ig-story-item your-story" href="/child/upload-post/">
+          <div class="ig-avatar-wrap">
+            <img class="ig-story-avatar" src="/{{ profile.profile_picture if profile and profile.profile_picture else 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="Your story">
+            <span class="ig-add-story-badge">+</span>
+          </div>
+          <span class="ig-story-name">Your story</span>
+        </a>
+        {% for s in stories %}
+        <a class="ig-story-item has-story" href="/story/{{ s.post_id }}/">
+          <div class="ig-ring">
+            <div class="ig-ring-gap">
+              <img class="ig-story-avatar" src="/{{ s.profile_picture }}" data-hide-error alt="{{ s.full_name }}">
+            </div>
+          </div>
+          <span class="ig-story-name">{{ (s.username or s.full_name).split(' ')[0] }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {# ── Learn Banner ── #}
+    <a class="learn-card learn-banner-card" href="/learning/">
+      <span class="lbc-icon">{{ ico.icon('book', 22) }}</span>
+      <span class="lbc-text">
+        <b>Brain Boost 🚀</b>
+        <small>Quiz • Puzzle • Kind-act challenge</small>
+      </span>
+      <span class="lbc-arrow">›</span>
+    </a>
+
+    {# ── Feed ── #}
+    <div class="ig-feed">
+      {% for p in posts %}
+        {{ ui.post_card(p) }}
+      {% else %}
+        <div class="ig-empty-feed">
+          <div class="ig-empty-icon">{{ ico.icon('camera', 52) }}</div>
+          <h3>Welcome to LittleNet! 🌟</h3>
+          <p>When friends you follow share safe photos and clips, they'll appear here.</p>
+          <a class="btn primary" href="/discover/">Find Friends</a>
+        </div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <!-- Right Sidebar (Matching Screenshots 2 & 3, visible on Desktop >= 950px) -->
+  <aside class="ig-right-sidebar" aria-label="Suggestions and Profile">
+    <!-- Current User Switcher Row -->
+    <div class="ig-sidebar-user-row">
+      <a href="/child/profile/" class="ig-user-avatar-link">
+        <img class="ig-sidebar-avatar" src="/{{ profile.profile_picture if profile and profile.profile_picture else 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="You">
+      </a>
+      <div class="ig-sidebar-user-meta">
+        <a href="/child/profile/" class="ig-sidebar-username">{{ session.get('username') or 'explorer' }}</a>
+        <span class="ig-sidebar-fullname">{{ profile.full_name if profile else 'LittleNet Explorer' }}</span>
+      </div>
+      <form method="post" action="/switch-mode/" class="ig-sidebar-switch-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="ig-switch-text-btn">Switch</button>
+      </form>
+    </div>
+
+    <!-- Suggested for You Section -->
+    <div class="ig-suggestions-box">
+      <div class="ig-suggestions-head">
+        <span class="ig-suggestions-title">Suggested for you</span>
+        <a href="/discover/" class="ig-see-all-link">See all</a>
+      </div>
+
+      <div class="ig-suggestions-list">
+        {% for s in suggested_users %}
+        <div class="ig-suggested-row">
+          <a href="/child/view-profile/{{ s.user_id }}/" class="ig-suggested-avatar-wrap">
+            <img class="ig-suggested-avatar" src="/{{ s.profile_picture or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ s.full_name }}">
+          </a>
+          <div class="ig-suggested-meta">
+            <a href="/child/view-profile/{{ s.user_id }}/" class="ig-suggested-username">{{ s.username }}</a>
+            <span class="ig-suggested-sub">Classmate &bull; LittleNet safe</span>
+          </div>
+          <button type="button" class="ig-suggested-follow-btn" data-follow="{{ s.user_id }}">
+            Follow
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Instagram Style Footer Links -->
+    <footer class="ig-sidebar-footer">
+      <nav class="ig-footer-links" aria-label="LittleNet links">
+        <a href="/learning/">About</a> &bull;
+        <a href="/child/settings/">Help</a> &bull;
+        <a href="/learning/">Safety</a> &bull;
+        <a href="/child/settings/">Privacy</a> &bull;
+        <a href="/child/settings/">Terms</a>
+      </nav>
+      <div class="ig-copyright">
+        &copy; 2026 LITTLENET SAFE SOCIAL FOR KIDS
+      </div>
+    </footer>
+  </aside>
+
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}Saved · LittleNet{% endblock %}
+{% block content %}
+{% import '_post.html' as ui %}
+{% import '_icons.html' as ico %}
+<div style="max-width:640px;margin:0 auto;padding-bottom:80px;"><div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 12px;"><div><b style="font-size:20px;">Saved</b><div class="muted" style="font-size:12px;margin-top:3px;">Private bookmarks · only content still allowed in Kids Mode appears here.</div></div><a class="btn outline" href="/child/profile/">{{ ico.icon('user',15) }} Profile</a></div>{% for p in posts %}{{ ui.post_card(p) }}{% else %}<div class="form-card" style="text-align:center;padding:34px 20px;"><div style="font-size:34px;">🔖</div><h3>Nothing saved yet</h3><p class="muted">Tap the bookmark icon on a safe post to keep it here.</p><a class="btn primary" href="/child/dashboard/">Browse feed</a></div>{% endfor %}</div>
+{% endblock %}

@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block title %}Sign Up for Kids Mode | LittleNet{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+  <div class="auth-card">
+    
+    <!-- Brand Header -->
+    <div class="auth-brand-wrap">
+      <div class="auth-logo-badge" style="background: none; box-shadow: none; padding: 0;">
+        <img src="/static/icons/app_logo.png" alt="LittleNet Logo" style="width: 64px; height: 64px; border-radius: 16px; object-fit: cover; box-shadow: 0 8px 24px rgba(0, 149, 246, 0.28);">
+      </div>
+      <h1 class="brand auth-title">Create Kids Account</h1>
+      <p class="auth-subtitle">Join your safe, creative & educational circle</p>
+    </div>
+
+    <!-- Error Alert -->
+    {% if error %}
+    <div class="auth-alert auth-alert-error" role="alert">
+      <span class="alert-icon">⚠️</span>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <!-- Registration Form -->
+    <form method="post" action="/register-child/" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="auth-field">
+        <label class="field-label" for="reg-username">Choose a Username</label>
+        <div class="input-wrap">
+          <span class="input-icon">👤</span>
+          <input type="text" 
+                 id="reg-username"
+                 name="username" 
+                 class="auth-input" 
+                 placeholder="e.g. superkid_24" 
+                 required 
+                 pattern="[A-Za-z0-9_.]{3,30}"
+                 autocomplete="username">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="reg-password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">🔒</span>
+          <input type="password" 
+                 id="reg-password"
+                 name="password" 
+                 class="auth-input" 
+                 placeholder="At least 8 characters" 
+                 required 
+                 minlength="8" 
+                 autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="reg-pemail">Parent / Guardian Email</label>
+        <div class="input-wrap">
+          <span class="input-icon">📩</span>
+          <input type="email" 
+                 id="reg-pemail"
+                 name="parent_email" 
+                 class="auth-input" 
+                 placeholder="parent@example.com" 
+                 required>
+        </div>
+        <small style="color: #64748B; font-size: 11px; margin-top: 4px; display: block;">For safety oversight and parent dashboard linking.</small>
+      </div>
+
+      <div class="auth-field">
+        <label class="field-label" for="reg-age">Age</label>
+        <div class="input-wrap">
+          <span class="input-icon">🎂</span>
+          <input type="number" 
+                 id="reg-age"
+                 name="age" 
+                 class="auth-input" 
+                 placeholder="Age (4 to 18)" 
+                 required 
+                 min="4" 
+                 max="18" 
+                 value="11">
+        </div>
+      </div>
+
+      <details style="margin: 8px 0 14px; font-size: 12px; color: #64748B;">
+        <summary style="cursor: pointer; padding: 4px 0; font-weight: 600; color: #0095F6;">+ Optional additional details (Full Name, Child Email)</summary>
+        <div style="margin-top: 8px; display: grid; gap: 10px;">
+          <div class="auth-field" style="margin: 0;">
+            <label class="field-label" for="reg-fullname">Full Name (Optional)</label>
+            <div class="input-wrap">
+              <span class="input-icon">📝</span>
+              <input type="text" id="reg-fullname" name="full_name" class="auth-input" placeholder="Your full name">
+            </div>
+          </div>
+          <div class="auth-field" style="margin: 0;">
+            <label class="field-label" for="reg-email">Child Email (Optional)</label>
+            <div class="input-wrap">
+              <span class="input-icon">✉️</span>
+              <input type="email" id="reg-email" name="email" class="auth-input" placeholder="Auto-generated if empty">
+            </div>
+          </div>
+          <div class="auth-field" style="margin: 0;">
+            <label class="field-label" for="reg-pname">Parent Name (Optional)</label>
+            <div class="input-wrap">
+              <span class="input-icon">🛡️</span>
+              <input type="text" id="reg-pname" name="parent_name" class="auth-input" placeholder="Parent / Guardian">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- Instant Demo Mode Checkbox -->
+      <div class="demo-checkbox-wrap">
+        <input type="checkbox" name="instant_demo" id="instant_demo" value="1" checked>
+        <label for="instant_demo">
+          <b>⚡ Instant Demo & Presentation Mode</b>
+          Auto-approve and enter Kids Mode immediately without waiting for email.
+        </label>
+      </div>
+
+      <button type="submit" class="btn primary auth-submit-btn">
+        <span>Create & Enter Kids Mode</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+
+    <div class="privacy-badge">
+      <span>🔒</span>
+      <span>No stranger direct messages • Multimodal AI safety active</span>
+    </div>
+
+    <!-- Sign In Option -->
+    <div class="auth-signup-box">
+      Already have an account? <a href="/login/?mode=kids" class="signup-link kid-link">Log in here</a>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

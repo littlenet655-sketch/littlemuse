@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 20px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #7950f2 0%, #9775fa 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
+    .header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 800; }
+    .header p { margin: 0; font-size: 14px; opacity: 0.9; }
+    .content { padding: 32px 28px; }
+    .badge { display: inline-block; background: #f3f0ff; color: #7950f2; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; }
+    .info-box { background: #f8fafc; border-left: 4px solid #7950f2; padding: 16px; border-radius: 8px; margin: 20px 0; font-size: 14px; }
+    .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .info-row:last-child { margin-bottom: 0; }
+    .btn { display: block; text-align: center; background: linear-gradient(135deg, #7950f2 0%, #9775fa 100%); color: #ffffff !important; padding: 14px 24px; border-radius: 12px; font-size: 15px; font-weight: 700; text-decoration: none; margin: 26px 0; box-shadow: 0 4px 14px rgba(121, 80, 242, 0.3); }
+    .security-note { font-size: 12px; color: #64748b; background: #f1f5f9; padding: 12px; border-radius: 8px; margin-top: 20px; }
+    .footer { text-align: center; padding: 18px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>LittleNet Safe Supervision</h1>
+      <p>Parent Identity Verification Required</p>
+    </div>
+    <div class="content">
+      <div class="badge">Supervision Request</div>
+      <p>Hello <strong>{{ parent_name }}</strong>,</p>
+      <p>A child has initiated registration on <strong>LittleNet</strong> and listed you as their supervising parent or legal guardian.</p>
+      
+      <div class="info-box">
+        <div class="info-row"><strong>Child Full Name:</strong> <span>{{ child_name }}</span></div>
+        <div class="info-row"><strong>Username:</strong> <span>@{{ child_username }}</span></div>
+        <div class="info-row"><strong>Child Age:</strong> <span>{{ child_age }} years</span></div>
+        <div class="info-row"><strong>Child Email:</strong> <span>{{ child_email }}</span></div>
+      </div>
+
+      <p>To prevent unauthorized self-approval and protect your child online, LittleNet requires a quick <strong>Parent Identity Verification</strong> (live selfie and identity document verification) before the account can be approved.</p>
+
+      <a href="{{ verification_url }}" class="btn">Verify Parent Identity &rarr;</a>
+
+      <div class="security-note">
+        &#128274; <strong>Privacy Guarantee:</strong> LittleNet does not store raw government ID numbers or permanent biometric images. This verification link expires in 48 hours.
+      </div>
+    </div>
+    <div class="footer">
+      &copy; LittleNet &bull; Safe, Supervised Social Network for Children
+    </div>
+  </div>
+</body>
+</html>

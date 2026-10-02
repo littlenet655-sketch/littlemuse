@@ -1,0 +1,323 @@
+/** Kids feed/discover API (Agent C). Maps to mobile/api.py v2 routes. */
+import { ApiError, apiRequest, routes } from './client';
+
+export interface FeedItem {
+  source_type: 'SOCIAL' | 'CURATED';
+  source_id: number;
+  post_id: number;
+  /** Session that authorized this exact item; required across refill sessions. */
+  feed_session_id?: string;
+  full_name?: string;
+  creator_id?: number;
+  creator_username?: string;
+  avatar_url?: string | null;
+  media_type?: string;
+  media_url?: string | null;
+  poster_url?: string | null;
+  playback_expires_at?: number | null;
+  playback_ready?: boolean;
+  delivery_type?: 'JIT' | 'MP4' | 'HLS' | string;
+  duration_ms?: number;
+  aspect_ratio?: string;
+  title?: string;
+  caption?: string;
+  content_category?: string;
+  likes?: number;
+  comments_count?: number;
+  comments_enabled?: boolean;
+  created_at?: string;
+  child_id?: number;
+  is_reel?: boolean;
+  moderation_status?: string;
+  is_safe?: boolean;
+  viewer_liked?: boolean;
+  viewer_saved?: boolean;
+}
+
+export interface StoryMusic {
+  music_id?: number | null;
+  title: string;
+  artist: string;
+  audio_url?: string | null;
+  start_seconds?: number;
+  duration_seconds?: number;
+}
+
+export interface StoryItem {
+  post_id: number;
+  child_id?: number;
+  full_name?: string;
+  avatar_url?: string | null;
+  media_type?: string;
+  media_url?: string | null;
+  poster_url?: string | null;
+  caption?: string;
+  story_music?: StoryMusic | null;
+}
+
+export interface FeedPage {
+  ok: boolean;
+  items: FeedItem[];
+  next_cursor: number | null;
+  has_more: boolean;
+  can_refill?: boolean;
+  exhaustion_reason?: 'SESSION_END' | 'NO_ELIGIBLE_CONTENT' | string | null;
+  total_in_session?: number;
+  session_id: string;
+}
+
+async function get<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
+  return apiRequest<T>(path, signal ? { signal } : {}, token);
+}
+
+export function fetchFeedV2(
+  token: string,
+  cursor: number,
+  limit = 10,
+  sessionId?: string,
+  modeOrSignal?: 'for_you' | 'friends' | 'learn' | AbortSignal,
+  signal?: AbortSignal,
+  refillFrom?: string,
+): Promise<FeedPage> {
+  let mode: 'for_you' | 'friends' | 'learn' = 'for_you';
+  let activeSignal = signal;
+  if (typeof modeOrSignal === 'string') {
+    mode = modeOrSignal;
+  } else if (modeOrSignal && typeof modeOrSignal === 'object' && 'aborted' in modeOrSignal) {
+    activeSignal = modeOrSignal as AbortSignal;
+  }
+  const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit), mode });
+  if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
+  return get<FeedPage>(`${routes.feedV2}?${p.toString()}`, token, activeSignal);
+}
+
+export async function fetchReelsV2(
+  token: string,
+  cursor: number,
+  limit = 10,
+  sessionId?: string,
+  signal?: AbortSignal,
+  refillFrom?: string,
+): Promise<FeedPage> {
+  const p = new URLSearchParams({ cursor: String(cursor), limit: String(limit) });
+  if (sessionId) p.set('session_id', sessionId);
+  if (refillFrom) p.set('refill_from', refillFrom);
+  const page = await apiRequest<FeedPage & { quiz_required?: boolean }>(`${routes.reelsV2}?${p.toString()}`, {
+    signal,
+    timeoutMs: 30_000,
+  }, token);
+  // A quiz interruption is not an empty feed: rejecting preserves the cached list.
+  if (page?.quiz_required) throw new ApiError(428, 'quiz_required', 'Complete your Brain Break to continue.', 'quiz');
+  return page;
+}
+
+export function refreshReelPlayback(
+  token: string,
+  postId: number,
+): Promise<{ ok: boolean; playback_url?: string; playback_expires_at?: number; poster_url?: string }> {
+  return get(routes.reelPlayback(postId), token);
+}
+
+export function refreshCuratedReelPlayback(
+  token: string,
+  contentId: number,
+): Promise<{ ok: boolean; playback_url?: string; playback_expires_at?: number; poster_url?: string }> {
+  return get(routes.curatedReelPlayback(contentId), token);
+}
+
+export function recordStoryView(
+  token: string,
+  storyId: number,
+  completionRatio = 1.0,
+): Promise<{ ok: boolean; viewer_count?: number }> {
+  return apiRequest(routes.storyView(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ completion_ratio: completionRatio }),
+  }, token);
+}
+
+export const STORY_REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '⭐'] as const;
+
+export function reactToStory(
+  token: string,
+  storyId: number,
+  emoji: string,
+): Promise<{ ok: boolean; viewer_reaction: string | null; counts: Record<string, number> }> {
+  return apiRequest(routes.storyReaction(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ emoji }),
+  }, token);
+}
+
+export function replyToStory(
+  token: string,
+  storyId: number,
+  text: string,
+): Promise<{ ok: boolean; status: 'ALLOW' | 'REVIEW' | string; message_id: number }> {
+  return apiRequest(routes.storyReply(storyId), {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  }, token);
+}
+
+export function recordFeedImpression(
+  token: string,
+  params: {
+    session_id?: string;
+    source_type: string;
+    source_id: number;
+    surface?: string;
+    watched_ms?: number;
+    completed?: boolean;
+    liked?: boolean;
+    saved?: boolean;
+    replay_count?: number;
+  },
+): Promise<{ ok: boolean; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number }> {
+  return apiRequest(routes.impressions, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  }, token);
+}
+
+export function fetchKidsHome(token: string): Promise<{ ok: boolean; stories: StoryItem[]; controls?: { allowed_categories?: string[]; educational_only_feed?: boolean; allow_comments?: boolean } }> {
+  return get(routes.kidsHome, token);
+}
+
+export interface HeartbeatResult {
+  ok: boolean;
+  minutes_today: number;
+  remaining_minutes: number | null;
+  daily_limit_minutes?: number;
+  strict_mode?: boolean;
+  quiet_hours?: { enabled: boolean; active: boolean; start: string; end: string };
+  server_time?: string;
+  locked?: boolean;
+}
+
+export interface KidTimeLimitStatus {
+  ok: boolean;
+  locked: boolean;
+  minutes_today: number;
+  daily_limit_minutes: number;
+  strict_mode: boolean;
+  remaining_minutes: number | null;
+}
+
+export function sendHeartbeat(token: string, signal?: AbortSignal): Promise<HeartbeatResult> {
+  return apiRequest<HeartbeatResult>(
+    routes.heartbeatV2,
+    { method: 'POST', signal },
+    token,
+  );
+}
+
+export function fetchKidsTimeLimitStatus(token: string): Promise<KidTimeLimitStatus> {
+  return get<KidTimeLimitStatus>(routes.kidsTimeLimitStatus, token);
+}
+
+export type ExtensionRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+
+export interface ExtensionRequest {
+  request_id: number;
+  requested_minutes: number;
+  status: ExtensionRequestStatus;
+  granted_minutes?: number | null;
+  created_at: string;
+  decided_at?: string | null;
+}
+
+export function requestScreenTimeExtension(
+  token: string,
+  requestedMinutes: number,
+): Promise<{ ok: boolean; message: string; request: ExtensionRequest }> {
+  return apiRequest(
+    routes.kidsExtensionRequest,
+    { method: 'POST', body: JSON.stringify({ requested_minutes: requestedMinutes }) },
+    token,
+  );
+}
+
+export function fetchExtensionRequestStatus(
+  token: string,
+): Promise<{ ok: boolean; request: ExtensionRequest | null }> {
+  return get<{ ok: boolean; request: ExtensionRequest | null }>(routes.kidsExtensionRequest, token);
+}
+
+export function recordImpressionBatch(
+  token: string,
+  events: Array<{
+    session_id?: string;
+    source_type: string;
+    source_id: number;
+    surface: string;
+    watched_ms?: number;
+    completed?: boolean;
+    liked?: boolean;
+    saved?: boolean;
+    replay_count?: number;
+  }>,
+): Promise<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number; next_quiz_threshold?: number }> {
+  return apiRequest<{ ok: boolean; processed: number; recorded?: number; quiz_required?: boolean; posts_seen?: number; quiz_interval?: number; next_quiz_threshold?: number }>(
+    routes.impressionsBatch,
+    {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    },
+    token,
+  );
+}
+
+
+/** Read-only "My Controls" payload for the signed-in child (own data only). */
+export interface KidFeatureFlags {
+  reels: boolean;
+  stories: boolean;
+  messaging: boolean;
+  posting: boolean;
+  discover: boolean;
+  comments: boolean;
+}
+
+export interface KidMyControls {
+  ok: boolean;
+  safety_level: string;
+  daily_limit_minutes: number;
+  strict_mode: boolean;
+  quiet_hours: { enabled: boolean; active: boolean; start: string; end: string };
+  features: KidFeatureFlags;
+  educational_only_feed: boolean;
+}
+
+export function fetchMyControls(token: string): Promise<KidMyControls> {
+  return get<KidMyControls>(routes.kidsMyControls, token);
+}
+
+/** Read-only "My Activity" payload for the signed-in child (own data only). */
+export interface KidActivityItem {
+  log_id: number;
+  activity_type: string;
+  action: 'liked' | 'saved';
+  target_type?: string;
+  target_id?: number;
+  label?: string | null;
+  created_at?: string;
+}
+
+export interface KidQuizAttempt {
+  quiz_id: number;
+  is_correct: boolean;
+  attempted_at?: string;
+}
+
+export interface KidMyActivity {
+  ok: boolean;
+  liked_saved: KidActivityItem[];
+  quiz_7d: { attempted: number; correct: number };
+  recent_quizzes: KidQuizAttempt[];
+}
+
+export function fetchMyActivity(token: string): Promise<KidMyActivity> {
+  return get<KidMyActivity>(routes.kidsMyActivity, token);
+}

@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+<style>
+.ig-post-search-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 10px;background:#fff}
+.ig-search-post-card{min-width:0;border:1px solid #e8e8e8;border-radius:12px;overflow:hidden;background:#fff}
+.ig-search-post-card .ig-grid-tile{aspect-ratio:1/1;border-radius:0}
+.ig-search-post-meta{display:flex;flex-direction:column;gap:3px;padding:8px 9px 10px;color:#262626;text-decoration:none;line-height:1.25}
+.ig-search-post-meta b{font-size:12px}.ig-search-post-meta span{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ig-search-post-meta small{font-size:10px;color:#737373;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ig-tag-pill small{opacity:.65;font-weight:600}
+.ig-post-search-grid .ig-empty-search{grid-column:1/-1}
+@media(max-width:360px){.ig-post-search-grid{grid-template-columns:1fr}}
+</style>
+
+<div class="ig-explore-page">
+  <div class="ig-search-bar-wrap">
+    <form method="get" action="/discover/search/" id="explore-search-form">
+      <div class="ig-search-inner">
+        <span class="ig-search-icon">{{ ico.icon('search', 16) }}</span>
+        <input type="text"
+               id="discover-search-input"
+               name="q"
+               value="{{ search_query or '' }}"
+               class="ig-search-input"
+               placeholder="Search captions, #hashtags, comments, classmates..."
+               aria-label="Search safe LittleNet content"
+               autocomplete="off">
+        {% if search_query %}
+          <a href="/discover/search/" class="ig-search-clear">✕</a>
+        {% endif %}
+      </div>
+      <div id="search-suggestions-dropdown" class="ig-search-dropdown"></div>
+    </form>
+
+    <div class="ig-tag-pills">
+      <a href="/discover/search/" class="ig-tag-pill ig-tag-pill-all {% if not search_query %}active{% endif %}">All</a>
+      {% for tag in trending_hashtags or [] %}
+      <a href="/discover/search/?q=%23{{ tag.tag }}"
+         class="ig-tag-pill {% if ('#' ~ tag.tag)|lower == (search_query or '')|lower %}active{% endif %}">
+        #{{ tag.tag }} <small>{{ tag.post_count }}</small>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if pii_warning %}
+  <div class="ig-search-banner" style="background: rgba(239, 68, 68, 0.1); border-color: #ef4444; color: #ef4444;">
+    <span>🔒 Searching for phone numbers, addresses, or private contacts is not allowed to keep kids safe.</span>
+    <a href="/discover/search/" style="color: #3b82f6;">Show Safe Posts</a>
+  </div>
+  {% elif search_query %}
+  <div class="ig-search-banner">
+    <span>Results for <b>{{ search_query }}</b> ({{ recommended_posts|length }} safe items)</span>
+    <a href="/discover/search/">Show All</a>
+  </div>
+  {% endif %}
+
+  {% if not search_query and children %}
+  <div class="ig-suggested-section">
+    <div class="ig-suggested-header">
+      <span class="ig-suggested-title">Suggested Classmates</span>
+      <span class="ig-suggested-badge">Parent-Approved</span>
+    </div>
+
+    <div class="ig-person-list">
+      {% for c in children[:4] %}
+      <div class="ig-person-row">
+        <a href="/child/view-profile/{{ c.user_id }}/" class="ig-person-link">
+          <div class="ig-person-ring">
+            <img src="/{{ c.profile_picture }}" data-hide-error alt="{{ c.full_name }}" class="ig-person-avatar">
+          </div>
+          <div class="ig-person-meta">
+            <b class="ig-person-name">{{ c.full_name }}</b>
+            <small class="ig-person-reason">{{ c.recommendation_reason or 'Classmate' }}</small>
+          </div>
+        </a>
+        <button class="ig-btn {% if c.is_following or c.is_pending %}ig-btn-secondary{% else %}ig-btn-primary{% endif %}" data-follow="{{ c.user_id }}">
+          {{ 'Following' if c.is_following else 'Requested' if c.is_pending else 'Follow' }}
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="ig-grid-section {% if search_query %}is-search{% endif %}">
+    <div class="ig-grid-header">
+      <span class="ig-grid-title">
+        {% if search_query %}Matched Safe Content{% else %}Explore Safe Posts & Clips{% endif %}
+      </span>
+      <span class="ig-grid-badge">🛡️ AI Verified Safe</span>
+    </div>
+
+    <div class="ig-post-grid {% if search_query %}ig-post-search-grid{% endif %}">
+      {% for p in recommended_posts if recommended_posts is defined and recommended_posts %}
+      <article class="{% if search_query %}ig-search-post-card{% else %}ig-grid-card{% endif %}">
+        <a class="ig-grid-tile" href="/post/{{ p.post_id }}/">
+          {% if p.media_type == 'IMAGE' %}
+            <img loading="lazy" src="/{{ p.media_path }}" alt="{{ (p.caption or 'Explore post')[:80] }}">
+          {% elif p.media_type == 'VIDEO' %}
+            <video muted playsinline preload="metadata" src="/{{ p.media_path }}"></video>
+            <span class="ig-tile-badge-clip">▶ CLIP</span>
+          {% else %}
+            <div class="ig-text-tile">{{ (p.caption or 'Text post')[:120] }}</div>
+          {% endif %}
+        </a>
+        {% if search_query %}
+        <a class="ig-search-post-meta" href="/post/{{ p.post_id }}/">
+          <b>@{{ p.username }}</b>
+          <span>{{ (p.caption or 'Post without a caption')[:130] }}</span>
+          {% if p.matched_comment %}
+          <small>💬 Matched comment: {{ p.matched_comment[:90] }}</small>
+          {% endif %}
+        </a>
+        {% endif %}
+      </article>
+      {% else %}
+      <div class="ig-empty-search">
+        <span class="ig-empty-search-icon">🔍</span>
+        <p class="ig-empty-search-title">No safe posts found matching "{{ search_query }}".</p>
+        {% if trending_hashtags %}
+        <p class="ig-empty-search-desc">
+          Try
+          {% for tag in trending_hashtags[:3] %}
+            <a href="/discover/search/?q=%23{{ tag.tag }}">#{{ tag.tag }}</a>{% if not loop.last %}, {% endif %}
+          {% endfor %}.
+        </p>
+        {% else %}
+        <p class="ig-empty-search-desc">Try another caption word, hashtag, creator, category, or approved comment keyword.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var input = document.getElementById('discover-search-input');
+  var box = document.getElementById('search-suggestions-dropdown');
+  var timer = null;
+
+  if (!input || !box) return;
+
+  function iconFor(type) {
+    if (type === 'hashtag') return '🏷️';
+    if (type === 'post') return '🎞️';
+    if (type === 'search') return '🔎';
+    return '👤';
+  }
+
+  function renderSuggestions(items) {
+    box.replaceChildren();
+    if (!items || !items.length) {
+      box.style.display = 'none';
+      return;
+    }
+
+    var list = document.createElement('div');
+    list.className = 'ig-search-suggestions-list';
+    items.forEach(function(item) {
+      var link = document.createElement('a');
+      link.className = 'ig-search-suggestion-item';
+      link.href = item.url;
+
+      var icon = document.createElement('span');
+      icon.className = 'ig-search-suggestion-icon';
+      icon.textContent = iconFor(item.type);
+
+      var meta = document.createElement('div');
+      var label = document.createElement('b');
+      label.className = 'ig-search-suggestion-label';
+      label.textContent = item.label;
+      var sub = document.createElement('small');
+      sub.className = 'ig-search-suggestion-sub';
+      sub.textContent = item.sub || '';
+
+      meta.appendChild(label);
+      meta.appendChild(sub);
+      link.appendChild(icon);
+      link.appendChild(meta);
+      list.appendChild(link);
+    });
+    box.appendChild(list);
+    box.style.display = 'block';
+  }
+
+  input.addEventListener('input', function() {
+    var val = input.value.trim();
+    clearTimeout(timer);
+    if (!val) {
+      renderSuggestions([]);
+      return;
+    }
+    timer = setTimeout(function() {
+      fetch('/api/discover/search-suggestions/?q=' + encodeURIComponent(val), {
+        headers: {'Accept': 'application/json'}
+      })
+        .then(function(r) { return r.ok ? r.json() : {suggestions: []}; })
+        .then(function(data) { renderSuggestions(data.suggestions || []); })
+        .catch(function() { renderSuggestions([]); });
+    }, 250);
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!box.contains(e.target) && e.target !== input) {
+      box.style.display = 'none';
+    }
+  });
+})();
+</script>
+{% endblock %}

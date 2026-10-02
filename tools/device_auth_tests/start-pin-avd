@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# PROFILE B — device-credential-only (PIN/pattern/password, NO biometric).
+# Boots the AVD and sets a PIN screen lock via locksettings, then removes any
+# enrolled biometrics so the prompt must fall back to DEVICE_CREDENTIAL.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+AVD_NAME="${1:-ln_pinonly}"
+PORT="${2:-5556}"
+# Test PIN — not a secret; it only exists inside the disposable emulator.
+TEST_PIN="${TEST_PIN:-1234}"
+
+require_bins
+ensure_avd "$AVD_NAME"
+boot_avd_bg "$AVD_NAME" "$PORT"
+SERIAL="$(serial_for "$PORT")"
+
+echo "Setting PIN screen lock ($TEST_PIN)..."
+"$ADB" -s "$SERIAL" shell locksettings set-pin "$TEST_PIN" >/dev/null \
+  || echo "WARNING: locksettings failed; set the PIN manually in Settings."
+
+echo "Clearing any enrolled biometrics..."
+"$ADB" -s "$SERIAL" shell "cmd fingerprint 2>/dev/null" >/dev/null || true
+
+echo "deviceSecure: $("$ADB" -s "$SERIAL" shell locksettings get-disabled 2>/dev/null | tr -d '\r')"
+cat <<EOF
+
+PROFILE B ready on $SERIAL (PIN=$TEST_PIN, no biometric enrolled)
+-----------------------------------------------------------------
+Run the automated smoke suite:
+    ./run-parent-auth-smoke "$SERIAL" pin
+EOF

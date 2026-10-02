@@ -1,0 +1,58 @@
+name: LittleNet React Native
+
+on:
+  push:
+    branches: [main, react-native-migration]
+    paths:
+      - 'mobile_app/**'
+      - '.github/workflows/react-native.yml'
+  pull_request:
+    paths:
+      - 'mobile_app/**'
+      - '.github/workflows/react-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile_app
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+      - name: Verify Git LFS model artifacts are real binaries
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(git lfs ls-files -n 2>/dev/null || true); do
+            if [ ! -f "$f" ]; then echo "MISSING LFS FILE: $f"; fail=1; continue; fi
+            if head -c 200 "$f" | grep -q "version https://git-lfs.github.com/spec/v1"; then
+              echo "LFS POINTER STUB (not a real binary): $f"; fail=1
+            fi
+          done
+          for f in models/littlenet_core_safety_v2.pth models/littlenet_weapons_violence_v3.pth models/littlenet_text_safety/model.safetensors; do
+            if [ ! -f "$f" ]; then echo "MISSING REQUIRED MODEL: $f"; fail=1; fi
+          done
+          exit $fail
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+          cache-dependency-path: mobile_app/package-lock.json
+      - run: npm ci
+      - name: npm audit (moderate and above, informational)
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+      - name: npm audit gate (fails on high/critical)
+        run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run export:android
+      - run: npx expo install --check

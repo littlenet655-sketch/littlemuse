@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Drive the emulator fingerprint sensor.
+# Usage: ./simulate-fingerprint [serial] [touch|fail] [finger-id]
+#   touch (default) — valid enrolled finger (authenticates)
+#   fail            — invalid finger (triggers onAuthenticationFailed)
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+SERIAL="${1:-emulator-5554}"
+MODE="${2:-touch}"
+FINGER_ID="${3:-1}"
+
+require_bins
+if [ "$MODE" = "fail" ]; then
+  echo "Simulating INVALID fingerprint on $SERIAL ..."
+  "$ADB" -s "$SERIAL" emu finger touch 999
+else
+  echo "Simulating fingerprint touch (id $FINGER_ID) on $SERIAL ..."
+  "$ADB" -s "$SERIAL" emu finger touch "$FINGER_ID"
+fi

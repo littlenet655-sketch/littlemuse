@@ -1,0 +1,134 @@
+name: Build LittleNet Android APK with EAS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-apk]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile_app
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      LIVE_URL: ${{ vars.LITTLENET_LIVE_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+      - name: Verify Git LFS model artifacts are real binaries
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(git lfs ls-files -n 2>/dev/null || true); do
+            if [ ! -f "$f" ]; then echo "MISSING LFS FILE: $f"; fail=1; continue; fi
+            if head -c 200 "$f" | grep -q "version https://git-lfs.github.com/spec/v1"; then
+              echo "LFS POINTER STUB (not a real binary): $f"; fail=1
+            fi
+          done
+          for f in models/littlenet_core_safety_v2.pth models/littlenet_weapons_violence_v3.pth models/littlenet_text_safety/model.safetensors; do
+            if [ ! -f "$f" ]; then echo "MISSING REQUIRED MODEL: $f"; fail=1; fi
+          done
+          exit $fail
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile_app/package-lock.json
+      - name: Require Expo release configuration
+        run: |
+          test -n "$EXPO_TOKEN" || (echo 'Missing EXPO_TOKEN secret' && exit 1)
+          python - <<'PY'
+          import json,os,sys
+          url=os.environ.get('LIVE_URL','').strip().rstrip('/')
+          if not url.startswith('https://') or 'localhost' in url or '127.0.0.1' in url:
+              sys.exit(f'LITTLENET_LIVE_URL must be a public HTTPS backend, got {url!r}')
+          app=json.load(open('app.json',encoding='utf-8')).get('expo',{})
+          owner=str(app.get('owner') or '').strip()
+          project_id=str(((app.get('extra') or {}).get('eas') or {}).get('projectId') or '').strip()
+          package=str((app.get('android') or {}).get('package') or '').strip()
+          if owner != 'akshu1245s-team':
+              sys.exit(f'app.json Expo owner mismatch: {owner!r}')
+          if project_id != 'c4ce834d-fd50-4504-a311-820c3372b6dc':
+              sys.exit(f'app.json EAS projectId mismatch: {project_id!r}')
+          if package != 'com.littlenet.app':
+              sys.exit(f'Android package mismatch: {package!r}')
+          PY
+          curl --connect-timeout 10 --max-time 30 --fail-with-body -sS "${LIVE_URL%/}/api/mobile/v1/health" >/dev/null
+      - run: npm ci
+      - name: Validate mobile source before remote build
+        run: |
+          npm run typecheck
+          npm test
+          npx expo install --check
+      - name: Inject verified backend URL for this build only
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          eas.build.preview = eas.build.preview || {};
+          eas.build.preview.env = { ...(eas.build.preview.env || {}), EXPO_PUBLIC_API_BASE_URL: process.env.LIVE_URL };
+          eas.build.production = eas.build.production || {};
+          eas.build.production.env = { ...(eas.build.production.env || {}), EXPO_PUBLIC_API_BASE_URL: process.env.LIVE_URL };
+          fs.writeFileSync('eas.json', JSON.stringify(eas, null, 2) + '\n');
+          NODE
+      - name: Build current HEAD preview APK and wait for completion
+        run: |
+          set -euo pipefail
+          npx eas-cli@latest build \
+            --platform android \
+            --profile preview \
+            --non-interactive \
+            --wait \
+            --json > ../eas-build.json
+      - name: Extract and download APK artifact
+        working-directory: .
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = JSON.parse(fs.readFileSync('eas-build.json', 'utf8'));
+          const build = Array.isArray(raw) ? raw[0] : raw;
+          if (!build || typeof build !== 'object') throw new Error('EAS build JSON did not contain a build object');
+          const status = String(build.status || '').toUpperCase();
+          if (status !== 'FINISHED') throw new Error(`EAS build did not finish successfully: ${status || 'UNKNOWN'}`);
+          const buildId = String(build.id || '');
+          const buildUrl = String(build.artifacts?.buildUrl || build.artifacts?.applicationArchiveUrl || '');
+          if (!buildId || !buildUrl.startsWith('https://')) throw new Error('EAS build did not expose a downloadable Android artifact');
+          const metadata = {
+            commit_sha: process.env.GIT_SHA,
+            build_id: buildId,
+            status,
+            artifact_url: buildUrl,
+            completed_at: build.completedAt || null,
+            profile: build.buildProfile || 'preview',
+          };
+          fs.writeFileSync('eas-build-metadata.json', JSON.stringify(metadata, null, 2) + '\n');
+          fs.writeFileSync('eas-artifact-url.txt', buildUrl + '\n');
+          NODE
+          curl --fail-with-body --location --retry 3 --retry-all-errors \
+            --output LittleNet-current-main.apk \
+            "$(cat eas-artifact-url.txt)"
+          test -s LittleNet-current-main.apk
+          unzip -t LittleNet-current-main.apk >/dev/null
+          sha256sum LittleNet-current-main.apk | tee LittleNet-current-main.apk.sha256
+      - name: Upload current-HEAD APK evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: littlenet-current-main-apk
+          path: |
+            LittleNet-current-main.apk
+            LittleNet-current-main.apk.sha256
+            eas-build.json
+            eas-build-metadata.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approve Child Account | LittleNet Parent Supervision</title>
+  
+  <meta name="theme-color" content="#7950F2">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
+    
+    body {
+      background: #f8fafc;
+      min-height: 100vh;
+      color: #0f172a;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation */
+    .portal-nav {
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .portal-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-shield {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #7950f2 0%, #9775fa 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 12px rgba(121, 80, 242, 0.25);
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .brand-tag {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: #f3f0ff;
+      color: #7950f2;
+    }
+
+    .main-container {
+      max-width: 680px;
+      margin: 36px auto;
+      padding: 0 16px;
+      width: 100%;
+    }
+
+    .approval-card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 36px 32px;
+      box-shadow: 0 15px 35px -5px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(0,0,0,0.02);
+      border: 1px solid #e2e8f0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .approval-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 6px;
+      background: linear-gradient(90deg, #0095F6, #1D4ED8, #ff6b6b);
+    }
+
+    .card-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #eff6ff;
+      color: #0095F6;
+      border: 1px solid #bfdbfe;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 900;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    /* Verification Badge Banner */
+    .verification-banner {
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      border-radius: 16px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .ver-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .ver-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: #0095F6;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .ver-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #1e3a8a;
+    }
+
+    .ver-sub {
+      font-size: 12px;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    /* Child Details Box */
+    .details-box {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 18px;
+      padding: 20px;
+      margin-bottom: 26px;
+    }
+
+    .details-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 2px;
+    }
+
+    .detail-val {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .notice-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1e40af;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .notice-box i {
+      margin-top: 2px;
+      font-size: 16px;
+    }
+
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 12px;
+    }
+
+    .btn-approve {
+      height: 52px;
+      background: linear-gradient(135deg, #0095F6 0%, #1D4ED8 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 8px 20px rgba(0, 149, 246, 0.3);
+      transition: all 0.2s;
+    }
+
+    .btn-approve:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 25px rgba(0, 149, 246, 0.4);
+    }
+
+    .btn-reject {
+      height: 52px;
+      background: #fee2e2;
+      color: #ef4444;
+      border: 1px solid #fecaca;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-reject:hover {
+      background: #fecaca;
+    }
+
+    .invalid-card {
+      text-align: center;
+      padding: 30px 10px;
+    }
+
+    .invalid-icon {
+      font-size: 48px;
+      color: #f59e0b;
+      margin-bottom: 16px;
+    }
+
+    .btn-portal {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #7950f2;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 14px;
+      margin-top: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <div class="portal-nav">
+    <div class="portal-brand">
+      <div class="brand-shield">
+        <i class="fa-solid fa-shield-halved"></i>
+      </div>
+      <div>
+        <span class="brand-title">LittleNet</span>
+        <span class="brand-tag">Parent Portal</span>
+      </div>
+    </div>
+    <div>
+      <a href="/parent/dashboard/" style="color:#7950f2; font-weight:700; text-decoration:none; font-size:13px;">
+        <i class="fa-solid fa-house"></i> Dashboard
+      </a>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <div class="approval-card">
+      
+      {% if valid %}
+      <div class="card-header">
+        <div class="status-badge">
+          <i class="fa-solid fa-hourglass-half"></i>
+          <span>Pending Parental Approval</span>
+        </div>
+        <h1 class="title">Review Child Account</h1>
+        <p class="subtitle">Confirm supervisory approval for {{ child.full_name }} to activate their profile on LittleNet.</p>
+      </div>
+
+      <!-- Verified Parent Badge -->
+      <div class="verification-banner">
+        <div class="ver-info">
+          <div class="ver-icon">
+            <i class="fa-solid fa-user-check"></i>
+          </div>
+          <div>
+            <div class="ver-title">Parent Identity Verified ({{ verification.status }})</div>
+            <div class="ver-sub">Verified via Live Selfie Anti-Spoofing & Document ID ({{ verification.masked_id }})</div>
+          </div>
+        </div>
+        <div style="color: #0095F6; font-weight: 800; font-size: 13px;">
+          <i class="fa-solid fa-circle-check"></i> Authorized
+        </div>
+      </div>
+
+      <!-- Child Profile Details -->
+      <div class="details-box">
+        <div class="details-title">
+          <i class="fa-solid fa-id-card-clip"></i>
+          <span>Child Profile Summary</span>
+        </div>
+        <div class="details-grid">
+          <div class="detail-item">
+            <span class="detail-label">Full Name</span>
+            <span class="detail-val">{{ child.full_name }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Username</span>
+            <span class="detail-val">@{{ child.username }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Age</span>
+            <span class="detail-val">{{ child.age }} years old</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Registered Child Email</span>
+            <span class="detail-val">{{ child.email }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Registration Date</span>
+            <span class="detail-val">{{ child.created_at.strftime('%b %d, %Y') if child.created_at else 'Recent' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Supervising Parent</span>
+            <span class="detail-val">{{ parent.name }} ({{ parent.email }})</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="notice-box">
+        <i class="fa-solid fa-info-circle"></i>
+        <span>By approving this account, you enable parental supervision tools including AI content filtering, screen time limits, and follower approval requests.</span>
+      </div>
+
+      <!-- Form Actions -->
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="actions-grid">
+          <button type="submit" name="decision" value="APPROVE" class="btn-approve">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>Approve & Activate Account</span>
+          </button>
+          <button type="submit" name="decision" value="REJECT" class="btn-reject" id="declineBtn">
+            <i class="fa-solid fa-ban"></i>
+            <span>Decline</span>
+          </button>
+        </div>
+      </form>
+
+      {% else %}
+      <div class="invalid-card">
+        <div class="invalid-icon">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h2 style="font-size: 22px; font-weight: 800; margin-bottom: 8px;">
+          {% if reason == 'TOKEN_ALREADY_USED' %}
+            Approval Link Already Used
+          {% elif reason == 'TOKEN_EXPIRED' %}
+            Approval Link Expired
+          {% elif reason == 'UNAUTHORIZED_PARENT' %}
+            Unauthorized Access
+          {% elif reason == 'PARENT_NOT_VERIFIED' %}
+            Parent Identity Verification Required
+          {% else %}
+            Invalid Approval Link
+          {% endif %}
+        </h2>
+        <p style="color: #64748b; font-size: 14px; max-width: 440px; margin: 0 auto 16px;">
+          {% if reason == 'TOKEN_ALREADY_USED' %}
+            This child account approval request has already been processed.
+          {% elif reason == 'TOKEN_EXPIRED' %}
+            This approval link has expired. A new verification request must be initiated.
+          {% elif reason == 'UNAUTHORIZED_PARENT' %}
+            You are logged into a parent account that is not linked to this child registration.
+          {% elif reason == 'PARENT_NOT_VERIFIED' %}
+            You must complete parent identity verification before you can approve a child account.
+          {% else %}
+            This approval token is invalid or no longer exists.
+          {% endif %}
+        </p>
+        <a href="/parent/dashboard/" class="btn-portal">Go to Parent Dashboard</a>
+      </div>
+      {% endif %}
+
+  <script>
+    document.getElementById('declineBtn')?.addEventListener('click', function(e) {
+      if (!confirm('Are you sure you want to decline this registration?')) {
+        e.preventDefault();
+      }
+    });
+  </script>
+</body>
+</html>

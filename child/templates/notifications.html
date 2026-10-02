@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block title %}Notifications | LittleNet{% endblock %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="ig-notif-container">
+
+  <header class="ig-notif-header">
+    <div class="ig-notif-top-row">
+      <div class="ig-notif-title-wrap">
+        <a href="/child/dashboard/" class="ig-notif-back-btn" aria-label="Back to Home">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </a>
+        <h1 class="ig-notif-heading">Notifications</h1>
+      </div>
+
+      {% if items %}
+      <form method="post" action="/notifications/read/" class="ig-notif-read-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="ig-notif-read-btn">Mark all read</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="ig-notif-pills-row" role="tablist" aria-label="Notification filters">
+      <button type="button" class="ig-filter-pill active" data-notif-filter="all" role="tab" aria-selected="true">All</button>
+      <button type="button" class="ig-filter-pill" data-notif-filter="people" role="tab" aria-selected="false">Friends</button>
+      <button type="button" class="ig-filter-pill" data-notif-filter="comments" role="tab" aria-selected="false">Comments</button>
+      <button type="button" class="ig-filter-pill" data-notif-filter="follows" role="tab" aria-selected="false">Friend requests</button>
+    </div>
+  </header>
+
+  {% if pending_requests %}
+  <section class="ig-notif-section ig-follow-requests-pinned">
+    <div class="ig-section-title-row">
+      <span class="ig-section-title">
+        Parent-managed friend requests
+        <span class="ig-badge-count">{{ pending_requests|length }}</span>
+      </span>
+      <span class="ig-section-badge">Parent approval required</span>
+    </div>
+
+    <div class="ig-pending-cards">
+      {% for req in pending_requests %}
+      <div class="ig-pending-card">
+        <div class="ig-pending-info">
+          <a href="/child/view-profile/{{ req.requester_id }}/" class="ig-avatar-ring-wrap">
+            <div class="ig-ring-gradient">
+              <img src="/{{ req.profile_picture or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="{{ req.full_name }}" class="ig-notif-avatar">
+            </div>
+          </a>
+          <div class="ig-pending-text">
+            <a href="/child/view-profile/{{ req.requester_id }}/" class="ig-bold-user">{{ req.username }}</a>
+            <span class="ig-sub-text">{{ req.full_name }} &bull; waiting for parent approval</span>
+          </div>
+        </div>
+
+        <div class="ig-pending-btns">
+          <span class="ig-section-badge">Parents decide</span>
+          <form method="post" action="/child/follow-requests/{{ req.requester_id }}/decline/" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="ig-btn-delete">Cancel / hide</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if items %}
+
+    {% macro render_row(n) %}
+    <div class="ig-notif-item" data-notif-item data-notif-category="{{ n.filter_category }}" {% if n.actor_id %}data-actor-id="{{ n.actor_id }}"{% endif %}>
+      <div class="ig-notif-left">
+        <a href="{% if n.actor_id %}/child/view-profile/{{ n.actor_id }}/{% else %}#{% endif %}" class="ig-avatar-ring-wrap">
+          <div class="{% if not n.is_read %}ig-ring-gradient{% else %}ig-ring-subtle{% endif %}">
+            <img src="/{{ n.actor_avatar or 'uploads/profile_pictures/download.webp' }}" data-hide-error alt="User" class="ig-notif-avatar">
+          </div>
+        </a>
+        <div class="ig-notif-content">
+          <p class="ig-notif-body">
+            {% if n.actor_username %}
+              <a href="/child/view-profile/{{ n.actor_id }}/" class="ig-bold-user">{{ n.actor_username }}</a>
+            {% elif n.actor_name %}
+              <span class="ig-bold-user">{{ n.actor_name }}</span>
+            {% endif %}
+            <span class="ig-action-text">{{ n.action_text or n.message }}</span>
+            <span class="ig-notif-timestamp">{{ n.time_ago }}</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="ig-notif-right">
+        {% if n.thumbnail %}
+          <a href="{{ n.target_url or '#' }}" class="ig-thumb-link" aria-label="View post">
+            <img src="/{{ n.thumbnail }}" data-hide-error alt="Post preview" class="ig-post-thumb">
+          </a>
+        {% elif n.target_url %}
+          <a href="{{ n.target_url }}" class="ig-link-view" aria-label="Open">
+            {{ ico.icon('arrow-right', 16) }}
+          </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endmacro %}
+
+    {% if sections.today %}
+    <section class="ig-notif-section" data-section-group="today">
+      <h2 class="ig-time-heading">Today</h2>
+      <div class="ig-notif-group">{% for n in sections.today %}{{ render_row(n) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+
+    {% if sections.yesterday %}
+    <section class="ig-notif-section" data-section-group="yesterday">
+      <h2 class="ig-time-heading">Yesterday</h2>
+      <div class="ig-notif-group">{% for n in sections.yesterday %}{{ render_row(n) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+
+    {% if sections.this_week %}
+    <section class="ig-notif-section" data-section-group="this_week">
+      <h2 class="ig-time-heading">This week</h2>
+      <div class="ig-notif-group">{% for n in sections.this_week %}{{ render_row(n) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+
+    {% if sections.earlier %}
+    <section class="ig-notif-section" data-section-group="earlier">
+      <h2 class="ig-time-heading">Earlier</h2>
+      <div class="ig-notif-group">{% for n in sections.earlier %}{{ render_row(n) }}{% endfor %}</div>
+    </section>
+    {% endif %}
+
+  {% elif not pending_requests %}
+    <div class="ig-notif-empty">
+      <div class="ig-empty-heart-circle">{{ ico.icon('heart', 36) }}</div>
+      <h2 class="ig-empty-heading">Activity on your posts</h2>
+      <p class="ig-empty-sub">When approved friends like or comment on your safe posts, or a parent-managed friend request changes, you'll see it here.</p>
+    </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+
+<div class="dashboard-title">
+  <div>
+    <span class="eyebrow">Safety Operations &amp; Enforcement</span>
+    <h2>Moderation Console</h2>
+    <p class="text-muted">Parents normally decide REVIEW items. Admin can force-block but cannot bypass adult/weapon hard blocks.</p>
+  </div>
+</div>
+
+<div class="admin-table-list">
+  {% for e in events %}
+  <article class="admin-row" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap;">
+    <div class="admin-row-main" style="display: flex; align-items: flex-start; gap: 12px;">
+      <span class="decision-chip {{ e.decision | lower }}" style="margin-top: 2px;">
+        {{ e.decision }}
+      </span>
+      <div>
+        <b style="font-size: 14px; color: #0F172A;">
+          {{ e.content_type }} · {{ e.full_name or 'Unknown Child' }}
+        </b>
+        <p style="margin: 3px 0 0; font-size: 13px; color: #475569;">{{ e.reason }}</p>
+        <small style="color: #94A3B8; font-size: 11px;">{{ e.created_at }} · {{ e.status }}</small>
+      </div>
+    </div>
+
+    <div class="admin-signals" style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <span class="decision-chip review" style="font-size: 11px;">Risk <b>{{ e.risk_score | round | int }}%</b></span>
+      <span class="decision-chip block" style="font-size: 11px;">Adult <b>{{ e.adult_score | round | int }}%</b></span>
+      <span class="decision-chip block" style="font-size: 11px;">Weapon <b>{{ e.weapon_score | round | int }}%</b></span>
+      <span class="decision-chip review" style="font-size: 11px;">Toxicity <b>{{ e.toxicity_score | round | int }}%</b></span>
+    </div>
+
+    <div style="display: flex; gap: 8px; align-items: center;">
+      {% if e.decision == 'REVIEW' and e.status == 'OPEN' %}
+      <form method="post" action="/admin/moderation/{{ e.event_id }}/block/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger" style="font-size: 12px; padding: 6px 12px;">Moderator Block</button>
+      </form>
+      {% endif %}
+
+      {% if e.content_id and e.content_type in ['IMAGE','VIDEO','AUDIO','TEXT'] %}
+      <form method="post" action="/admin/post/{{ e.content_id }}/remove/" style="margin: 0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn danger" style="font-size: 12px; padding: 6px 12px;">Remove post</button>
+      </form>
+      {% endif %}
+    </div>
+  </article>
+  {% else %}
+  <div class="parent-empty" style="text-align: center; padding: 48px 20px; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 18px;">
+    <div style="width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px; background: #EFF6FF; color: #0095F6; display: grid; place-items: center;">
+      {{ ico.icon('shield', 32) }}
+    </div>
+    <h3 style="font-size: 18px; margin: 0 0 6px;">No Moderation Events</h3>
+    <p style="color: #64748B; font-size: 13px; margin: 0;">All real-time multimodal safety checks are operating nominally.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

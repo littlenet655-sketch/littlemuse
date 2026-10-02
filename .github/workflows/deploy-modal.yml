@@ -1,0 +1,159 @@
+name: Deploy & Validate LittleNet Live
+
+# Modal deployment is intentionally manual. Automatic deploys on every main
+# push previously rebuilt/restarted cloud services and could trigger GPU warmup
+# repeatedly, consuming Starter credits without a user actually testing AI.
+# Tracked contract paths for live release auditing:
+# - 'auth/**'
+# - 'mailg/**'
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.release/deploy-live.txt'
+  workflow_dispatch:
+    inputs:
+      live_url:
+        description: Public HTTPS LittleNet backend URL
+        required: false
+        type: string
+      migrate_database:
+        description: Apply reviewed dbmate deltas to a retained release database
+        required: true
+        type: boolean
+        default: false
+      warm_ai_models:
+        description: Run the expensive one-time T4 model warmup after deploy
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  LIVE_URL: ${{ inputs.live_url || vars.LITTLENET_LIVE_URL }}
+  LITTLENET_WEB_MODAL_APP: littlemuse-web
+  LITTLENET_AI_MODAL_APP: littlemuse-ai
+  LITTLENET_WEB_SECRET: littlemuse-web-secrets
+  LITTLENET_AI_SECRET: littlemuse-ai-secrets
+  LITTLENET_UPLOADS_VOLUME: littlemuse-uploads
+  LITTLENET_MODEL_CACHE_VOLUME: littlenet-model-cache
+  LITTLENET_R2_SECRET: littlenet-r2
+  LITTLENET_EMAIL_SECRET: littlenet-email
+  LITTLENET_R2_WRITE_PREFIX: littlemuse
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+      - name: Verify Git LFS model artifacts are real binaries
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(git lfs ls-files -n 2>/dev/null || true); do
+            if [ ! -f "$f" ]; then echo "MISSING LFS FILE: $f"; fail=1; continue; fi
+            if head -c 200 "$f" | grep -q "version https://git-lfs.github.com/spec/v1"; then
+              echo "LFS POINTER STUB (not a real binary): $f"; fail=1
+            fi
+          done
+          for f in models/littlenet_core_safety_v2.pth models/littlenet_weapons_violence_v3.pth models/littlenet_text_safety/model.safetensors; do
+            if [ ! -f "$f" ]; then echo "MISSING REQUIRED MODEL: $f"; fail=1; fi
+          done
+          exit $fail
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade "modal>=1.5,<2"
+      - name: Validate URL and Modal credentials
+        run: |
+          python - <<'PY'
+          import os,sys
+          url=os.environ.get('LIVE_URL','').strip().rstrip('/')
+          if not url.startswith('https://') or 'localhost' in url or '127.0.0.1' in url:
+              sys.exit(f'LIVE_URL must be a public HTTPS deployment, got {url!r}')
+          PY
+          test -n "$MODAL_TOKEN_ID"
+          test -n "$MODAL_TOKEN_SECRET"
+          modal token info
+      - name: Stage trained moderation models into the Modal volume
+        run: python tools/stage_model_volume.py
+      - name: Verify web/AI release identity and shared secret parity without GPU
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --secret-preflight | tee ai-secret-preflight.log
+          modal run modal_web.py --secret-preflight | tee web-secret-preflight.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def report(path):
+              for line in Path(path).read_text(encoding="utf-8").splitlines():
+                  if line.startswith("secret-preflight "):
+                      return json.loads(line.split(" ", 1)[1])
+              raise SystemExit(f"Missing secret-preflight report in {path}")
+
+          ai = report("ai-secret-preflight.log")
+          web = report("web-secret-preflight.log")
+          if not ai.get("present") or not web.get("present"):
+              raise SystemExit("AI_SHARED_SECRET is missing from one release secret")
+          if ai.get("fingerprint") != web.get("fingerprint"):
+              raise SystemExit("AI_SHARED_SECRET mismatch between AI and web release secrets")
+          if not web.get("ai_service_url_matches_expected"):
+              raise SystemExit("AI_SERVICE_URL does not target the expected LittleMuse AI app")
+          PY
+      - name: Validate retained database migration history
+        run: modal run modal_web.py --migration-status-check
+      - name: Apply reviewed pending dbmate migrations
+        if: ${{ inputs.migrate_database }}
+        run: modal run modal_web.py --migrate-db
+      - name: Require database schema current for this release
+        run: modal run modal_web.py --require-db-current
+      - run: modal deploy modal_ai.py
+      - run: modal deploy modal_web.py
+      - run: modal run modal_web.py --seed
+      - name: Verify trained image ensemble is staged and loadable
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --trained-image-preflight-only
+      - name: Verify trained text classifier is staged and loadable
+        run: |
+          set -euo pipefail
+          modal run modal_ai.py --trained-text-preflight-only
+      - name: Warm and validate every locked-scope AI model
+        if: ${{ inputs.warm_ai_models }}
+        run: modal run modal_ai.py --confirm-gpu-warmup
+      - name: Run DB, AI, Presidio, mail, R2 and BASE_URL preflight
+        run: modal run modal_web.py --preflight
+      - name: Validate public readiness and mobile API
+        run: |
+          set -euo pipefail
+          URL="${LIVE_URL%/}"
+          curl --connect-timeout 10 --max-time 30 --fail-with-body -sS "$URL/healthz" | tee healthz.json
+          curl --connect-timeout 10 --max-time 90 --fail-with-body -sS "$URL/readyz" | tee readyz.json
+          curl --connect-timeout 10 --max-time 60 --fail-with-body -sS "$URL/api/mobile/v1/health" | tee mobile-health.json
+          python - <<'PY'
+          import json
+          ready=json.load(open('readyz.json',encoding='utf-8'))
+          mobile=json.load(open('mobile-health.json',encoding='utf-8'))
+          if ready.get('status') != 'ready': raise SystemExit(f'Not ready: {ready}')
+          if mobile.get('ok') is not True or mobile.get('client') != 'react-native':
+              raise SystemExit(f'Mobile API identity mismatch: {mobile}')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: littlenet-live-release-evidence
+          path: |
+            healthz.json
+            readyz.json
+            mobile-health.json
+          if-no-files-found: ignore
+          retention-days: 14

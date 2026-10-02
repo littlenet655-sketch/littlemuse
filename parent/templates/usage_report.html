@@ -1,0 +1,7 @@
+{% extends 'parent_base.html' %}
+{% block content %}
+{% import '_icons.html' as ico %}
+<style>.sub-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:18px}.usage-list{display:grid;gap:10px}.usage-row{display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:12px}.usage-track{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden}.usage-fill{height:100%;width:72%;border-radius:999px;background:#0095f6}.usage-min{font-weight:800;color:#0f172a}@media(max-width:600px){.usage-row{grid-template-columns:1fr}.usage-track{width:100%}}</style>
+<div class="sub-head"><div><h2 style="margin:0;">7-day usage report</h2><p class="text-muted">Daily screen-time history for the selected child.</p></div><a class="btn outline" href="/parent/time-limit/?child_id={{ child_id }}">Manage limit</a></div>
+<div class="usage-list">{% for r in rows %}<article class="parent-card usage-row"><div><b>{{ r.usage_date }}</b></div><div class="usage-track" aria-hidden="true"><div class="usage-fill"></div></div><div class="usage-min">{{ r.total_minutes }} min</div></article>{% else %}<div class="parent-card" style="text-align:center;padding:28px;"><b>No usage recorded yet</b><p class="text-muted">Usage appears after the child starts using Kids Mode.</p></div>{% endfor %}</div>
+{% endblock %}
