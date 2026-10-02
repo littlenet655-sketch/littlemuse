@@ -25,7 +25,8 @@ def reconcile_pending_deletes(limit: int = 20) -> dict:
         limit = 20
     rows = fetch_all(
         """SELECT outbox_id,reference FROM media_delete_outbox
-           WHERE completed_at IS NULL ORDER BY created_at,outbox_id LIMIT %s""",
+           WHERE completed_at IS NULL AND attempts < 8
+           ORDER BY created_at,outbox_id LIMIT %s""",
         (limit,),
     )
     completed = 0
