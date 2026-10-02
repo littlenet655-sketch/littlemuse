@@ -5,7 +5,7 @@ from decorators import child_required
 from child.service import *
 from services.social import visible_posts,active_stories,story_visible_to,parent_notify,visible_profile_posts,can_interact,_age_group,post_visible_to
 from services.usage import lock_state,heartbeat,minutes_today,start_session,close_session
-from database.connection import execute,fetch_one,fetch_all
+from database.connection import execute,fetch_one,fetch_all,database_aware
 from safety.moderation_service import evaluate,record
 from services.audit import log
 from services.controls import quiet_hours_state,effective_categories
@@ -282,7 +282,7 @@ def notifications():
             if clean_msg.startswith(prefix):clean_msg=clean_msg[len(prefix):];break
         item['action_text']=clean_msg;created=item.get('created_at');time_str='1m';group='earlier'
         if created:
-            delta=(now-created) if hasattr(created,'tzinfo') and created.tzinfo is not None else (datetime.datetime.utcnow()-created)
+            delta=now-database_aware(created)
             secs=max(0,int(delta.total_seconds()));days=delta.days
             if secs<60:time_str=f"{secs}s";group='today'
             elif secs<3600:time_str=f"{secs//60}m";group='today'

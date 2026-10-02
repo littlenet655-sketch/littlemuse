@@ -1,6 +1,6 @@
 import threading
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
 from database.connection import fetch_one, fetch_all, execute
@@ -74,7 +74,10 @@ def record_vocabulary_attempt(child_id: int, word: str, language: str, is_correc
     if not word or not language:
         return
 
-    now = datetime.now()
+    # Aware UTC: next_review_due is a naive TIMESTAMP compared against NOW() in
+    # the APP_TIMEZONE session; a naive datetime.now() (container-local, UTC on
+    # Modal) would be stored as APP_TIMEZONE wall-clock and delay reviews.
+    now = datetime.now(timezone.utc)
     existing = fetch_one(
         'SELECT * FROM child_vocabulary_progress WHERE child_id=%s AND word=%s AND language=%s',
         (child_id, word, language)

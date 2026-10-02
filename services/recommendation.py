@@ -200,7 +200,10 @@ def _recency_score(item: dict[str, Any]) -> float:
         else:
             created = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
+            # Naive values come from legacy TIMESTAMP columns, i.e. the DB
+            # session timezone (APP_TIMEZONE), not UTC.
+            from database.connection import database_aware
+            created = database_aware(created)
         age_days = max(0.0, (datetime.now(timezone.utc) - created.astimezone(timezone.utc)).total_seconds() / 86400.0)
         return 1.5 * math.exp(-age_days / 14.0)
     except (TypeError, ValueError, OverflowError):

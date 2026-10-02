@@ -89,6 +89,21 @@ def _database_timezone() -> str:
     return raw
 
 
+def database_aware(value):
+    """Attach the DB session timezone to a naive value read from a legacy TIMESTAMP column.
+
+    psycopg2 returns naive datetimes for TIMESTAMP (without time zone) columns;
+    their wall-clock is in the session timezone (APP_TIMEZONE), not UTC. Aware
+    values and non-datetimes are returned unchanged.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=ZoneInfo(_database_timezone()))
+    return value
+
+
 def _connect_kwargs() -> dict:
     return {
         "cursor_factory": __import__("psycopg2.extras", fromlist=["RealDictCursor"]).RealDictCursor,

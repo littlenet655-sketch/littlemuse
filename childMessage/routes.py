@@ -1,7 +1,7 @@
 import os,uuid
 from flask import Blueprint,render_template,request,session,jsonify
 from decorators import child_required
-from database.connection import fetch_all,fetch_one,execute
+from database.connection import fetch_all,fetch_one,execute,database_aware
 from services.social import can_interact,parent_notify,post_visible_to,notify
 from childMessage.service import conversation,messages
 from config import Config
@@ -54,8 +54,7 @@ def list_messages():
             c['is_unread'] = (not is_mine and not last_msg.get('is_seen'))
             sent = last_msg.get('sent_at')
             if sent:
-                if hasattr(sent, 'tzinfo') and sent.tzinfo is not None:delta = now - sent
-                else:delta = datetime.datetime.utcnow() - sent
+                delta = now - database_aware(sent)
                 secs = max(0, int(delta.total_seconds()))
                 if secs < 60:c['time_ago'] = 'just now'
                 elif secs < 3600:c['time_ago'] = f"{secs // 60}m"
