@@ -1,5 +1,9 @@
 # Curated Media Readiness
 
+**CURRENT FINAL RELEASE RESULT:** still true on `f4be262` — 0 local videos, so
+no codec table exists. Delivery re-encode target in source is unchanged
+(MP4 / H.264 / `yuv420p`). Live R2 Reel ffprobe remains an external requirement.
+
 ## Local ffprobe audit
 
 Tooling: `ffprobe` and `ffmpeg` 9.0.1 (gyan.dev essentials build) are installed, so the probe could run. There was nothing to probe.

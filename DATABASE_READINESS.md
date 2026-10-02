@@ -1,10 +1,34 @@
 # LittleNet Database / Neon Readiness
 
-Authoritative database readiness record. Derived from source at the commit that
-introduced this file (parent `e55a628`). No live database, Neon, R2 or Modal
-contact was made. Each statement is tagged **EXECUTED** (run in this session),
-**SOURCE** (read from code, not run) or **NOT EXECUTED** (needs an environment
-that did not exist here).
+## CURRENT FINAL RELEASE RESULT (2026-10-02, technical baseline `f4be262`)
+
+A disposable Docker `pgvector/pgvector:pg16` database was brought up, migrated
+from zero, used for the final local regression, and torn down.
+
+| Item | Result |
+|---|---|
+| Docker | 29.7.2 |
+| Image | `pgvector/pgvector:pg16` |
+| PostgreSQL | **16.15** |
+| pgvector | **0.8.7** |
+| Port | `127.0.0.1:55432` (disposable; container removed afterward) |
+| Bootstrap | `python tools/init_db.py` then `dbmate --no-dump-schema --migrations-dir db/migrations up` |
+| Migrations | **42 applied / 0 pending** |
+| DB-backed focused tests | **31 passed / 0 failed** |
+| Full backend | **885 passed / 1 skipped / 0 failed** |
+| Live Neon | **NOT CONTACTED** — EXTERNAL REQUIREMENT |
+
+The sections below retain the earlier source analysis (commit that introduced
+this file, parent `e55a628`). Tags such as **NOT EXECUTED** in those sections
+are **HISTORICAL RESULT** for that writing session. They are superseded by the
+disposable-PG run above wherever they conflict.
+
+---
+
+Authoritative source analysis (historical session). Each historical statement
+is tagged **EXECUTED** (run in that session), **SOURCE** (read from code, not
+run) or **NOT EXECUTED** (needed an environment that did not exist in that
+session). No production Neon, R2 or Modal contact was made in either session.
 
 ## 1. Architecture
 
@@ -24,7 +48,7 @@ that did not exist here).
 `config.py`: in production (HTTPS/`_PRODUCTION`) an empty `DATABASE_URL` raises
 `RuntimeError("Production DATABASE_URL must be explicitly configured")`. Outside
 production the fallback is `postgresql://postgres:littlenet@localhost:5432/safeconnect_db`
-(documented in `release_docs/KNOWN_LIMITATIONS.md` item 8). `.env.example` ships
+(development fallback only; production must set `DATABASE_URL`). `.env.example` ships
 `...?sslmode=require`. CI uses `sslmode=disable` against a local service container.
 No code-level `sslmode`/`connect_timeout`/`statement_timeout` default exists; they
 must come from the URL (see section 7).
@@ -63,7 +87,12 @@ Retained (Neon) database via Modal (`modal_web.py`, `.github/workflows/deploy-mo
 
 Docker (`docker-entrypoint.sh`): `python tools/init_db.py` (idempotent) -> hard-fail if `dbmate` missing -> `dbmate up` -> `tools/seed_quizzes.py` -> gunicorn (1 worker, 4 threads). The Modal web function does **not** migrate at container start; migration is a separate pre-deploy step.
 
-Execution status: **NOT EXECUTED** (no PostgreSQL, `dbmate`, `psql` or Docker daemon locally; `where psql pg_isready dbmate` found none, Docker daemon down, no `.env.disposable`). Historical Claude-session evidence only: PG16 + pgvector, 42 migrations applied on a fresh DB, backend 783 passed / 2 skipped / 0 failed - not re-verified in this task.
+Execution status for the **historical** writing of this section: **NOT EXECUTED**
+in that session. **CURRENT FINAL RELEASE RESULT** (later, `f4be262`): disposable
+PostgreSQL 16.15 + pgvector 0.8.7, **42/42** migrations from zero, backend
+**885 passed / 1 skipped / 0 failed**. Live Neon remains **NOT CONTACTED**.
+Historical Claude-session counts such as 783 passed / 2 skipped are
+**HISTORICAL RESULT** only.
 
 ## 4. Schema / index review (SOURCE)
 
@@ -134,7 +163,14 @@ Existing tests (cited, **NOT EXECUTED** here because most need Postgres): `tests
 
 ## 8. Local DB test environment
 
-Probe (EXECUTED): no `psql`, `pg_isready`, `dbmate`, PostgreSQL service/port, or running Docker daemon; no `.env.disposable`. No installs were attempted. All DB-backed tests are **NOT EXECUTED / EXTERNAL LOCAL SETUP REQUIRED**.
+**CURRENT FINAL RELEASE RESULT:** disposable `pgvector/pgvector:pg16` on
+`127.0.0.1:55432` was used for the 31 focused DB tests and the full 885-test
+backend suite, then removed. Historical probe text below is from the earlier
+session that lacked Docker.
+
+Historical probe (EXECUTED in that session only): no `psql`, `pg_isready`,
+`dbmate`, PostgreSQL service/port, or running Docker daemon; no `.env.disposable`.
+That session's DB-backed tests were **NOT EXECUTED**.
 
 Commands for the final regression phase (disposable DB only, never a remote host):
 

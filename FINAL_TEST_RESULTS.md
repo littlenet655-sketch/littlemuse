@@ -1,5 +1,9 @@
 # LittleNet — Final Test Results (merged tree)
 
+> **HISTORICAL RESULT** (2026-09-21; 567 backend / 21 migrations / 173 mobile).
+> **CURRENT FINAL RELEASE RESULT:** `release_docs/TEST_RESULTS.md` —
+> 885 passed / 1 skipped / 0 failed backend; 281 mobile; 42/42 migrations.
+
 **Date:** 2026-09-21. All runs on the final merged tree (commit B working tree), not on crew baselines.
 
 ## Backend (Python / pytest, `~/workspace/.venv-safety`)

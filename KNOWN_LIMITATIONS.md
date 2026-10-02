@@ -1,5 +1,9 @@
 # LittleNet — Current Known Limitations
 
+> **HISTORICAL RESULT** (22 September 2026). For the **CURRENT FINAL RELEASE**
+> residual list use `release_docs/KNOWN_LIMITATIONS.md`. This file is retained
+> as prior evidence and must not be cited as the RC gate.
+
 _Last re-audited: 22 September 2026._
 
 This file lists only limitations that remain after the final React Native/mobile API hardening pass. Older gaps such as conversation pagination, social notifications, native post/story deletion, story avatar normalization, and child face authentication are not current gaps.

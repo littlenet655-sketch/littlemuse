@@ -1,7 +1,34 @@
 # LittleNet Security Audit — Master Record
 
+## CURRENT FINAL RELEASE ADDENDUM — 2026-10-02, `release-candidate` @ `f4be262`
+
+This report remains the **historical** 4-team audit record (2026-09-22) plus the
+2026-10-02 mid-RC addendum. Current source and the `f4be262` local regression
+are authoritative. This packaging pass did not rerun a broad security audit.
+
+| Current release fact | Value |
+|---|---|
+| Technical baseline | `f4be262` |
+| Backend | 885 passed / 1 skipped / 0 failed |
+| Mobile | 281 passed / 0 failed |
+| Status | **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS** |
+| Live production scan | **NOT EXECUTED** (no Neon/R2/Resend/Modal contact) |
+| CI-only scanners locally | **NOT RUN** — `pip-audit`, `bandit`, `gitleaks` (not source failures) |
+
+Current residuals that are still true (see `release_docs/KNOWN_LIMITATIONS.md`):
+forgot-password response shape (deferred); parent resend HTTP 503 for
+cooldown/already-verified; no hashed pip `--require-hashes`; custom model
+files are Git LFS pointers; discover/suggested per-row follow lookups.
+
+T1-007 (per-account login throttle) and T2-NEW-001 (exact AI/text/safety pins)
+in the historical to-do list were **already fixed later in source** (see the
+2026-10-02 addendum). Historical appendix counts (563 backend / 207 mobile)
+are **HISTORICAL RESULT** only.
+
+---
+
 **Audit head:** `2ccee76` ("docs: refresh final deployment checklist") — freshest pushed `origin/main` at audit start.
-**Fix commit (local, NOT pushed):** `35b5c1e` "fix(security): 4-team audit remediation — SHA-pin Actions, dbmate checksum, text-length caps, chat limit bound".Security 
+**Fix commit (local, NOT pushed):** `35b5c1e` "fix(security): 4-team audit remediation — SHA-pin Actions, dbmate checksum, text-length caps, chat limit bound".
 **Audit date:** 2026-09-22.
 **Repo:** `~/workspace/littlemuse` — child-safe social platform (React Native/Expo mobile + Flask web + PostgreSQL + Modal AI tier + Cloudflare R2 media). Children use parent-created password login; parents use Android system authentication (no face auth anywhere — fully removed 2026-09-22).
 

@@ -1,5 +1,8 @@
 # LittleNet Known Limitations
 
+> **HISTORICAL RESULT** (22 September 2026). Current RC residuals:
+> `release_docs/KNOWN_LIMITATIONS.md`. Current identity: `RELEASE_IDENTITY.md`.
+
 _Last re-audited: 22 September 2026_
 
 This file records only limitations that are still real on the current React Native/Flask architecture. Historical audit notes are not release evidence.

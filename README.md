@@ -1,12 +1,12 @@
 # LittleNet — Child-Safe Social & Learning Platform
 
-> Canonical setup and local-development guide for the LittleMuse repository.
+LittleNet is a child-safe social and learning application for children aged 6–16. It combines a familiar Instagram-style social experience with parent-owned controls, approved relationships, learning/quiz gates, private media handling, and server-side content moderation.
 
-LittleNet is a child-safe social and learning platform for children aged 6–16. The project combines a familiar social experience with parent-owned controls, approved relationships, learning/quiz gates, private media handling, and server-side content moderation.
+The active native client is React Native + Expo in `mobile_app/` only (package `com.littlenet.app`, version **1.0.2**, versionCode **3**). There is no WebView wrapper and no second mobile root. Authentication, moderation, parent controls, screen time, quiet hours, relationships, Parent Review, and publication stay in the Flask backend.
 
-The active native client is React Native + Expo in mobile_app/. The authority for authentication, moderation, parent controls, screen time, quiet hours, relationships, safety review, and publication remains in the Flask backend.
+This README is the starting point for a fresh clone. A new developer should be able to bring up the backend, database, web UI, and mobile development client by following Local Setup in order.
 
-This README is the starting point for a fresh clone. A new developer should be able to bring up the backend, database, web UI, and mobile development client by following the Local Setup section in order.
+**CURRENT FINAL RELEASE RESULT** (technical baseline `f4be262` on branch `release-candidate`): backend **885 passed / 1 skipped / 0 failed**; mobile **281 passed / 0 failed**; TypeScript passed; Expo Doctor 21/21; Android export passed; **42/42** migrations from zero on disposable PostgreSQL **16.15** + pgvector **0.8.7**. Status: **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**. This package is **not** fully production verified. Live Neon / R2 / Resend / Modal, an EAS cloud APK, and physical-device tests were not run from this exact source.
 
 ---
 
@@ -21,7 +21,7 @@ This README is the starting point for a fresh clone. A new developer should be a
 | AI / moderation | Server-side deterministic checks + text/image/video moderation; Modal is the production compute tier |
 | Email | Resend in deployed environments; console-visible development OTP is available locally |
 | Database migrations | Legacy baseline bootstrap + dbmate migrations |
-| Android package | com.littlenet.app |
+| Android package | com.littlenet.app, version 1.0.2, versionCode 3 |
 
 The top-level requirements.txt is retained for compatibility, but the pinned split requirement files are the canonical dependency source for current development:
 
@@ -82,7 +82,7 @@ Install these before starting:
 | Python | 3.11 |
 | Node.js | 22.13.0 or newer |
 | npm | Version bundled with supported Node |
-| PostgreSQL | 16 with pgvector support |
+| PostgreSQL | 16 with pgvector (verified locally: PostgreSQL 16.15, pgvector 0.8.7) |
 | dbmate | 2.34.1 |
 | FFmpeg | Current stable |
 | Docker | Optional, but recommended for the local PostgreSQL database |
@@ -116,7 +116,7 @@ git lfs ls-files
 
 Git LFS is required because trained model artifacts are not stored as ordinary Git blobs.
 
-The current CI specifically expects real binaries for model artifacts including:
+The current CI and the trained-model loader specifically expect **real binaries** for:
 
 ~~~text
 models/littlenet_core_safety_v2.pth
@@ -124,13 +124,18 @@ models/littlenet_weapons_violence_v3.pth
 models/littlenet_text_safety/model.safetensors
 ~~~
 
+**In this release package those three files are GIT LFS POINTERS ONLY (133–134 bytes).**
+They are not trained weight files. `safety/model_files.py` rejects pointer files so they cannot be loaded as staged checkpoints. **The actual trained payload must be pulled with Git LFS before AI inference deployment.**
+
 If one of those files contains text beginning with:
 
 ~~~text
 version https://git-lfs.github.com/spec/v1
 ~~~
 
-then you have an LFS pointer instead of the actual model. Run git lfs pull again after confirming Git LFS is installed and authenticated.
+then you still have a pointer. Run `git lfs pull` after Git LFS is installed and authenticated.
+
+Do not confuse those custom checkpoints with `yolov8n.pt` and `yolov8n-oiv7.pt` at the repository root. Those YOLO files **are present in this tree as real Ultralytics weights**. They are generic COCO / Open Images detectors, not custom LittleNet-trained checkpoints.
 
 ---
 
@@ -530,9 +535,54 @@ media-processing work runs locally and synchronously, which makes localhost debu
 
 Production never silently falls back to this local path.
 
+See `R2_STORAGE_MAP.md` for object keys, authorization, and delete-outbox behaviour.
+See `MODERATION_PIPELINE.md` for ALLOW / REVIEW / BLOCKED and model-weight status.
+
 ---
 
-## 16. Optional demo accounts
+## 16. Moderation, Parent Review, and Reel quiz latch
+
+### Moderation
+
+New child media is not published because it was uploaded. The worker sanitizes,
+then evaluates media plus caption. Fail-closed: missing safety evidence becomes
+REVIEW or BLOCK, never a silent allow. Production image/text checks use bounded
+Modal CPU functions where configured; video uses the capped visual path.
+
+### Parent Review
+
+Parent and Admin review is server-authorized. REVIEW bytes stay private (signed
+preview or authenticated proxy). BLOCKED content is not delivered. An APPROVE
+cannot resurrect a terminal BLOCKED post. A live Parent Review event was **not**
+exercised against production in this package.
+
+### Reel quiz latch
+
+While a child's quiz latch is active, reel playback on
+`/api/mobile/v2/media/playback` and `/api/mobile/v2/curated/media` returns
+HTTP 428 `quiz_required`. The mobile player hands that off to the Quiz screen
+and does not treat it as a generic retryable error. The latch is server-enforced.
+
+---
+
+## 17. Cloudflare R2, Resend, and Modal
+
+These are required for a deployed environment. They are optional for localhost
+boot. **This release did not contact live R2, Resend, or Modal.**
+
+| Service | Role | Local without credentials |
+|---|---|---|
+| Cloudflare R2 | Private media. PostgreSQL stores `uploads/r2/<key>` references, never public object URLs. Signed GET/PUT only. Bucket must not be public. | `ENABLE_MOCK_PUT=1` + non-production env |
+| Resend | Parent OTP and transactional email | `ENABLE_DEV_OTP=1` prints the OTP in the Flask terminal |
+| Modal | Production web + AI/media workers. GPU is confined to `ai_web` / `warm_models`. Scale-to-zero is the source default. | `JOB_QUEUE_PROVIDER=local` and `LITTLENET_SYNC_JOBS=1` |
+
+Recommended production settings are in `MODAL_COST_READINESS.md` and
+`MODAL_DEPLOYMENT.md`. Do not set `AI_DEEP_HEALTH=1` or point `AI_HEALTH_URL`
+at the GPU health endpoint on an externally polled `/readyz`.
+
+---
+
+## 18. Optional demo accounts
 
 The repository contains tools/seed_demo_accounts.py for an isolated demonstration database.
 
@@ -553,7 +603,7 @@ Use this only against a disposable/local demo database. The script creates or up
 
 ---
 
-## 17. Environment-variable guide
+## 19. Environment-variable guide
 
 ### Local essentials
 
@@ -589,7 +639,7 @@ Never put database credentials, R2 credentials, mail credentials, Modal credenti
 
 ---
 
-## 18. Mobile API contract
+## 20. Mobile API contract
 
 The client uses two API generations intentionally.
 
@@ -621,7 +671,7 @@ The legacy synchronous mobile post upload endpoint is retired. New media must us
 
 ---
 
-## 19. Important directories
+## 21. Important directories
 
 ~~~text
 mobile_app/       React Native / Expo / TypeScript native client
@@ -636,10 +686,11 @@ safety/           Text, visual, PII and moderation services
 services/         Media, storage, queue, controls, usage and shared services
 database/         Legacy PostgreSQL baseline schema
 db/migrations/    dbmate-owned post-adoption migrations
-models/           Git-LFS-managed trained model artifacts
+models/           Git-LFS-managed custom checkpoints (pointers in this package)
+release_docs/     Current RC test, fix, residual, and readiness records
 tools/            Bootstrap, audit, seed and release utilities
 tests/            Backend and contract regression suites
-docs/             Architecture, demo, release and operational documentation
+docs/             Architecture, demo, and operational documentation
 uploadPost/       Existing web post/story/reel pipeline
 ~~~
 
@@ -647,7 +698,7 @@ uploadPost/       Existing web post/story/reel pipeline
 
 # Validation
 
-## 20. Backend validation
+## 22. Backend validation
 
 For the full test suite, install test-only dependencies if they are not already available:
 
@@ -665,13 +716,15 @@ python tools/scope_check.py
 python tools/readiness.py
 ~~~
 
-The current readiness script is invoked as python tools/readiness.py. It does not use a --source-only argument.
+**CURRENT FINAL RELEASE RESULT** on `f4be262`: `pytest tests/ -q` → **885 passed, 1 skipped, 0 failed** in 53.60 s. The single skip is `tests/test_agent_c_notifications_read.py` (requires a non-localhost hostname). Disposable PostgreSQL 16.15 + pgvector 0.8.7 applied **42/42** migrations from zero.
 
-For database-backed tests, keep DATABASE_URL pointed at a disposable development/test database.
+The current readiness script is invoked as `python tools/readiness.py`. It does not use a `--source-only` argument.
+
+For database-backed tests, keep `DATABASE_URL` pointed at a disposable development/test database. Do not point tests at a retained production database.
 
 ---
 
-## 21. Mobile validation
+## 23. Mobile validation
 
 ~~~bash
 cd mobile_app
@@ -683,11 +736,29 @@ npm run export:android
 npx expo install --check
 ~~~
 
+**CURRENT FINAL RELEASE RESULT** on `f4be262`: TypeScript passed; `npm test` → **281 passed / 0 failed**; Expo Doctor **21/21**; `npm run export:android` passed.
+
 These match the core React Native gates used by the repository CI.
+
+### Expo Android / EAS preview APK
+
+Local export does not produce a store APK. The EAS `preview` profile builds an
+installable APK (`distribution: internal`, `android.buildType: apk`).
+**No EAS cloud build was run from this exact final source.**
+
+~~~powershell
+cd mobile_app
+$env:EXPO_PUBLIC_API_BASE_URL = "https://your-public-backend.example"
+npx eas-cli login
+npx eas-cli build --platform android --profile preview
+~~~
+
+The URL must be public HTTPS. Localhost, private IPs, and cleartext HTTP are
+rejected in production builds. See `APK_BUILD_INSTRUCTIONS.md`.
 
 ---
 
-## 22. Common local problems
+## 24. Common local problems
 
 ### PostgreSQL connection refused
 
@@ -778,43 +849,61 @@ Video sanitization is fail-closed.
 
 # Production and deployment
 
-## 23. Local setup is not the production release procedure
+## 25. Deployment overview
 
-For a fresh local database, this README intentionally uses:
+**Status: DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS.**
 
-~~~text
-tools/init_db.py
-then
-dbmate ... up
-~~~
+This source is locally green. It is not fully production verified. It is not
+blocked solely because external infrastructure, Git LFS model payloads, or
+device testing remain.
 
-For an existing data-bearing production/retained Neon database, do not blindly rerun the legacy baseline as a migration shortcut.
+For a fresh local database this README uses `tools/init_db.py` then `dbmate ... up`.
+For an existing data-bearing production/retained Neon database, do not blindly
+rerun the legacy baseline as a migration shortcut.
 
-The canonical production target is Modal and the production release procedure is documented in:
+The retained-database workflow is: migration-history check → reviewed dbmate
+deltas → `--require-db-current` → `modal deploy`. See `MODAL_DEPLOYMENT.md` and
+`docs/DATABASE_RELEASE_RECONCILIATION.md`.
 
-- MODAL_DEPLOYMENT.md
-- docs/DATABASE_RELEASE_RECONCILIATION.md
-- FINAL_DEPLOYMENT_CHECKLIST.md
-- docs/PHYSICAL_DEVICE_CHECKLIST.md
+Before live submission:
 
-The retained-database workflow performs migration-history checks before applying reviewed dbmate deltas.
+1. `git lfs pull` the actual custom model payloads.
+2. Configure production secrets (backend only; Expo gets `EXPO_PUBLIC_API_BASE_URL`).
+3. Verify live Neon, Cloudflare R2, Resend, and the current Modal deploy.
+4. `npx eas-cli build --platform android --profile preview`
+5. Install the APK on a physical Android device and run `PHYSICAL_DEVICE_CHECKLIST.md`.
+6. Verify a legitimate live Parent Review event and probe live R2 Reels with ffprobe.
 
----
-
-## 24. Additional project documentation
-
-Start here after the local environment is working:
-
-- docs/FINAL_ARCHITECTURE.md — runtime boundaries and authoritative architecture
-- docs/DEMO_RUNBOOK.md — predictable demo sequence and recovery steps
-- docs/KNOWN_LIMITATIONS.md — current verified limitations
-- docs/FINAL_E2E_MATRIX.md — execution/evidence matrix
-- MODAL_DEPLOYMENT.md — canonical cloud release procedure
-- STACK.md — locked technology stack
+CI-only scanners (`pip-audit`, `bandit`, `gitleaks`) were not run locally.
 
 ---
 
-## 25. Safety and security principles
+## 26. Additional project documentation
+
+Current release records (authoritative for this package):
+
+- `RELEASE_IDENTITY.md` — product, versions, commit chain
+- `release_docs/TEST_RESULTS.md` — current 885 / 281 regression
+- `release_docs/DEPLOYMENT_READINESS.md` — external-requirements list
+- `release_docs/KNOWN_LIMITATIONS.md` — current residuals only
+- `release_docs/FINAL_FIX_REPORT.md` — RC fixes
+- `DATABASE_READINESS.md` — PostgreSQL / migrations / Neon notes
+- `SCHEMA_OVERVIEW.md` — schema map
+- `R2_STORAGE_MAP.md` — private media keys
+- `CURATED_MEDIA_READINESS.md` — local video/ffprobe (0 videos)
+- `MODAL_COST_READINESS.md` — GPU/CPU bounds
+- `MODERATION_PIPELINE.md` — upload → moderate → review
+- `APK_BUILD_INSTRUCTIONS.md` — Expo / EAS preview APK
+- `docs/FINAL_ARCHITECTURE.md` — runtime boundaries
+- `MODAL_DEPLOYMENT.md` — cloud release procedure
+- `STACK.md` — locked technology stack
+
+Older files such as `FINAL_TEST_RESULTS.md` and `LITTLENET_FINAL_RELEASE_VERIFICATION.md`
+are **HISTORICAL RESULT** snapshots (different test counts, earlier architecture).
+
+---
+
+## 27. Safety and security principles
 
 LittleNet intentionally follows these rules:
 

@@ -1,8 +1,9 @@
 # LittleNet College Submission Candidate Report
 
-> **Historical snapshot.** This report predates the 2026-09-23 release-coherence
-> hardening. Current release authority is `docs/ASTRA_RELEASE_LEDGER.md`,
-> `docs/LITTLENET_MASTER_SPEC.md`, and `MODAL_DEPLOYMENT.md`.
+> **HISTORICAL RESULT** (08 September 2026; 331 tests). Current release
+> authority is `RELEASE_IDENTITY.md`, `release_docs/TEST_RESULTS.md`, and
+> `release_docs/DEPLOYMENT_READINESS.md`. Current product client is
+> React Native + Expo in `mobile_app/` (not WebView).
 
 **Date:** 08 September 2026  
 **Scope:** final-year college project qualification  

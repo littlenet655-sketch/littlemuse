@@ -1,5 +1,9 @@
 # R2 Storage Map
 
+**CURRENT:** source map is still accurate on `f4be262`. Production R2 was **not**
+contacted. Live object existence remains EXTERNAL VERIFICATION REQUIRED.
+See `CURATED_MEDIA_READINESS.md` for the local video/ffprobe result (0 videos).
+
 Private Cloudflare R2. PostgreSQL stores `uploads/r2/<key>` references, never public object URLs.
 `services/object_storage.py` is the only boto3 adapter (`upload_file`, `head_object`, `download_file`, `copy_object`, `delete_reference`, `signed_download_url`, `signed_upload_url`).
 

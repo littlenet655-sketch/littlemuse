@@ -1,6 +1,11 @@
 # Modal Cost / Resource Readiness
 
-Scope: static source audit of this workspace (branch `release-candidate`, base `0f425af`).
+**CURRENT:** source defaults and the Demo Boost restore fix remain in
+`f4be262`. Nothing was deployed from this HEAD. Live Modal settings remain
+EXTERNAL VERIFICATION REQUIRED. Custom model files in this tree are still
+Git LFS pointers — pull real payloads before AI inference deployment.
+
+Scope: static source audit of this workspace (branch `release-candidate`, originally based at `0f425af`).
 Nothing was deployed, no Modal/Neon/R2 call was made, no GPU was started.
 Every value below is read from source; anything that needs a live Modal workspace is
 listed under "Live verification still required" and is **NOT EXECUTED**.

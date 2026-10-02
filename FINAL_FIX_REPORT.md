@@ -1,5 +1,8 @@
 # LittleNet — Final Fix Report
 
+> **HISTORICAL RESULT** (2026-09-21 integration). Current RC fixes:
+> `release_docs/FINAL_FIX_REPORT.md`.
+
 **Date:** 2026-09-21
 **Repo:** `~/workspace/LittleNet-1`, branch `main`
 **Scope:** Full integration of the backend crew + mobile crew fixes, plus integration fixes found by read-only audits. Source fixes only — no deployment, no production data touched.

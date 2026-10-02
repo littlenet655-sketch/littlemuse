@@ -1,5 +1,11 @@
 # LittleNet Final Release Verification
 
+> **HISTORICAL RESULT** (08 September 2026). This snapshot describes an earlier
+> Phase-II tree and mentions an Android WebView wrapper. **Current LittleNet
+> is React Native + Expo in `mobile_app/` only** — no WebView client.
+> Current identity and gates: `RELEASE_IDENTITY.md`, `release_docs/TEST_RESULTS.md`.
+> Current test counts (885 / 281) supersede the 331-test figures below.
+
 **Purpose:** college-submission verification for the locked LittleNet Phase-II implementation  
 **Verification baseline:** `main` commit `304f35052e033726b00e9b7e229141b42d32fd6c`  
 **Date:** 08 September 2026
