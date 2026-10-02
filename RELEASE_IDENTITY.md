@@ -10,8 +10,9 @@ This file is the product/identity record for this source tree. It does not claim
 | Branch | `release-candidate` |
 | Initial local baseline | `ac9be32` |
 | Technical baseline (proven local regression) | `f4be262` (`f4be262d90af724877437c5b06334ff3f01d633d`) |
-| Release commits (in order) | `3c13988`, `9afb91f`, `f8b40e1`, `0f425af`, `768b5f7`, `e55a628`, `715a594`, `09466c9`, `f4be262`, then this documentation commit |
-| Final HEAD | this documentation commit (`docs: finalize LittleNet release candidate`) |
+| Release commits (in order) | `3c13988`, `9afb91f`, `f8b40e1`, `0f425af`, `768b5f7`, `e55a628`, `715a594`, `09466c9`, `f4be262`, `02e7110`, then this follow-up identity commit |
+| Documentation commit | `02e7110` (`02e7110eb53db63f2e729d69a4b97b66f31271bd`) — `docs: finalize LittleNet release candidate` |
+| Final HEAD | this follow-up commit (`docs: record final release HEAD`) |
 | Pushed | **No.** Nothing from this candidate has been pushed. |
 | App name / slug | LittleNet / `littlenet` |
 | Android package | `com.littlenet.app` |
