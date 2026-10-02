@@ -40,6 +40,8 @@ web_image = (
     .apt_install("ffmpeg", "curl", "ca-certificates")
     .run_commands(
         "curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.34.1/dbmate-linux-amd64",
+        # Same pinned digest the Dockerfiles verify (SECURITY_AUDIT_REPORT T1-002).
+        'echo "b002d5249d53d0c6c482ed761b5a806c6fb9a364fcc5f9db3e8763c1d9e40e1d  /usr/local/bin/dbmate" | sha256sum -c -',
         "chmod +x /usr/local/bin/dbmate",
         "dbmate --version",
     )

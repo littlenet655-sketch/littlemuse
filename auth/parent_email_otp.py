@@ -247,7 +247,7 @@ def verify_parent_email_otp(user_id, code):
                 return False, 'This code has already been used. Request a new code if needed.', None
             if row['attempts'] >= OTP_MAX_ATTEMPTS:
                 conn.rollback()
-                return False, 'Too many incorrect attempts. Request a new code.', None
+                return False, 'Too many incorrect attempts. Wait for the code to expire, then request a new code.', None
             cur.execute('SELECT NOW() AS now')
             now = cur.fetchone()['now']
             expires_at = row['expires_at']
@@ -313,7 +313,8 @@ def resend_parent_email_otp(user_id, with_code=False):
             # deadlocks with the verify path's FOR UPDATE join.)
             cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (842101, int(user_id)))
             cur.execute(
-                "SELECT sent_at, verified_at FROM parent_email_otps WHERE user_id=%s FOR UPDATE",
+                "SELECT sent_at, verified_at, attempts, expires_at > NOW() AS live "
+                "FROM parent_email_otps WHERE user_id=%s FOR UPDATE",
                 (user_id,),
             )
             existing = cur.fetchone()
@@ -321,6 +322,18 @@ def resend_parent_email_otp(user_id, with_code=False):
                 conn.rollback()
                 err = 'Email is already verified.'
                 return (False, err, None) if with_code else (False, err)
+            # Guess budget: a fresh code never resets the 5-attempt limit while
+            # the previous code is still live (no unlimited guesses by resend
+            # spam), but an expired code gets a fresh budget. Previously the
+            # counter was never reset, so 5 typos locked the registrant out
+            # permanently even after the code expired.
+            attempts_carry = 0
+            if existing and existing.get('live'):
+                attempts_carry = int(existing.get('attempts') or 0)
+                if attempts_carry >= OTP_MAX_ATTEMPTS:
+                    conn.rollback()
+                    err = 'Too many incorrect attempts. Please wait for the current code to expire, then request a new one.'
+                    return (False, err, None) if with_code else (False, err)
             if existing:
                 # DB-side resend cooldown, evaluated inside the row lock.
                 cur.execute(
@@ -334,18 +347,18 @@ def resend_parent_email_otp(user_id, with_code=False):
             cur.execute(
                 """
                 INSERT INTO parent_email_otps(user_id,code_hash,expires_at,attempts,sent_at,verified_at)
-                VALUES(%s,%s,NOW() + INTERVAL '10 minutes',0,NOW(),NULL)
+                VALUES(%s,%s,NOW() + INTERVAL '10 minutes',%s,NOW(),NULL)
                 ON CONFLICT(user_id) DO UPDATE SET
                     code_hash=EXCLUDED.code_hash,
                     expires_at=EXCLUDED.expires_at,
+                    attempts=EXCLUDED.attempts,
                     sent_at=NOW(),
                     verified_at=NULL
                 """,
-                (user_id, code_hash),
+                (user_id, code_hash, attempts_carry),
             )
-            # NOTE: attempts are deliberately NOT reset here. Resetting them
-            # on every resend let an attacker mint unlimited guesses by
-            # spamming resend; the guess budget now survives resends.
+            # Attempts are carried forward while the previous code is live (see
+            # above) so resend spam cannot mint unlimited guesses.
         conn.commit()
     except Exception:
         conn.rollback()

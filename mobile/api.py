@@ -2003,6 +2003,12 @@ def register_mobile_api(bp):
                     idempotent=True,
                 )
 
+            # A BLOCKED/EXPIRED/CANCELLED session is terminal: re-finalizing it
+            # would re-run moderation on the same bytes and mint another message.
+            if str(session_row.get("status") or "").upper() in {"BLOCKED", "EXPIRED", "CANCELLED"}:
+                conn.rollback()
+                return jsonify(error="upload_session_closed"), 409
+
             exp = session_row.get("expires_at")
             if exp:
                 now = datetime.now(timezone.utc)

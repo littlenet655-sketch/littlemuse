@@ -1,11 +1,74 @@
 # LittleNet Security Audit — Master Record
 
 **Audit head:** `2ccee76` ("docs: refresh final deployment checklist") — freshest pushed `origin/main` at audit start.
-**Fix commit (local, NOT pushed):** `35b5c1e` "fix(security): 4-team audit remediation — SHA-pin Actions, dbmate checksum, text-length caps, chat limit bound".
+**Fix commit (local, NOT pushed):** `35b5c1e` "fix(security): 4-team audit remediation — SHA-pin Actions, dbmate checksum, text-length caps, chat limit bound".Security 
 **Audit date:** 2026-09-22.
 **Repo:** `~/workspace/littlemuse` — child-safe social platform (React Native/Expo mobile + Flask web + PostgreSQL + Modal AI tier + Cloudflare R2 media). Children use parent-created password login; parents use Android system authentication (no face auth anywhere — fully removed 2026-09-22).
 
 > This report is the master record of a 4-team adversarial security audit. Severities below are exactly as the teams voted them; defeated findings were not upgraded; nothing is marked done without direct evidence.
+
+---
+
+
+
+## CURRENT ADDENDUM — 2026-10-02, `release-candidate` branch
+
+> Everything below this addendum is the **historical 2026-09-22 audit, preserved unchanged** as prior evidence. This addendum re-checks it against current source; current source is authoritative. Static review plus mock-only tests; no production system, database, R2, Modal or Resend was contacted.
+
+**Branch / HEAD at start of this block:** `release-candidate` @ `768b5f7`. The fixes below are committed in the follow-up commit `security: finish upload OTP and health hardening` (hash in `git log`).
+
+### Fixed earlier in this release session (already committed)
+| Commit | Finding | Fix |
+|---|---|---|
+| `3c13988` | Parent Review terminal-block bypass (an APPROVE could resurrect a BLOCKED post); web chat-media review lacked parity with mobile | Effective decision computed after all downgrade logic; approve path only when effective APPROVE; web chat IMAGE/VIDEO review promotes/blocks fail-closed; follower query requires `approved=TRUE AND approval_stage='ACTIVE'` |
+| `9afb91f` | Media delete-outbox retries unbounded | `reconcile_pending_deletes` bounded to `attempts < 8` |
+| `f8b40e1` | Local media refs could traverse (`..`, leading `/`); Git LFS pointer files treated as staged model weights | `_unsafe_local_media_ref` rejects traversal (HTTP 400); `safety/model_files.py` pointer detection makes trained image/text `available()` false for pointers |
+| `768b5f7` | Demo Boost marked itself OFF before restoring the Modal autoscaler and swallowed restore errors (idle window up to 65 min could persist) | Restore first, mark OFF only on success; next poll retries |
+
+### New findings and fixes in this block
+| # | Area | Finding | Result |
+|---|---|---|---|
+| N-1 | Upload (web avatar) | `child/routes.py::upload_profile_picture` capped size only via client `Content-Length` (absent for chunked bodies), accepted any PIL-decodable format saved as `.jpg`, and kept EXIF/GPS in a child's public avatar | **FIXED**: cap on stored bytes (8 MB), format must be JPEG/PNG/WEBP, EXIF stripped via `sanitize_image_in_place` before moderation so moderated bytes = stored bytes |
+| N-2 | Upload (legacy web post + web chat) | Same `Content-Length`-only size cap in `uploadPost/routes.py` and `childMessage/routes.py::send_media`; web chat images kept EXIF/GPS | **FIXED**: cap enforced on stored bytes (15 MB image / 80 MB video; 40 MB chat); chat images sanitized before moderation |
+| N-3 | Upload (mobile chat v2) | `mobile_kids_chat_upload_complete` allowed re-finalizing a `BLOCKED`/`EXPIRED`/`CANCELLED` session (re-ran moderation on the same bytes and could mint another message) | **FIXED**: HTTP 409 `upload_session_closed` |
+| N-4 | OTP (parent email) | `resend_parent_email_otp` never reset `attempts`, so five typos locked the registrant out permanently even after the code expired | **FIXED**: attempts carry over while the previous code is live (no unlimited guesses by resend spam; resend refused while a live code's budget is burned) and reset once expired — same model as password reset |
+| N-5 | Supply chain | `modal_web.py` downloaded `dbmate` without the SHA-256 check that both Dockerfiles have (T1-002 was only fixed in the Dockerfiles) | **FIXED** in source (same pinned digest). **Not built here** — verify on the next `modal deploy modal_web.py` |
+| N-6 | Account enumeration | `POST /api/mobile/v1/auth/forgot-password` returns `user_id`, `masked_email`, `is_parent_proxy` only for matching, non-suspended, non-cooldown accounts and a bare uniform message otherwise, so the response shape reveals account existence (the mobile reset screen needs `user_id`) | **DEFERRED WITH REASON** (see residuals) |
+
+### Verified correct in current source (no change)
+- **v2 upload-session create** (`mobile/api.py::mobile_v2_upload_session`): extension and MIME allowlists, size caps (image 20 MB, story 50 MB, others `Config.MAX_CONTENT_LENGTH` = 100 MB), zero/negative size rejected, object key is server-built (`quarantine/<uid>/<uuid>/source.<allowlisted ext>`; filename never used), traversal in filename/extension rejected, mock-PUT disabled in production and owner-bound.
+- **v2 finalize** (`mobile_v2_upload_complete`): row-locked (`FOR UPDATE`), owner check, expiry decided in SQL, `head_object` must exist, size must **equal** the declared size, `Content-Type` must equal the declared MIME, replay of a CONSUMED session is idempotent and does not re-spawn, unique `upload_id` on posts. The worker re-checks size (`Config.MAX_CONTENT_LENGTH`), re-downloads the final bytes, and decodes (Pillow / ffprobe duration) — corrupt, zero-byte, or type-spoofed content fails closed; images are re-encoded to clean JPEG (EXIF/GPS stripped) before publication.
+- **Chat upload sessions** (10 MB image / 30 MB video, same equality checks, per-owner and per-peer binding, quarantine + moderation before delivery; REVIEW stays private).
+- **OTP**: `secrets.randbelow` six digits; stored only as SHA-256 over user id + code + `SECRET_KEY`, compared with `hmac.compare_digest`; parent TTL 10 min, password-reset TTL 15 min; 5 attempts per live code (parallel-guess safe); parent resend cooldown 60 s (DB-side, advisory-lock serialized); password-reset resend cooldown and attempt carry-over; replay rejected (`verified_at` / row deleted on success); success bumps `session_version`; suspended accounts cannot reset; unknown/suspended/no-email/cooldown requests send nothing; no OTP in logs (only print is guarded by `_dev_otp_enabled()`, which is false when `Config._PRODUCTION`); emails normalized lowercase. Child-approval tokens: 48 h expiry (compared on the DB clock), single use, bound to the verified guardian.
+- **Login throttling** (truthful classification): **combined** — (1) per-IP flask-limiter (mobile login 30/min, web login 30/min, admin login 10/min, JSON `/api/login/` 10/min, mobile forgot/reset 10 per 15 min, OTP verify 20–30/min) **and** (2) account-aware counter in `auth/login_throttle.py` keyed by canonical `user_id` (username and email aliases share the budget; spans IPs): 5 failures in a rolling 15 min → 15 min lockout, **fixed** (not progressive/exponential), lockout is not extended by attempts made while locked, cleared on success, DB errors/no connection fail closed, lockout is indistinguishable from a wrong password. It is wired through `auth/service.py::login_user`, which every password-login surface calls (mobile `/api/mobile/v1/auth/login` for kids/parent/admin modes, web `/login/`, `/admin-login/`, `/api/login/`). Password-reset and parent-OTP verification are limited by their own per-code attempt caps plus IP limits. `register_parent_account` (which has a password oracle) is dead code with no caller.
+- **Health/readiness**: `/healthz` returns only `status` + `database`; `/readyz` returns only booleans plus `ai_mode`/`mail_mode` strings (no exception text, env values, URLs, paths, keys); `remote_client.health()` is passive by default and never wakes the GPU; `/api/mobile/v1/health` is a static identity payload; the 500 handler returns a generic message.
+- **Actions pinning (T1-001)**: all 33 `uses:` lines across the workflows are 40-hex SHA pins. **pip-audit** runs in CI for core/text/safety/ai requirements.
+
+### Residual classification (old audit vs. current source)
+| Item | Classification | Notes |
+|---|---|---|
+| T1-007 per-account login throttling | **ALREADY FIXED / VERIFIED** | Present in source (`auth/login_throttle.py`, `login_user`); mock tests added. The DB-backed suite `tests/test_login_throttle.py` was **not runnable** here (no Postgres). |
+| T2-NEW-001 floating AI/text/safety ranges | **ALREADY FIXED / VERIFIED** (direct pins) | `requirements-core/text/safety/ai.txt` and the inline `modal_ai.py` image now use exact `==` pins for torch, torchvision, transformers, ultralytics, nudenet, presidio-analyzer, spacy, numpy, detoxify, opencv; guarded by `tests/test_supply_chain_pins.py`. |
+| Transitive dependency lockfile / `--require-hashes` | **ACCEPTED RESIDUAL** | No hashed lockfile; transitive packages float. Mitigated by exact direct pins and CI `pip-audit`. Blind full pinning of the ML stack is intentionally not done. |
+| `modal>=1.1,<2` (core and `requirements-modal.txt`) | **ACCEPTED RESIDUAL** | Deliberate range for the Modal control-plane client. |
+| `modal_web.py` inline `presidio-analyzer>=2.2,<3`, `spacy>=3.8,<4` (differ from the exact pins in `requirements-safety.txt`) | **DEFERRED WITH REASON** | Changing the Modal web image needs a real image build to prove the spaCy model download still matches; build not executed in this block. |
+| Legacy top-level `requirements.txt` (all `>=`) | **ACCEPTED RESIDUAL** | Not used by any Dockerfile, workflow, or Modal image (README calls the split files canonical); `FINAL_DEPLOYMENT_CHECKLIST.md` still mentions it — documentation only. |
+| N-5 Modal image dbmate checksum | **FIXED** (source) / **EXTERNAL VERIFICATION REQUIRED** | Needs a real `modal deploy modal_web.py` build. |
+| N-6 forgot-password response shape reveals account existence | **DEFERRED WITH REASON** | Fix needs a reset-handle redesign touching the server and the mobile reset screen (`PasswordReset.tsx` requires `user_id`/`masked_email`); out of scope for a bounded, low-risk change. Mitigated by 10 per 15 min per-IP limit, 6-digit/5-attempt/15-min OTP, and no code being sent for unknown accounts. |
+| Parent registration reveals duplicate username/email | **ACCEPTED RESIDUAL** | Inherent to self-registration; rate-limited (20/hour mobile, 100/hour web). |
+| R2 presigned `PUT` cannot enforce a content-length range; object bytes can be re-`PUT` within the 15-min URL TTL after finalize | **ACCEPTED RESIDUAL** | Finalize enforces exact size and MIME on the stored object, the worker re-downloads and re-moderates the final bytes, nothing is published from quarantine, and abandoned objects are reaped. Presigned POST with a content-length condition would be the stricter option. |
+| Decompression-bomb headroom | **ACCEPTED RESIDUAL** | Pillow default `MAX_IMAGE_PIXELS` guard applies; images ≤ 20 MB; workers have 2–4 GiB. |
+| Lockout-based account DoS (attacker can lock a known account for 15 min) | **ACCEPTED RESIDUAL** | Standard trade-off; lockouts do not extend while locked; reset flow unaffected. |
+| T1-012 deploy environment protection / MODAL tokens | **EXTERNAL VERIFICATION REQUIRED** | GitHub environment protection and secret scoping cannot be verified from source. |
+| Production R2 CORS/lifecycle, Resend domain, secrets, Neon settings | **EXTERNAL VERIFICATION REQUIRED** | Unchanged from the historical standing residuals. |
+
+### Focused test results (this block; mock-only, shell has no Postgres)
+- New: `tests/test_upload_security_hardening.py` 30 passed; `tests/test_otp_hardening_mock.py` 28 passed; `tests/test_login_throttle_mock.py` 9 passed; `tests/test_health_no_leak.py` 5 passed; `tests/test_supply_chain_pins.py` 3 passed.
+- Focused combined run (new files + `test_demo_boost_autoscaler_restore`, `test_release_blocker_fixes`, `test_auth_security_hardening`, `test_final_hardening`, `test_release_security_defaults`, `test_continuation_security`, `test_guardian_verification_fail_closed`, `test_parent_auth_end_to_end_contract`, `test_message_review_visibility`, `test_backend_hardening`, `test_lfs_pointer_and_media_ref`, `test_parent_review_authorization`, `test_media_orphan_cleanup`, `test_upload_session_timezone`, `test_modal_upload_cost_guards`): **180 passed, 2 skipped, 7 failed**. All 7 failures are in `tests/test_upload_session_timezone.py` and are environmental (they connect to a real Postgres at the intentionally invalid `127.0.0.1:1`).
+- **Not run (need Postgres):** `tests/test_login_throttle.py`, `tests/test_password_reset.py`, `tests/test_media_upload_concurrency.py`, `tests/test_agent_a_disposable_postgres.py`, `tests/test_real_postgres_role_smoke.py`. Full backend suite, mobile suite, Expo export and ZIP were not run by instruction.
+
+### External verification still required
+Disposable-Postgres run of the DB-backed auth/upload suites; real R2 behaviour (CORS, presigned PUT content-type enforcement, lifecycle deletes); a `modal deploy` image build with the dbmate checksum; Resend sender/domain verification and real OTP delivery; GitHub environment protection; Git LFS model payloads present before AI deployment.
 
 ---
 
@@ -24,18 +87,24 @@ A 4-team pipeline audited the LittleNet codebase:
 
 ---
 
+
+
 ## (b) Methodology
 
-| Team | Method | Constraints |
-|---|---|---|
-| Team 1 — Scan | Static scan of the full repo (source, 9 CI workflows, Dockerfiles, mobile app, templates) for security bugs; severity voted per finding (T1-001…T1-012). | Read-only. No execution. |
-| Team 2 — Verify | Re-examined every Team 1 claim against the code verbatim; checked for duplicates; hunted areas Team 1 missed (dependency pins). | Read-only. No execution. |
+
+| Team              | Method                                                                                                                                                                                                                                                              | Constraints                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Team 1 — Scan     | Static scan of the full repo (source, 9 CI workflows, Dockerfiles, mobile app, templates) for security bugs; severity voted per finding (T1-001…T1-012).                                                                                                            | Read-only. No execution.                                  |
+| Team 2 — Verify   | Re-examined every Team 1 claim against the code verbatim; checked for duplicates; hunted areas Team 1 missed (dependency pins).                                                                                                                                     | Read-only. No execution.                                  |
 | Team 3 — Red team | Attempted to actually exploit each live finding, including live tests against a local Flask + Postgres 16 sandbox (authenticated child user, seeded data, timed requests). Did not attempt upstream compromises (GitHub action tags, PyPI packages) — out of scope. | **Local sandbox only. Never external, never production.** |
-| Team 4 — Document | This report. | No source modifications; report files only. |
+| Team 4 — Document | This report.                                                                                                                                                                                                                                                        | No source modifications; report files only.               |
+
 
 Team inputs (read in full): `/tmp/security-audit/team1_findings.json`, `/tmp/security-audit/team2_verdicts.json`, `/tmp/security-audit/team3_redteam.json`.
 
 ---
+
+
 
 ## (c) What is working / ready and verified
 
@@ -58,6 +127,8 @@ These are defenses the teams verified, not assumptions:
 
 ---
 
+
+
 ## (d) What was fixed during this audit
 
 Commit `35b5c1e` "fix(security): 4-team audit remediation" (local, **not pushed** — awaiting owner's GitHub token, per standing procedure):
@@ -72,16 +143,21 @@ Commit `35b5c1e` "fix(security): 4-team audit remediation" (local, **not pushed*
 
 ---
 
+
+
 ## (e) What is NOT ready — prioritized to-do list
 
-| Priority | Finding | Severity | Red team | Status | What is needed | Owner |
-|---|---|---|---|---|---|---|
-| P1 | T1-007 — login rate limiting is IP-only, no per-account lockout | low | SURVIVES | **To-do** | Per-account failed-login tracking with progressive backoff or temporary lockout; keep responses timing-uniform. Deferred: auth-flow change, non-surgical. | Repo / future commit |
-| P2 | T2-NEW-001 — floating pip ranges in requirements-ai/text/safety, no lockfile | low | SURVIVES | **To-do** | `pip-compile` lockfile or exact `==` pins (+ `--require-hashes`) for torch, ultralytics, transformers, nudenet, presidio-analyzer, spacy. Deferred: build-risky, touches Modal AI image builds. | Repo / future commit |
-| — | T1-004 — approval-email HTML injection | low | DEFEATED | **Accepted residual** | Strictly self-XSS: OTP-gated recipient binding means markup only lands in the attacker's own verified inbox; all web templates autoescape. No attacker→victim path. Hygiene-only. | None |
-| — | T1-008 — URL-guard IPv6/CGNAT gaps | info | DEFEATED | **Accepted** | Guard is a build-time misconfiguration tripwire, not a security boundary; no runtime-controllable URL surface exists. | None |
+
+| Priority | Finding                                                                      | Severity | Red team | Status                | What is needed                                                                                                                                                                                  | Owner                |
+| -------- | ---------------------------------------------------------------------------- | -------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| P1       | T1-007 — login rate limiting is IP-only, no per-account lockout              | low      | SURVIVES | **To-do**             | Per-account failed-login tracking with progressive backoff or temporary lockout; keep responses timing-uniform. Deferred: auth-flow change, non-surgical.                                       | Repo / future commit |
+| P2       | T2-NEW-001 — floating pip ranges in requirements-ai/text/safety, no lockfile | low      | SURVIVES | **To-do**             | `pip-compile` lockfile or exact `==` pins (+ `--require-hashes`) for torch, ultralytics, transformers, nudenet, presidio-analyzer, spacy. Deferred: build-risky, touches Modal AI image builds. | Repo / future commit |
+| —        | T1-004 — approval-email HTML injection                                       | low      | DEFEATED | **Accepted residual** | Strictly self-XSS: OTP-gated recipient binding means markup only lands in the attacker's own verified inbox; all web templates autoescape. No attacker→victim path. Hygiene-only.               | None                 |
+| —        | T1-008 — URL-guard IPv6/CGNAT gaps                                           | info     | DEFEATED | **Accepted**          | Guard is a build-time misconfiguration tripwire, not a security boundary; no runtime-controllable URL surface exists.                                                                           | None                 |
+
 
 **Standing known residuals (unchanged by this audit):**
+
 - `decode-uri-component` moderate npm advisory — unreachable in this app (no deep-link parsing); fix needs a react-navigation major bump.
 - RapidOCR downloads onnx models on first runtime init — needs outbound network at first use (web + Modal AI image).
 - npm registry audit blocked in sandbox; CI gate enforces (`npm-audit` fails on high/critical).
@@ -90,23 +166,27 @@ Commit `35b5c1e` "fix(security): 4-team audit remediation" (local, **not pushed*
 
 ---
 
+
+
 ## (f) Risk register
 
-| ID | Title | Severity | Team 1 | Team 2 | Team 3 | Status | Fixed in |
-|---|---|---|---|---|---|---|---|
-| T1-001 | Actions pinned to mutable tags, not SHAs | medium | claimed | confirmed | survives | **Fixed** | 35b5c1e |
-| T1-002 | dbmate fetched via curl, no checksum | medium | claimed | confirmed | survives | **Fixed** | 35b5c1e |
-| T1-003 | No server-side max text length (DoS) | medium | claimed | confirmed | survives | **Fixed** | 35b5c1e |
-| T1-004 | Approval-email HTML injection (jinja2 no autoescape) | low | claimed | confirmed | defeated | Accepted residual (self-XSS only) | — |
-| T1-005 | Unbounded `limit` in chat history fetch | low | claimed | confirmed | survives | **Fixed** | 35b5c1e |
-| T1-006 | Stale camera permission strings claim "face checks" | low | claimed | confirmed | defeated (no vuln) | **Fixed** (wording hygiene) | 35b5c1e |
-| T1-007 | Login rate limit per-IP only, no per-account lockout | low | claimed | confirmed | survives | **To-do** (P1) | — |
-| T1-008 | URL guard misses IPv6/CGNAT/link-local ranges | info | claimed | confirmed | defeated (not a boundary) | Accepted | — |
-| T1-009 | LLM safety output one-way ratchet | info | verified-holds | confirmed | defeated (red team could not break) | **Defense holds** | — |
-| T1-010 | Mobile bearer tokens 24h TTL | info | mitigated | confirmed | defeated (revocation works live) | **Defense holds** | — |
-| T1-011 | Dead math-challenge registration helper | info | claimed | **false positive** (helper is live; challenge logic inert — hygiene note) | — | Not a finding | — |
-| T1-012 | Web-only workflow auto-deploys on every main push | info | claimed | **false positive** (job gated on `[deploy-web]`/workflow_dispatch) | — | Not a finding | — |
-| T2-NEW-001 | Floating pip ranges, requirements-ai/text/safety | low | — | claimed+confirmed | survives | **To-do** (P2) | — |
+
+| ID         | Title                                                | Severity | Team 1         | Team 2                                                                    | Team 3                              | Status                            | Fixed in |
+| ---------- | ---------------------------------------------------- | -------- | -------------- | ------------------------------------------------------------------------- | ----------------------------------- | --------------------------------- | -------- |
+| T1-001     | Actions pinned to mutable tags, not SHAs             | medium   | claimed        | confirmed                                                                 | survives                            | **Fixed**                         | 35b5c1e  |
+| T1-002     | dbmate fetched via curl, no checksum                 | medium   | claimed        | confirmed                                                                 | survives                            | **Fixed**                         | 35b5c1e  |
+| T1-003     | No server-side max text length (DoS)                 | medium   | claimed        | confirmed                                                                 | survives                            | **Fixed**                         | 35b5c1e  |
+| T1-004     | Approval-email HTML injection (jinja2 no autoescape) | low      | claimed        | confirmed                                                                 | defeated                            | Accepted residual (self-XSS only) | —        |
+| T1-005     | Unbounded `limit` in chat history fetch              | low      | claimed        | confirmed                                                                 | survives                            | **Fixed**                         | 35b5c1e  |
+| T1-006     | Stale camera permission strings claim "face checks"  | low      | claimed        | confirmed                                                                 | defeated (no vuln)                  | **Fixed** (wording hygiene)       | 35b5c1e  |
+| T1-007     | Login rate limit per-IP only, no per-account lockout | low      | claimed        | confirmed                                                                 | survives                            | **To-do** (P1)                    | —        |
+| T1-008     | URL guard misses IPv6/CGNAT/link-local ranges        | info     | claimed        | confirmed                                                                 | defeated (not a boundary)           | Accepted                          | —        |
+| T1-009     | LLM safety output one-way ratchet                    | info     | verified-holds | confirmed                                                                 | defeated (red team could not break) | **Defense holds**                 | —        |
+| T1-010     | Mobile bearer tokens 24h TTL                         | info     | mitigated      | confirmed                                                                 | defeated (revocation works live)    | **Defense holds**                 | —        |
+| T1-011     | Dead math-challenge registration helper              | info     | claimed        | **false positive** (helper is live; challenge logic inert — hygiene note) | —                                   | Not a finding                     | —        |
+| T1-012     | Web-only workflow auto-deploys on every main push    | info     | claimed        | **false positive** (job gated on `[deploy-web]`/workflow_dispatch)        | —                                   | Not a finding                     | —        |
+| T2-NEW-001 | Floating pip ranges, requirements-ai/text/safety     | low      | —              | claimed+confirmed                                                         | survives                            | **To-do** (P2)                    | —        |
+
 
 **Severity totals:** 0 critical, 0 high, 3 medium, 6 low, 4 info (across 11 live findings). 0 criticals at every stage: scan, verify, red team, post-fix.
 
@@ -114,7 +194,11 @@ Commit `35b5c1e` "fix(security): 4-team audit remediation" (local, **not pushed*
 
 ---
 
+
+
 ## (g) Appendices
+
+
 
 ### Appendix A — Per-finding evidence
 
@@ -134,6 +218,8 @@ Evidence locations are at the audit baseline (`2ccee76`); fixes are in `35b5c1e`
 - **T1-012** — `.github/workflows/deploy-web-only.yml:3-6`; Team 2: **false positive** — job gated `if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-web]') }}`; a plain main push skips it. Residual: tag-triggered/manual deploy still lacks environment protection.
 - **T2-NEW-001** — `requirements-ai.txt`: `torchvision>=0.28,<0.29`, `nudenet>=3.4,<4`, `ultralytics>=8.3,<9` (only opencv pinned `==`); `requirements-text.txt`: `torch>=2.13,<2.14`, `transformers>=5.0` (unbounded); `requirements-safety.txt`: `presidio-analyzer>=2.2,<3`, `spacy>=3.8,<4`; `Dockerfile:10`/`Dockerfile.web:10` install without lockfile/hashes; `modal_ai.py` inlines floating ranges. Team 3: precedent torchtriton PyPI compromise; classic dependency confusion not applicable (public names only).
 
+
+
 ### Appendix B — Team votes per finding
 
 `T1 severity → T2 verdict → T3 outcome → final status`:
@@ -151,6 +237,8 @@ Evidence locations are at the audit baseline (`2ccee76`); fixes are in `35b5c1e`
 - T1-011 info → **false positive** → — → not a finding
 - T1-012 info → **false positive** → — → not a finding
 - T2-NEW-001 low → confirmed → survives → **to-do**
+
+
 
 ### Appendix C — Fix verification record (35b5c1e)
 

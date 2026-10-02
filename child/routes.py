@@ -332,8 +332,19 @@ def upload_profile_picture():
     if request.content_length and request.content_length>8*1024*1024:return jsonify(error='Photo too large'),413
     os.makedirs('uploads/profile_pictures',exist_ok=True);path=os.path.join('uploads/profile_pictures',f'profile_{session["user_id"]}_{uuid.uuid4().hex}.jpg');photo.save(path)
     try:
+        # Content-Length is client-supplied (absent for chunked bodies): enforce
+        # the cap on the bytes actually stored, then require a real raster image.
+        if os.path.getsize(path)>8*1024*1024:
+            os.remove(path);return jsonify(error='Photo too large'),413
         from PIL import Image
-        Image.open(path).verify();sig,d=evaluate(session['user_id'],'IMAGE',path)
+        with Image.open(path) as _im:
+            _fmt=_im.format;_im.verify()
+        if _fmt not in {'JPEG','PNG','WEBP'}:raise ValueError('unsupported_image_format')
+        # Strip EXIF/GPS from the child's avatar and store a clean JPEG; the
+        # moderated bytes are the stored bytes.
+        from services.media_sanitizer import sanitize_image_in_place
+        sanitize_image_in_place(path)
+        sig,d=evaluate(session['user_id'],'IMAGE',path)
         if d.action!='ALLOW':
             try:os.remove(path)
             except OSError:pass

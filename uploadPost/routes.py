@@ -131,6 +131,8 @@ def upload_post(force_kind=None):
     max_mb=15 if mt=='IMAGE' else 80
     if request.content_length and request.content_length>max_mb*1024*1024+10*1024*1024:return jsonify(error='File too large'),413
     folder='uploads/images' if mt=='IMAGE' else 'uploads/videos';path=_save(file,folder,ext)
+    # Content-Length can be absent (chunked) or forged; cap the stored bytes too.
+    if os.path.getsize(path)>max_mb*1024*1024:_unlink(path);return jsonify(error='File too large'),413
     if mt=='IMAGE':
         try:
             from PIL import Image;Image.open(path).verify()

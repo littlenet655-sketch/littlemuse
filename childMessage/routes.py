@@ -185,7 +185,15 @@ def send_media(child_id):
     else:return jsonify(error='unsupported file type'),400
     base=os.path.join('uploads/messages',folder);os.makedirs(base,exist_ok=True);path=os.path.join(base,f'{uuid.uuid4().hex}.{ext}');media.save(path)
     reference=None
+    # Content-Length can be absent (chunked) or forged; cap the stored bytes too.
+    if os.path.getsize(path)>40*1024*1024:
+        try:os.remove(path)
+        except OSError:pass
+        return jsonify(error='file too large'),413
     try:
+        if kind=='IMAGE':
+            from services.media_sanitizer import sanitize_image_in_place
+            sanitize_image_in_place(path)
         if kind=='FILE':
             from safety.document_service import check_document
             from safety.policy import decide
