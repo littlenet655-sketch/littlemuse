@@ -299,6 +299,14 @@ def test_trained_text_artifact_gate(tmp_path, monkeypatch):
     assert trained_text.available() is False  # dir without config.json
 
     (target / "config.json").write_text("{}")
+    assert trained_text.available() is False  # config without real weights
+
+    (target / "model.safetensors").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+    )
+    assert trained_text.available() is False  # LFS pointer is not a checkpoint
+
+    (target / "model.safetensors").write_bytes(b"not-an-lfs-pointer" + b"\0" * 32)
     assert trained_text.available() is True
 
     monkeypatch.setenv("LITTLENET_ENABLE_TRAINED_TEXT", "0")

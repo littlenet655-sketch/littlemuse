@@ -18,7 +18,10 @@ def _make_app():
 
 def test_cleartext_traffic_disabled_in_app_json():
     app_json = json.loads((ROOT / "mobile_app" / "app.json").read_text(encoding="utf-8"))
-    assert app_json["expo"]["android"]["usesCleartextTraffic"] is False, "usesCleartextTraffic must be false for production safety"
+    plugins = app_json["expo"]["plugins"]
+    assert "./plugins/withCleartextDisabled" in plugins
+    plugin = (ROOT / "mobile_app" / "plugins" / "withCleartextDisabled.js").read_text(encoding="utf-8")
+    assert "android:usesCleartextTraffic'] = 'false'" in plugin or 'android:usesCleartextTraffic"] = "false"' in plugin
 
 
 def test_mobile_logout_revokes_token(monkeypatch):
