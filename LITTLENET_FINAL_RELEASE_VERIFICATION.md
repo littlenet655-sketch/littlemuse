@@ -4,7 +4,9 @@
 > Phase-II tree and mentions an Android WebView wrapper. **Current LittleNet
 > is React Native + Expo in `mobile_app/` only** — no WebView client.
 > Current identity and gates: `RELEASE_IDENTITY.md`, `release_docs/TEST_RESULTS.md`.
-> Current test counts (885 / 281) supersede the 331-test figures below.
+> Current test counts (898 / 283) supersede the 331-test figures below.
+> The 885 / 281 figures previously cited in this line are **HISTORICAL — SUPERSEDED**
+> (baseline `f4be262`).
 
 **Purpose:** college-submission verification for the locked LittleNet Phase-II implementation  
 **Verification baseline:** `main` commit `304f35052e033726b00e9b7e229141b42d32fd6c`  

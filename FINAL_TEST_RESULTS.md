@@ -1,8 +1,11 @@
 # LittleNet — Final Test Results (merged tree)
 
 > **HISTORICAL RESULT** (2026-09-21; 567 backend / 21 migrations / 173 mobile).
-> **CURRENT FINAL RELEASE RESULT:** `release_docs/TEST_RESULTS.md` —
-> 885 passed / 1 skipped / 0 failed backend; 281 mobile; 42/42 migrations.
+> **CURRENT FINAL RELEASE RESULT:** `release_docs/TEST_RESULTS.md` and
+> `release_docs/FINAL_VERIFICATION_EVIDENCE.md` — 898 passed / 2 skipped / 0 failed
+> backend; 283 mobile; 43/43 migrations, at executable baseline `0860174`.
+> The `885 / 1 skipped / 281 / 42 migrations` figures once cited here are
+> **HISTORICAL — SUPERSEDED** (they belonged to baseline `f4be262`).
 
 **Date:** 2026-09-21. All runs on the final merged tree (commit B working tree), not on crew baselines.
 

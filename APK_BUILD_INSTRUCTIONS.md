@@ -2,7 +2,7 @@
 
 Derived from this repository. **No EAS cloud build was run from this exact
 final source.** Local Expo Doctor (21/21) and `npm run export:android` passed
-on technical baseline `f4be262`.
+on executable baseline `0860174`.
 
 ## Identity
 
@@ -15,7 +15,7 @@ on technical baseline `f4be262`.
 | EAS preview | internal, `android.buildType: apk` |
 | Cleartext | `usesCleartextTraffic=false` (`mobile_app/plugins/withCleartextDisabled.js`) |
 
-## Local gates (already proven on `f4be262`)
+## Local gates (already proven on `0860174`; `f4be262` run is HISTORICAL — SUPERSEDED)
 
 ```powershell
 cd mobile_app

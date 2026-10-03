@@ -1,6 +1,6 @@
 # R2 Storage Map
 
-**CURRENT:** source map is still accurate on `f4be262`. Production R2 was **not**
+**CURRENT:** source map is still accurate on `0860174`. Production R2 was **not**
 contacted. Live object existence remains EXTERNAL VERIFICATION REQUIRED.
 See `CURATED_MEDIA_READINESS.md` for the local video/ffprobe result (0 videos).
 

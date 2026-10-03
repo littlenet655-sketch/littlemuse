@@ -7,10 +7,11 @@ This file is the product/identity record for this source tree. It does not claim
 |---|---|
 | Product | LittleNet |
 | Source repository | littlenet655-sketch/littlemuse (development repo name; product is **LittleNet**) |
-| Branch | `release-candidate` |
-| Previous verification HEAD | `826e633` (`826e6332e86197abb2dd555d6b363eead50278ff`) |
-| Final HEAD | this freeze commit (`fix: close final outbox trigger verification gap`) |
-| Pushed | **No.** This freeze commit has not been pushed. |
+| Branch | `release-verification-final-v3` |
+| Executable baseline (authoritative) | `086017491ff63214aca3b9ed6e4fe27a7e5835ed` |
+| Previous verification HEAD | `826e633` (`826e6332e86197abb2dd555d6b363eead50278ff`) — **HISTORICAL, superseded** |
+| Final HEAD | this freeze commit (`fix: close final outbox trigger verification gap`) plus the docs-only reconciliation commit |
+| Pushed | **No.** These freeze commits have not been pushed. |
 | App name / slug | LittleNet / `littlenet` |
 | Android package | `com.littlenet.app` |
 | Version | `1.0.2` |
@@ -19,7 +20,7 @@ This file is the product/identity record for this source tree. It does not claim
 | EAS `appVersionSource` | remote |
 | Cleartext traffic | disabled (`usesCleartextTraffic=false` via `mobile_app/plugins/withCleartextDisabled.js`) |
 | Public mobile env | `EXPO_PUBLIC_API_BASE_URL` only |
-| Latest dbmate migration | `20261002120000_outbox_trigger_attempts_reset.sql` |
+| Latest dbmate migration | `20261002120000_outbox_trigger_attempts_reset.sql` (migration 43 of 43) |
 
 ## Proven local regression (authoritative)
 

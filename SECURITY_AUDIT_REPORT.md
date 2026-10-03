@@ -1,19 +1,24 @@
 # LittleNet Security Audit — Master Record
 
-## CURRENT FINAL RELEASE ADDENDUM — 2026-10-02, `release-candidate` @ `f4be262`
+## CURRENT FINAL RELEASE ADDENDUM — 2026-10-02, `release-verification-final-v3` @ `0860174`
 
 This report remains the **historical** 4-team audit record (2026-09-22) plus the
-2026-10-02 mid-RC addendum. Current source and the `f4be262` local regression
+2026-10-02 mid-RC addendum. Current source and the `0860174` local regression
 are authoritative. This packaging pass did not rerun a broad security audit.
 
 | Current release fact | Value |
 |---|---|
-| Technical baseline | `f4be262` |
-| Backend | 885 passed / 1 skipped / 0 failed |
-| Mobile | 281 passed / 0 failed |
+| Executable baseline | `086017491ff63214aca3b9ed6e4fe27a7e5835ed` |
+| Backend | 898 passed / 2 skipped / 0 failed |
+| Mobile | 283 passed / 0 failed |
 | Status | **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS** |
 | Live production scan | **NOT EXECUTED** (no Neon/R2/Resend/Modal contact) |
 | CI-only scanners locally | **NOT RUN** — `pip-audit`, `bandit`, `gitleaks` (not source failures) |
+
+> **HISTORICAL — SUPERSEDED:** the earlier `f4be262` "Current final release
+> addendum" header (885 / 1 skipped / 281 / 42 migrations) and the `826e633`
+> freeze language are retained below as prior evidence only. Neither is the
+> current release gate. Current gate: `release_docs/FINAL_VERIFICATION_EVIDENCE.md`.
 
 Current residuals that are still true (see `release_docs/KNOWN_LIMITATIONS.md`):
 forgot-password response shape (deferred); parent resend HTTP 503 for
@@ -38,9 +43,9 @@ are **HISTORICAL RESULT** only.
 
 
 
-## CURRENT ADDENDUM — 2026-10-02, `release-candidate` branch
+## HISTORICAL ADDENDUM — 2026-10-02, `release-candidate` branch @ `768b5f7`
 
-> Everything below this addendum is the **historical 2026-09-22 audit, preserved unchanged** as prior evidence. This addendum re-checks it against current source; current source is authoritative. Static review plus mock-only tests; no production system, database, R2, Modal or Resend was contacted.
+> Everything below this addendum is the **historical 2026-09-22 audit, preserved unchanged** as prior evidence. This addendum re-checks it against the `release-candidate` source current at the time; the current source is authoritative. Static review plus mock-only tests; no production system, database, R2, Modal or Resend was contacted. The test counts recorded in this block are **HISTORICAL — SUPERSEDED**.
 
 **Branch / HEAD at start of this block:** `release-candidate` @ `768b5f7`. The fixes below are committed in the follow-up commit `security: finish upload OTP and health hardening` (hash in `git log`).
 

@@ -1,7 +1,7 @@
 # Test Results — CURRENT FINAL RELEASE RESULT
 
 **Authoritative local regression** recorded on the outbox-trigger freeze
-(parent `826e633`), 2026-10-02.
+(executable baseline `086017491ff63214aca3b9ed6e4fe27a7e5835ed`), 2026-10-02.
 
 ## Environment
 
@@ -38,8 +38,9 @@ Two existing harness skips (not product failures). They are not the
 ## Historical results (not current)
 
 Older documents (`FINAL_TEST_RESULTS.md`, the 2026-09-22 security-audit appendix,
-early RC notes, the `f4be262` 885/281/42/42 snapshot) are **HISTORICAL RESULT**.
-They must not be cited as the current release gate.
+early RC notes, the `f4be262` 885/281/42-migration snapshot) are **HISTORICAL RESULT**.
+They must not be cited as the current release gate. The same applies to the
+`826e633` / `ac9be32` freeze references elsewhere in the release docs.
 
 ## Not executed
 

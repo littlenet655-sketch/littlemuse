@@ -1,16 +1,19 @@
 # Release Checklist — CURRENT FINAL RELEASE RESULT
 
-Technical baseline: `f4be262`. Docs/packaging commit follows.
+Executable baseline: `086017491ff63214aca3b9ed6e4fe27a7e5835ed` (branch `release-verification-final-v3`).
+Docs-only commit(s) follow on top. Full evidence: `release_docs/FINAL_VERIFICATION_EVIDENCE.md`.
+
+> HISTORICAL — SUPERSEDED: the earlier `f4be262` baseline (885 / 1 skipped / 281 / 42 migrations) is retained as prior evidence only and is not the current release gate.
 
 ## Locally completed
 
-- [x] Backend tests: **885 passed / 1 skipped / 0 failed**
-- [x] Single skip identified: `test_agent_c_notifications_read.py` (non-localhost hostname)
-- [x] Mobile tests: **281 passed / 0 failed**
+- [x] Backend tests: **898 passed / 2 skipped / 0 failed**
+- [x] Skips are existing harness skips, not product failures (see `release_docs/TEST_RESULTS.md`)
+- [x] Mobile tests: **283 passed / 0 failed**
 - [x] TypeScript: passed
 - [x] Expo Doctor: **21/21**
 - [x] Android Expo export: passed
-- [x] Migrations from zero: **42/42** on PostgreSQL 16.15 + pgvector 0.8.7
+- [x] Migrations from zero: **43/43** on PostgreSQL 16.15 + pgvector 0.8.7
 - [x] compileall / `audit_all` / `audit_dynamic_sql` / `npm ci --dry-run`: passed
 - [x] HTTP 428 quiz handoff + server latch on the two playback bypass routes
 - [x] Logout / 401 amplification fixed

@@ -1,8 +1,9 @@
-# Final Fix Report — release-candidate (CURRENT)
+# Final Fix Report — CURRENT
 
-Significant fixes on `release-candidate` through the outbox-trigger freeze
-(parent `826e633`). Older root `FINAL_FIX_REPORT.md` (2026-09-21) is a
-**HISTORICAL RESULT**.
+Significant fixes on the release line through the outbox-trigger freeze
+(executable baseline `086017491ff63214aca3b9ed6e4fe27a7e5835ed`). The earlier
+`826e633` freeze reference is **HISTORICAL — SUPERSEDED**, as is the older root
+`FINAL_FIX_REPORT.md` (2026-09-21), a **HISTORICAL RESULT**.
 
 | Area | What changed |
 |---|---|

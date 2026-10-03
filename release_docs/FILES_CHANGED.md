@@ -1,7 +1,8 @@
-# Files Changed — release-candidate vs baseline `ac9be32`
+# Files Changed — release line vs baseline `ac9be32`
 
-This lists the release-candidate work, not every historical file in the repository.
-Documentation in this packaging pass is recorded in the docs commit(s) after `f4be262`.
+This lists the release-line work, not every historical file in the repository.
+Documentation in the final packaging pass is recorded in the docs-only commit(s)
+after executable baseline `0860174`. The `f4be262` row below is **HISTORICAL — SUPERSEDED**.
 
 ## Commits (in order)
 
@@ -15,8 +16,8 @@ Documentation in this packaging pass is recorded in the docs commit(s) after `f4
 | `e55a628` | Upload security / OTP / login / health hardening |
 | `715a594` | Database and Neon readiness |
 | `09466c9` | API URL / profile / Stories / env / Expo config checks |
-| `f4be262` | Complete final local regression and final technical fixes |
-| docs commit | `docs: finalize LittleNet release candidate` |
+| `f4be262` | Complete final local regression and final technical fixes (HISTORICAL — SUPERSEDED by `0860174`) |
+| docs commit | `docs: reconcile final LittleNet submission evidence` (docs-only; executable source unchanged) |
 
 ## Areas touched (summary)
 

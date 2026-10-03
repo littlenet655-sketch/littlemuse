@@ -1,7 +1,7 @@
 # Modal Cost / Resource Readiness
 
 **CURRENT:** source defaults and the Demo Boost restore fix remain in
-`f4be262`. Nothing was deployed from this HEAD. Live Modal settings remain
+`0860174`. Nothing was deployed from this HEAD. Live Modal settings remain
 EXTERNAL VERIFICATION REQUIRED. Custom model files in this tree are still
 Git LFS pointers — pull real payloads before AI inference deployment.
 

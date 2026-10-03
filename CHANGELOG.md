@@ -37,4 +37,8 @@
 ### Deployment and verification
 - Lightweight web and heavyweight AI deployments remain split (`Dockerfile.web`, `Dockerfile.ai`, `modal_ai.py`).
 - `/healthz` checks web/database; `/readyz` also checks AI readiness.
-- Current source evidence: 122 tests, 110 Flask routes, 64 templates, 41/41 scope checks.
+- **HISTORICAL — SUPERSEDED.** This changelog entry records a September 2026
+  snapshot (122 tests, 110 Flask routes, 64 templates, 41/41 scope checks). Those
+  counts are prior evidence only. The current release gate is
+  `release_docs/FINAL_VERIFICATION_EVIDENCE.md` (backend 898 / 2 skipped / 0 failed,
+  mobile 283 / 0 failed, 43/43 migrations at executable baseline `0860174`).

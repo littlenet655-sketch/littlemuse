@@ -6,7 +6,9 @@ The active native client is React Native + Expo in `mobile_app/` only (package `
 
 This README is the starting point for a fresh clone. A new developer should be able to bring up the backend, database, web UI, and mobile development client by following Local Setup in order.
 
-**CURRENT FINAL RELEASE RESULT** (technical baseline `f4be262` on branch `release-candidate`): backend **885 passed / 1 skipped / 0 failed**; mobile **281 passed / 0 failed**; TypeScript passed; Expo Doctor 21/21; Android export passed; **42/42** migrations from zero on disposable PostgreSQL **16.15** + pgvector **0.8.7**. Status: **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**. This package is **not** fully production verified. Live Neon / R2 / Resend / Modal, an EAS cloud APK, and physical-device tests were not run from this exact source.
+**CURRENT FINAL RELEASE RESULT** (executable baseline `086017491ff63214aca3b9ed6e4fe27a7e5835ed` on branch `release-verification-final-v3`): backend **898 passed / 2 skipped / 0 failed**; mobile **283 passed / 0 failed**; TypeScript passed; Expo Doctor 21/21; Android export passed; **43/43** migrations from zero on disposable PostgreSQL **16.15** + pgvector **0.8.7**. Status: **DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**. This package is **not** fully production verified. Live Neon / R2 / Resend / Modal, an EAS cloud APK, and physical-device tests were not run from this exact source.
+
+> The earlier `f4be262` baseline (885 / 281 / 42 migrations) is **HISTORICAL — SUPERSEDED**. It must not be cited as the current release gate. Current authoritative evidence: `release_docs/FINAL_VERIFICATION_EVIDENCE.md`.
 
 ---
 
@@ -716,7 +718,7 @@ python tools/scope_check.py
 python tools/readiness.py
 ~~~
 
-**CURRENT FINAL RELEASE RESULT** on `f4be262`: `pytest tests/ -q` → **885 passed, 1 skipped, 0 failed** in 53.60 s. The single skip is `tests/test_agent_c_notifications_read.py` (requires a non-localhost hostname). Disposable PostgreSQL 16.15 + pgvector 0.8.7 applied **42/42** migrations from zero.
+**CURRENT FINAL RELEASE RESULT** on `0860174`: `pytest tests/ -q` → **898 passed, 2 skipped, 0 failed** in 58.24 s. Both skips are existing harness skips in `release_docs/TEST_RESULTS.md`, not product failures. Disposable PostgreSQL 16.15 + pgvector 0.8.7 applied **43/43** migrations from zero. (HISTORICAL — SUPERSEDED: the `f4be262` 885 / 1 skipped / 42-migration run.)
 
 The current readiness script is invoked as `python tools/readiness.py`. It does not use a `--source-only` argument.
 
@@ -736,7 +738,7 @@ npm run export:android
 npx expo install --check
 ~~~
 
-**CURRENT FINAL RELEASE RESULT** on `f4be262`: TypeScript passed; `npm test` → **281 passed / 0 failed**; Expo Doctor **21/21**; `npm run export:android` passed.
+**CURRENT FINAL RELEASE RESULT** on `0860174`: TypeScript passed; `npm test` → **283 passed / 0 failed**; Expo Doctor **21/21**; `npm run export:android` passed. (HISTORICAL — SUPERSEDED: the `f4be262` 281-test run.)
 
 These match the core React Native gates used by the repository CI.
 
@@ -883,7 +885,8 @@ CI-only scanners (`pip-audit`, `bandit`, `gitleaks`) were not run locally.
 Current release records (authoritative for this package):
 
 - `RELEASE_IDENTITY.md` — product, versions, commit chain
-- `release_docs/TEST_RESULTS.md` — current 885 / 281 regression
+- `release_docs/TEST_RESULTS.md` — current 898 / 283 regression
+- `release_docs/FINAL_VERIFICATION_EVIDENCE.md` — consolidated final baseline, model hashes, independent-review summary
 - `release_docs/DEPLOYMENT_READINESS.md` — external-requirements list
 - `release_docs/KNOWN_LIMITATIONS.md` — current residuals only
 - `release_docs/FINAL_FIX_REPORT.md` — RC fixes

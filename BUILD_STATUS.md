@@ -20,3 +20,8 @@ _Last migration preparation: 2026-09-12_
 - `cd mobile_app && npm install && npm run typecheck && npm run export:android`
 
 Cloud credentials and final EAS/Modal releases remain external deployment configuration, not source-code readiness blockers.
+
+> Current release evidence (backend 898 / 2 skipped / 0 failed, mobile 283 / 0 failed,
+> 43/43 migrations at executable baseline `0860174`) is recorded in
+> `release_docs/FINAL_VERIFICATION_EVIDENCE.md`. The gates listed above are the
+> standing source-level gates, not a dated test count.

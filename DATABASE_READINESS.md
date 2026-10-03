@@ -1,6 +1,6 @@
 # LittleNet Database / Neon Readiness
 
-## CURRENT FINAL RELEASE RESULT (2026-10-02, freeze after `826e633`)
+## CURRENT FINAL RELEASE RESULT (2026-10-02, executable baseline `0860174`)
 
 A disposable Docker `pgvector/pgvector:pg16` database was brought up, migrated
 from zero, used for the final local regression, and torn down.
@@ -165,7 +165,7 @@ Existing tests (cited, **NOT EXECUTED** here because most need Postgres): `tests
 ## 8. Local DB test environment
 
 **CURRENT FINAL RELEASE RESULT:** disposable `pgvector/pgvector:pg16` on
-`127.0.0.1:55432` was used for the 31 focused DB tests and the full 885-test
+`127.0.0.1:55432` was used for the 31 focused DB tests and the full 898-test
 backend suite, then removed. Historical probe text below is from the earlier
 session that lacked Docker.
 

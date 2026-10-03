@@ -2,9 +2,12 @@
 
 **Status: DEPLOYMENT READY WITH EXTERNAL REQUIREMENTS**
 
-The source at this freeze (parent `826e633`) is locally green. The package is
-**not** fully production verified. Remaining blockers are external
-infrastructure and device testing.
+The source at this freeze (executable baseline `086017491ff63214aca3b9ed6e4fe27a7e5835ed`) is
+locally green. The package is **not** fully production verified. Remaining blockers
+are external infrastructure and device testing.
+
+> HISTORICAL — SUPERSEDED: this file previously named the freeze as "parent `826e633`".
+> `826e633` is a superseded ancestor, not the current executable baseline.
 
 | Area | Status | Evidence |
 |---|---|---|
