@@ -71,6 +71,27 @@ describe('parent OTP contracts', () => {
     nextPayload = { ok: true, error: null };
     await resendParentEmail('pend-1');
     assert.equal(seen[2]?.url, 'https://backend.test.invalid/api/mobile/v1/auth/parent/resend-email');
+
+    nextStatus = 429;
+    nextPayload = { ok: false, error: 'A code was just sent. Please wait a minute before requesting another.' };
+    await assert.rejects(
+      async () => await resendParentEmail('pend-1'),
+      (err: any) => err.status === 429 && err.message.includes('wait a minute')
+    );
+
+    nextStatus = 409;
+    nextPayload = { ok: false, error: 'Email is already verified.' };
+    await assert.rejects(
+      async () => await resendParentEmail('pend-1'),
+      (err: any) => err.status === 409 && err.message.includes('already verified')
+    );
+
+    nextStatus = 503;
+    nextPayload = { ok: false, error: 'Email delivery is unavailable.' };
+    await assert.rejects(
+      async () => await resendParentEmail('pend-1'),
+      (err: any) => err.status === 503 && err.message.includes('unavailable')
+    );
   });
 
   it('no longer exposes a parent liveness endpoint or client call', async () => {

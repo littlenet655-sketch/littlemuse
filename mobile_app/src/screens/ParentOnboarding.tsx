@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { ApiError } from '../api/client';
 import { fetchParentEmailStatus, registerParent, resendParentEmail, verifyParentEmail } from '../api/auth';
 import { useAuth } from '../auth/AuthProvider';
 import type { AuthScreenProps } from '../navigation/types';
@@ -597,7 +598,7 @@ export function ParentRegisterScreen({ navigation }: AuthScreenProps<'ParentRegi
   );
 }
 
-export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
+export function OtpVerifyScreen({ navigation, route }: AuthScreenProps<'OtpVerify'>) {
   const { signIn } = useAuth();
   const { pendingToken, devCode } = route.params;
   // Six individual cells (auto-advance, backspace moves back, paste/autofill
@@ -744,7 +745,23 @@ export function OtpVerifyScreen({ route }: AuthScreenProps<'OtpVerify'>) {
           setInfo(response.ok ? 'A fresh code is on its way. It expires in 10 minutes.' : (response.error ?? 'Resend failed. Try again.'));
         }
       } catch (err) {
-        setError(errorText(err));
+        if (err instanceof ApiError) {
+          if (err.status === 429) {
+            setError(err.message || 'Please wait a minute before requesting another code.');
+          } else if (err.status === 409) {
+            setInfo('Email is already verified. You can sign in.');
+            navigation.navigate('Login');
+            return;
+          } else if (err.status === 404) {
+            setError('Verification session expired. Please sign up again.');
+          } else if (err.status === 503) {
+            setError('Email delivery is temporarily delayed. Please try again shortly.');
+          } else {
+            setError(errorText(err));
+          }
+        } else {
+          setError(errorText(err));
+        }
       } finally {
         setResending(false);
       }

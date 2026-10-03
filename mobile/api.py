@@ -31,6 +31,7 @@ from auth.password_reset import (
 )
 from auth.service import login_user
 from child.service import (
+    batch_relationship_states,
     can_discover_child,
     cancel_outgoing_follow,
     child_has_guardian,
@@ -1347,7 +1348,20 @@ def register_mobile_api(bp):
         resp = {"ok": bool(ok), "error": None if ok else error}
         if dev_code:
             resp["dev_code"] = dev_code
-        return jsonify(resp), (200 if ok else 503)
+        if ok:
+            return jsonify(resp), 200
+        err_str = str(error or "").lower()
+        if "just sent" in err_str or "wait a minute" in err_str or "too many incorrect attempts" in err_str:
+            status_code = 429
+        elif "already verified" in err_str:
+            status_code = 409
+        elif "no pending" in err_str:
+            status_code = 404
+        elif "mail" in err_str or "transport" in err_str or "send" in err_str:
+            status_code = 503
+        else:
+            status_code = 500
+        return jsonify(ok=False, error=error), status_code
 
     @bp.route("/api/mobile/v1/auth/parent/email-status", methods=["POST"])
     @csrf.exempt
@@ -1545,11 +1559,14 @@ def register_mobile_api(bp):
             return jsonify(ok=True, pii_warning=True, children=[], posts=[])
         kids = discoverable_children(uid, q.lstrip("#") if q and not q.startswith("#") else None, 30)
         out = []
+        target_ids = [c["user_id"] for c in kids if c.get("user_id")]
+        rel_map = batch_relationship_states(uid, target_ids)
         for child in kids:
             row = dict(child)
             row["avatar_url"] = _asset_url(row.get("profile_picture"))
-            row["is_following"] = is_following(uid, row["user_id"])
-            row["is_pending"] = is_follow_pending(uid, row["user_id"])
+            cid = row["user_id"]
+            row["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            row["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             row.pop("profile_picture", None)
             out.append(_clean(row))
         posts = visible_posts(uid, False, 30, 0)
@@ -2260,11 +2277,14 @@ def register_mobile_api(bp):
             return out
 
         out_sug = []
+        target_ids = [s_["user_id"] for s_ in suggested_raw if s_.get("user_id")]
+        rel_map = batch_relationship_states(uid, target_ids)
         for s in suggested_raw:
             d = dict(s)
             d["avatar_url"] = _asset_url(d.pop("profile_picture", None))
-            d["is_following"] = is_following(uid, d["user_id"])
-            d["is_pending"] = is_follow_pending(uid, d["user_id"])
+            cid = d["user_id"]
+            d["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            d["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             out_sug.append(_clean(d))
 
         return jsonify(
@@ -5065,11 +5085,14 @@ def register_mobile_api(bp):
 
         kids = discoverable_children(uid, q.lstrip("#") if q and not q.startswith("#") else None, 30)
         out_kids = []
+        target_ids = [c["user_id"] for c in kids if c.get("user_id")]
+        rel_map = batch_relationship_states(uid, target_ids)
         for child in kids:
             row = dict(child)
             row["avatar_url"] = _asset_url(row.get("profile_picture"))
-            row["is_following"] = is_following(uid, row["user_id"])
-            row["is_pending"] = is_follow_pending(uid, row["user_id"])
+            cid = row["user_id"]
+            row["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            row["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             row.pop("profile_picture", None)
             out_kids.append(_clean(row))
 
