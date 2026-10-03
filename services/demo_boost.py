@@ -160,8 +160,11 @@ def _warm_async(expected_expiry) -> None:
         _mark_warm_error(expected_expiry, exc)
 
 
-def _start_warm_thread(expected_expiry) -> None:
-    _schedule_auto_restore(seconds)
+def _start_warm_thread(expected_expiry, delay_seconds: float | None = None) -> None:
+    if delay_seconds is None:
+        row = _row()
+        delay_seconds = max(0.1, float((row or {}).get("remaining_seconds") or 0.1))
+    _schedule_auto_restore(delay_seconds)
     thread = threading.Thread(target=_warm_async, args=(expected_expiry,), daemon=True, name="littlenet-demo-warm")
     thread.start()
 
@@ -203,7 +206,7 @@ def activate(admin_id: int, minutes: int) -> dict:
         (admin_id, seconds),
     )
     expected_expiry = row["expires_at"]
-    _start_warm_thread(expected_expiry)
+    _start_warm_thread(expected_expiry, delay_seconds=seconds)
     return status()
 
 
@@ -228,7 +231,7 @@ def extend(admin_id: int, minutes: int) -> dict:
     remaining = max(DEFAULT_SCALEDOWN_SECONDS, int(row.get("remaining_seconds") or 0))
     _set_autoscaler(remaining)
     if _public({**row, "status": "WARMING"})["remaining_seconds"] > 0:
-        _start_warm_thread(row["expires_at"])
+        _start_warm_thread(row["expires_at"], delay_seconds=remaining)
     return status()
 
 
@@ -294,3 +297,16 @@ def auto_restore_if_expired(max_retries=3, backoff_base=0.5):
         execute('UPDATE demo_boost_state SET status=\'OFF\',activated_by=NULL,last_error=NULL,updated_at=NOW() WHERE state_id=1')
         return True
     return False
+
+
+def reconcile_demo_boost_on_startup() -> bool:
+    """Process-independent recovery hook called upon server startup / cold container boot.
+    
+    Checks persisted PostgreSQL state in demo_boost_state. If a boost was left in
+    WARMING or READY while the container was terminated, restores Modal autoscaler
+    and transitions the DB row cleanly to OFF.
+    """
+    try:
+        return auto_restore_if_expired(max_retries=2)
+    except Exception:
+        return False

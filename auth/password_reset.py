@@ -16,6 +16,31 @@ OTP_MAX_ATTEMPTS = 5
 MAX_RESET_ROWS_PER_IP_WINDOW = 5
 RESET_IP_WINDOW_SECONDS = 900  # 15 minutes
 
+import base64
+from cryptography.fernet import Fernet
+
+
+def _get_outbox_cipher() -> Fernet:
+    secret = os.getenv("SECRET_KEY") or os.getenv("FLASK_SECRET_KEY") or os.getenv("AI_SHARED_SECRET") or "littlenet-dev-secret-change-in-prod-xyz123"
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def encrypt_outbox_body(body: str) -> str:
+    """Encrypt email body at rest so plaintext OTP secrets are never stored in the outbox table."""
+    cipher = _get_outbox_cipher()
+    encrypted = cipher.encrypt(body.encode("utf-8")).decode("ascii")
+    return f"enc:v1:{encrypted}"
+
+
+def decrypt_outbox_body(data: str) -> str:
+    """Decrypt outbox body at dispatch time."""
+    if data and data.startswith("enc:v1:"):
+        cipher = _get_outbox_cipher()
+        raw = data[len("enc:v1:"):]
+        return cipher.decrypt(raw.encode("ascii")).decode("utf-8")
+    return data
+
 
 def _otp_hash(user_id: int, code: str) -> str:
     secret = os.getenv("SECRET_KEY", "littlenet-dev-secret-change-in-prod-xyz123")
@@ -279,7 +304,7 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
                         (reset_token, recipient, subject, body_html, attempts, max_attempts, created_at)
                     VALUES (%s, %s, %s, %s, 0, %s, NOW())
                     """,
-                    (reset_token, target_email, subject, body, OTP_MAX_ATTEMPTS),
+                    (reset_token, target_email, subject, encrypt_outbox_body(body), OTP_MAX_ATTEMPTS),
                 )
                 conn.commit()
 
@@ -337,7 +362,7 @@ def process_password_reset_email_outbox(batch_size: int = 10) -> int:
                 oid = row["outbox_id"]
                 to_addr = row["recipient"]
                 subj = row["subject"]
-                html = row["body_html"]
+                html = decrypt_outbox_body(row["body_html"])
                 try:
                     sent = send_email(to_addr, subj, html)
                     if sent:

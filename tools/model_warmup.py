@@ -15,7 +15,7 @@ def main():
     results.append(check('NudeNet',lambda: __import__('nudenet').NudeDetector()))
     def clip():
         from transformers import CLIPModel,CLIPProcessor
-        CLIPModel.from_pretrained('openai/clip-vit-base-patch32');CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32')
+        CLIPModel.from_pretrained('openai/clip-vit-base-patch32', revision='3d74acf');CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32', revision='3d74acf')
     results.append(check('CLIP',clip))
     def nsfw():
         from transformers import pipeline

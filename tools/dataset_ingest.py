@@ -129,7 +129,7 @@ def _materialize_source(row: dict[str, str], archives_dir: Path, temp_dir: Path)
     with zipfile.ZipFile(archive, "r") as zf:
         member = _find_zip_member(zf, str(row["filename"]).strip())
         suffix = Path(member).suffix.lower()
-        target = temp_dir / f"{str(row['id']).strip()}_{hashlib.sha1(member.encode()).hexdigest()[:8]}{suffix}"
+        target = temp_dir / f"{str(row['id']).strip()}_{hashlib.sha256(member.encode()).hexdigest()[:8]}{suffix}"
         with zf.open(member, "r") as src, target.open("wb") as dst:
             shutil.copyfileobj(src, dst)
     return target
