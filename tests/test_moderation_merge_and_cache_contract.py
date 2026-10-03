@@ -1,4 +1,4 @@
-﻿import ast
+import ast
 import os
 import pytest
 from database.connection import execute, fetch_one

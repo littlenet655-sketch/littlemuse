@@ -1,4 +1,4 @@
-﻿import os
+import os
 import pytest
 from tools.reconcile_operator_v5 import OperatorReconciliationV5
 

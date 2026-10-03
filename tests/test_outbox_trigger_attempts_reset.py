@@ -1,4 +1,4 @@
-﻿"""Real PostgreSQL trigger re-enqueue must reset exhausted/completed outbox rows.
+"""Real PostgreSQL trigger re-enqueue must reset exhausted/completed outbox rows.
 
 Python ENQUEUE_DELETE_SQL is covered separately. This suite fires the live
 post and child_messages DELETE triggers after migration
