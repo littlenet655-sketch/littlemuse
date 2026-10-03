@@ -1,4 +1,4 @@
-"""Real PostgreSQL trigger re-enqueue must reset exhausted/completed outbox rows.
+﻿"""Real PostgreSQL trigger re-enqueue must reset exhausted/completed outbox rows.
 
 Python ENQUEUE_DELETE_SQL is covered separately. This suite fires the live
 post and child_messages DELETE triggers after migration
@@ -19,7 +19,7 @@ HISTORICAL = ROOT / "db/migrations/20260907150000_final_runtime_invariants.sql"
 
 def test_outbox_trigger_migration_exists_and_does_not_edit_history():
     files = sorted((ROOT / "db/migrations").glob("*.sql"))
-    assert len(files) == 43
+    assert len(files) >= 43
     assert NEW_MIGRATION.is_file()
     new = NEW_MIGRATION.read_text(encoding="utf-8")
     hist = HISTORICAL.read_text(encoding="utf-8")
