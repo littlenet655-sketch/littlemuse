@@ -104,17 +104,22 @@ describe('password reset contracts', () => {
   it('requests a code with the identifier and completes with code + new password', async () => {
     stubFetch();
     nextStatus = 200;
-    nextPayload = { ok: true, user_id: 11, masked_email: 'd***@example.com', is_parent_proxy: false, message: 'Verification code sent.' };
+    nextPayload = { ok: true, reset_token: 'prt_dummy123', user_id: 11, masked_email: 'd***@example.com', is_parent_proxy: false, message: 'Verification code sent.' };
     const requested = await requestPasswordReset('dad_rio');
     assert.equal(seen[0]?.url, 'https://backend.test.invalid/api/mobile/v1/auth/forgot-password');
     assert.deepEqual(bodyJson(), { identifier: 'dad_rio' });
     assert.equal(requested.user_id, 11);
+    assert.equal(requested.reset_token, 'prt_dummy123');
 
     nextPayload = { ok: true, message: 'Password reset successfully.' };
     const done = await resetPassword(11, '654321', 'brandnewpass1');
     assert.equal(seen[1]?.url, 'https://backend.test.invalid/api/mobile/v1/auth/reset-password');
     assert.deepEqual(bodyJson(1), { user_id: 11, code: '654321', new_password: 'brandnewpass1' });
     assert.equal(done.ok, true);
+
+    const doneToken = await resetPassword('prt_dummy123', '654321', 'brandnewpass1');
+    assert.deepEqual(bodyJson(2), { reset_token: 'prt_dummy123', code: '654321', new_password: 'brandnewpass1' });
+    assert.equal(doneToken.ok, true);
   });
 
   it('surfaces unknown-account and expired-code errors verbatim', async () => {

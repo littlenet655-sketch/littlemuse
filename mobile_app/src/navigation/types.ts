@@ -4,7 +4,7 @@ export type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;
   ForgotPassword: undefined;
-  ResetPassword: { userId: number; maskedEmail: string; message?: string };
+  ResetPassword: { resetToken?: string; userId?: number; maskedEmail?: string; message?: string };
   ParentRegister: undefined;
   OtpVerify: { pendingToken: string; emailSent?: boolean; devCode?: string };
 };

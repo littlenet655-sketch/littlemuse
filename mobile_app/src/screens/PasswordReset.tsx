@@ -42,6 +42,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
           return;
         }
         navigation.navigate('ResetPassword', {
+          resetToken: response.reset_token,
           userId: response.user_id,
           maskedEmail: response.masked_email,
           message: response.is_parent_proxy
@@ -81,7 +82,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
 
 /** Step 2: code + new password -> existing reset-password endpoint -> Login. */
 export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'ResetPassword'>) {
-  const { userId, maskedEmail, message } = route.params;
+  const { resetToken, userId, maskedEmail, message } = route.params;
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -107,7 +108,8 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
       setBusy(true);
       setError('');
       try {
-        const response = await resetPassword(userId, code.trim(), password);
+        const handle = resetToken || userId || '';
+        const response = await resetPassword(handle, code.trim(), password);
         if (!response.ok) {
           setError(response.message || 'Could not reset your password. Try again.');
           return;

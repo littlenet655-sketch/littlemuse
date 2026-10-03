@@ -280,18 +280,25 @@ def test_reset_refuses_suspended_account_even_with_valid_code(monkeypatch):
 # ── password reset request: uniform handling / cooldown ─────────────────────
 def test_reset_request_unknown_and_suspended_get_no_code(monkeypatch):
     monkeypatch.setattr(pr, "_ensure_table", lambda: None)
-    monkeypatch.setattr(pr, "get_db_connection", lambda: (_ for _ in ()).throw(AssertionError("db")))
+    conn = _Conn(lambda q, p: None)
+    monkeypatch.setattr(pr, "get_db_connection", lambda: conn)
     monkeypatch.setattr(pr, "send_email", lambda *a, **k: (_ for _ in ()).throw(AssertionError("mail")))
     monkeypatch.setattr(pr, "fetch_one", lambda *a, **k: None)
-    assert pr.request_password_reset("nobody") == (True, pr.UNIFORM_RESET_MESSAGE, None)
+    ok, msg, info = pr.request_password_reset("nobody")
+    assert ok is True and msg == pr.UNIFORM_RESET_MESSAGE
+    assert info is not None and info.get("is_decoy") is True
     monkeypatch.setattr(pr, "fetch_one", lambda *a, **k: {"user_id": 1, "account_status": "SUSPENDED", "email": "a@b.c", "role": "PARENT"})
-    assert pr.request_password_reset("susp") == (True, pr.UNIFORM_RESET_MESSAGE, None)
+    ok, msg, info = pr.request_password_reset("susp")
+    assert ok is True and msg == pr.UNIFORM_RESET_MESSAGE
+    assert info is not None and info.get("is_decoy") is True
 
 
 def test_reset_request_within_cooldown_sends_nothing(monkeypatch):
     monkeypatch.setattr(pr, "_ensure_table", lambda: None)
+    monkeypatch.setattr(pr, "execute", lambda *a, **k: None)
     monkeypatch.setattr(pr, "send_email", lambda *a, **k: (_ for _ in ()).throw(AssertionError("mail")))
-    monkeypatch.setattr(pr, "get_db_connection", lambda: (_ for _ in ()).throw(AssertionError("db")))
+    conn = _Conn(lambda q, p: None)
+    monkeypatch.setattr(pr, "get_db_connection", lambda: conn)
     calls = []
 
     def fake_fetch_one(sql, params=None):
@@ -301,7 +308,9 @@ def test_reset_request_within_cooldown_sends_nothing(monkeypatch):
         return {"user_id": 1, "username": "u", "full_name": "U", "email": "a@b.co", "role": "PARENT", "account_status": "ACTIVE"}
 
     monkeypatch.setattr(pr, "fetch_one", fake_fetch_one)
-    assert pr.request_password_reset("u") == (True, pr.UNIFORM_RESET_MESSAGE, None)
+    ok, msg, info = pr.request_password_reset("u")
+    assert ok is True and msg == pr.UNIFORM_RESET_MESSAGE
+    assert info is not None and (info.get("email_sent") is False or info.get("is_decoy") is True)
 
 
 # ── child approval token: single use, expiry, guardian binding ───────────────

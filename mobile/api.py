@@ -23,9 +23,11 @@ from auth.parent_email_otp import (
 )
 from auth.password_reset import (
     UNIFORM_RESET_MESSAGE,
+    check_ip_reset_rate_limit,
     parent_reset_child_password,
     request_password_reset,
     verify_and_reset_password,
+    verify_and_reset_password_by_token,
 )
 from auth.service import login_user
 from child.service import (
@@ -1386,21 +1388,23 @@ def register_mobile_api(bp):
     @csrf.exempt
     @limiter.limit("10 per 15 minutes")
     def mobile_forgot_password():
+        client_ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For") or request.remote_addr
+        if client_ip and "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        if not check_ip_reset_rate_limit(client_ip):
+            return jsonify(ok=False, error="Too many password reset requests. Please try again later."), 429
         data = _json_dict()
         identifier = str(data.get("identifier") or "").strip()
-        ok, message, details = request_password_reset(identifier)
+        if not identifier:
+            return jsonify(ok=False, error="Username or email is required."), 400
+        ok, message, details = request_password_reset(identifier, request_ip=client_ip)
         if not ok:
             return jsonify(ok=False, error=message), 400
-        if not details:
-            # Anti-enumeration: no account matched (or no code could be
-            # sent), but the response is indistinguishable from success.
-            return jsonify(ok=True, message=UNIFORM_RESET_MESSAGE)
+        reset_token = (details or {}).get("reset_token")
         return jsonify(
             ok=True,
-            user_id=details["user_id"],
-            masked_email=details["masked_email"],
-            is_parent_proxy=details["is_parent_proxy"],
-            message=message or UNIFORM_RESET_MESSAGE,
+            reset_token=reset_token,
+            message=UNIFORM_RESET_MESSAGE,
         )
 
     @bp.route("/api/mobile/v1/auth/reset-password", methods=["POST"])
@@ -1408,13 +1412,17 @@ def register_mobile_api(bp):
     @limiter.limit("10 per 15 minutes")
     def mobile_reset_password():
         data = _json_dict()
-        try:
-            user_id = int(data.get("user_id"))
-        except (TypeError, ValueError):
-            return jsonify(ok=False, error="Invalid user identifier."), 400
+        reset_token = str(data.get("reset_token") or "").strip()
         code = str(data.get("code") or "").strip()
         new_password = str(data.get("new_password") or "")
-        ok, msg = verify_and_reset_password(user_id, code, new_password)
+        if reset_token:
+            ok, msg = verify_and_reset_password_by_token(reset_token, code, new_password)
+        else:
+            try:
+                user_id = int(data.get("user_id"))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="Invalid reset token or identifier."), 400
+            ok, msg = verify_and_reset_password(user_id, code, new_password)
         if not ok:
             return jsonify(ok=False, error=msg), 400
         return jsonify(ok=True, message=msg)
