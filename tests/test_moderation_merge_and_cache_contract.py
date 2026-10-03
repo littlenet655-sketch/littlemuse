@@ -1,4 +1,4 @@
-import ast
+﻿import ast
 import os
 import pytest
 from database.connection import execute, fetch_one
@@ -24,7 +24,7 @@ def test_moderation_cache_fail_closed_and_policy_reapplied():
     if not os.environ.get('DATABASE_URL'):
         pytest.skip('No DATABASE_URL configured')
 
-    fp = text_fingerprint('unit_test_unique_content_123456')
+    import uuid; fp = text_fingerprint(f'unit_test_unique_content_{uuid.uuid4().hex}')
     
     # 1. Media failure never cached as safe
     failed_signal = {
