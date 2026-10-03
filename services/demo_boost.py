@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import os
 import threading
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -160,6 +161,7 @@ def _warm_async(expected_expiry) -> None:
 
 
 def _start_warm_thread(expected_expiry) -> None:
+    _schedule_auto_restore(seconds)
     thread = threading.Thread(target=_warm_async, args=(expected_expiry,), daemon=True, name="littlenet-demo-warm")
     thread.start()
 
@@ -240,3 +242,55 @@ def stop() -> dict:
            WHERE state_id=1"""
     )
     return status()
+
+
+_TIMER_LOCK = threading.Lock()
+_TIMER_HANDLE = None
+
+def _schedule_auto_restore(delay_seconds):
+    global _TIMER_HANDLE
+    with _TIMER_LOCK:
+        if _TIMER_HANDLE is not None:
+            try:
+                _TIMER_HANDLE.cancel()
+            except Exception:
+                pass
+            _TIMER_HANDLE = None
+        delay = max(0.1, float(delay_seconds))
+        timer = threading.Timer(delay, _auto_restore_worker)
+        timer.daemon = True
+        timer.name = 'littlenet-demo-boost-auto-restore'
+        _TIMER_HANDLE = timer
+        timer.start()
+
+def _auto_restore_worker():
+    global _TIMER_HANDLE
+    with _TIMER_LOCK:
+        _TIMER_HANDLE = None
+    try:
+        auto_restore_if_expired()
+    except Exception:
+        pass
+
+def auto_restore_if_expired(max_retries=3, backoff_base=0.5):
+    row = _row()
+    if not row:
+        return True
+    status_str = str(row.get('status') or 'OFF').upper()
+    if status_str == 'OFF':
+        return True
+    remaining = max(0, int(row.get('remaining_seconds') or 0))
+    if remaining > 0:
+        _schedule_auto_restore(remaining)
+        return False
+    restored = False
+    for attempt in range(max(1, max_retries)):
+        if _restore_autoscaler():
+            restored = True
+            break
+        if attempt < max_retries - 1:
+            time.sleep(backoff_base * (2 ** attempt))
+    if restored:
+        execute('UPDATE demo_boost_state SET status=\'OFF\',activated_by=NULL,last_error=NULL,updated_at=NOW() WHERE state_id=1')
+        return True
+    return False
