@@ -883,29 +883,14 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
         decisions[ref] = ref == "uploads/profile_pictures/download.webp" and role_u in {"CHILD", "PARENT", "ADMIN"}
     return decisions
 
-def _merge_signals(*signals):
-    out = {
-        "adult_score": 0.0,
-        "violence_score": 0.0,
-        "weapon_score": 0.0,
-        "toxicity_score": 0.0,
-        "general_score": 0.0,
-        "partial_safety_failure": False,
-        "total_safety_failure": False,
-        "sources": [],
-    }
-    valid = [s for s in signals if s]
-    if not valid:
-        out["total_safety_failure"] = True
-        return out
-    for sig in valid:
-        for key in ("adult_score", "violence_score", "weapon_score", "toxicity_score", "general_score"):
-            out[key] = max(float(out.get(key, 0)), float(sig.get(key, 0) or 0))
-        out["partial_safety_failure"] = out["partial_safety_failure"] or bool(sig.get("partial_safety_failure"))
-        out["total_safety_failure"] = out["total_safety_failure"] or bool(sig.get("total_safety_failure"))
-        out["sources"].append(sig.get("category", "UNKNOWN"))
-    out["category"] = "ADULT" if out["adult_score"] >= Config.ADULT_HARD_BLOCK_THRESHOLD else "CONTENT"
-    return out
+def _merge_signals(text_signals: dict | None = None, media_signals: dict | None = None, *extra_signals) -> dict:
+    """Canonical delegate to services.media_processor._merge_signals to eliminate duplicate footgun."""
+    from services.media_processor import _merge_signals as _canonical_merge_signals
+    merged = _canonical_merge_signals(text_signals, media_signals)
+    for extra in extra_signals:
+        if extra:
+            merged = _canonical_merge_signals(merged, extra)
+    return merged
 
 def _resolve_parent_review(
     reviewer_id: int,
