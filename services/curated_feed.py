@@ -248,11 +248,6 @@ def fetch_curated_candidates(child_id: int, surface: str = "FEED", limit: int = 
 
 def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 60) -> list[dict[str, Any]]:
     """Retrieve safe social posts using only fixed parameterized SQL."""
-    from child.service import discoverable_child_ids
-
-    allowed_child_ids = discoverable_child_ids(child_id)
-    if allowed_child_ids is not None and len(allowed_child_ids) == 0:
-        return []
     cats = effective_categories(child_id)
     age_grp = _age_group(child_id)
     is_reel = str(surface).upper() == "REELS"
@@ -291,7 +286,6 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                      )
                    )
                  )
-                  AND p.child_id = ANY(%s::int[])
                  AND p.content_category = ANY(%s)
                  AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
                  AND p.child_id <> %s
@@ -301,7 +295,7 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                    UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
                ORDER BY p.created_at DESC
                LIMIT %s""",
-             (child_id, child_id, allow_local_media, allowed_child_ids, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, query_limit),
+             (child_id, child_id, allow_local_media, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, query_limit),
         )
         normalized=[normalize_social_item(r) for r in rows]
         return [item for item in normalized if _social_media_renderable(item)][:limit]
@@ -332,7 +326,6 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                  )
                )
              )
-             AND (%s::int[] IS NULL OR p.child_id = ANY(%s::int[]))
              AND p.content_category = ANY(%s)
              AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
              AND p.child_id <> %s
@@ -342,7 +335,7 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
            ORDER BY p.created_at DESC
            LIMIT %s""",
-        (child_id, child_id, allow_local_media, allowed_child_ids, allowed_child_ids, cats, age_grp, age_grp,
+        (child_id, child_id, allow_local_media, cats, age_grp, age_grp,
          child_id, child_id, child_id, child_id, query_limit),
     )
     normalized=[normalize_social_item(r) for r in rows]
@@ -496,7 +489,11 @@ def _rotation_offset(child_id: int, n: int) -> int:
 def _filter_feed_mode(items: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
     mode_clean = str(mode or "for_you").strip().lower()
     if mode_clean == "friends":
-        return [it for it in items if it.get("source_type") == "SOCIAL"]
+        return [
+            it for it in items
+            if it.get("source_type") == "SOCIAL"
+            and bool((it.get("ranking_metadata") or {}).get("is_following"))
+        ]
     if mode_clean == "learn":
         edu_cats = {"Science", "Math", "Technology", "Nature", "Books", "Coding", "General Knowledge", "Education", "Art"}
         return [it for it in items if it.get("source_type") == "CURATED" or it.get("category") in edu_cats]

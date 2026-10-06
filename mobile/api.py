@@ -4017,24 +4017,25 @@ def register_mobile_api(bp):
             return jsonify(error="follow_request_not_found"), 404
         log(child_id, "PARENT_FOLLOW_ACTION", {"parent_id": int(g.mobile_user["user_id"]), "target_id": target_id, "action": action})
         if action == "approve":
-            # Kid-side notification only; follow approval itself stays parent-side by design.
-            # Fail-silent: a notification insert must never break the approval itself.
-            # friend_name is resolved once, outside the guarded blocks, so a
-            # failure in one channel cannot silently skip the other.
-            try:
-                target = fetch_one("SELECT full_name FROM users WHERE user_id=%s", (target_id,))
-            except Exception:
-                target = None
-            friend_name = (target or {}).get("full_name") or "A friend"
-            try:
-                notify(child_id, "FRIEND_ADDED", f"{friend_name} is now your friend", f"/profile/{target_id}", target_id)
-            except Exception:
-                pass
-            try:
-                from services.push_notifications import notify_friend_added
-                notify_friend_added(child_id, friend_name)
-            except Exception:
-                pass
+            # The first parent approval does not activate friendship. The DB
+            # trigger emits FRIENDSHIP_ACTIVE to both children only after the
+            # receiver's parent completes the second approval.
+            rel = fetch_one(
+                """SELECT approved,approval_stage FROM followers
+                   WHERE child_id=%s AND following_child_id=%s""",
+                (child_id, target_id),
+            ) or {}
+            if not (bool(rel.get("approved")) and str(rel.get("approval_stage") or "") == "ACTIVE"):
+                try:
+                    notify(
+                        child_id,
+                        "FRIEND_REQUEST_WAITING",
+                        "Your parent approved. Waiting for the other child's parent.",
+                        f"/profile/{target_id}",
+                        target_id,
+                    )
+                except Exception:
+                    pass
         return jsonify(ok=True, action=action)
 
     @bp.route("/api/mobile/v1/parent/notifications", methods=["GET", "POST"])

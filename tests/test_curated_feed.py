@@ -95,38 +95,33 @@ def _dummy_social_row(post_id=101, category="Nature & Animals", is_reel=False):
     }
 
 
-def test_empty_social_graph_returns_curated_content(monkeypatch):
-    """A child with zero social connections must still receive safe curated content."""
+def test_no_social_posts_still_returns_curated_content(monkeypatch):
+    """A child still receives safe curated content when no eligible social posts exist."""
     child_id = 15
-
-    # Mock empty social connections
-    import child.service as cs
-
-    monkeypatch.setattr(cs, "discoverable_child_ids", lambda cid: [])
-
-    # Mock effective categories and age
     import services.curated_feed as cf
 
     monkeypatch.setattr(cf, "effective_categories", lambda cid: ["Science & Gardening", "Nature & Animals"])
     monkeypatch.setattr(cf, "_child_real_age", lambda cid: 10)
     monkeypatch.setattr(cf, "_age_group", lambda cid: "9-11")
 
-    # Mock database returning published curated items
     sample_curated = [
         _dummy_curated_row(content_id=1, title="Earthworms at Work", category="Science & Gardening"),
         _dummy_curated_row(content_id=2, title="Honeybee Pollination", category="Nature & Animals"),
     ]
-    monkeypatch.setattr(cf, "fetch_all", lambda sql, params: sample_curated)
 
-    social_candidates = fetch_social_candidates(child_id, surface="FEED")
-    assert social_candidates == [], "Social candidates must be empty for 0-friend child"
+    def fake_fetch_all(sql, params):
+        if "FROM curated_content" in sql:
+            return sample_curated
+        return []
 
+    monkeypatch.setattr(cf, "fetch_all", fake_fetch_all)
+
+    assert fetch_social_candidates(child_id, surface="FEED") == []
     curated_candidates = fetch_curated_candidates(child_id, surface="FEED")
     assert len(curated_candidates) == 2
     assert curated_candidates[0]["source_type"] == "CURATED"
     assert curated_candidates[0]["source_id"] == 1
 
-    # Merged candidates must not be empty!
     all_candidates = candidates(child_id, surface="FEED")
     assert len(all_candidates) == 2
     assert all_candidates[0]["source_type"] == "CURATED"
@@ -639,11 +634,9 @@ def test_refill_probe_is_false_when_window_exhausted(monkeypatch):
 
 def test_social_candidates_filter_final_processing_and_durable_media_before_limit(monkeypatch):
     """Broken legacy media must not consume the SQL LIMIT before eligibility filtering."""
-    import child.service as cs
     import services.curated_feed as cf
     from services import object_storage
 
-    monkeypatch.setattr(cs, "discoverable_child_ids", lambda _cid: [42])
     monkeypatch.setattr(object_storage, "enabled", lambda: True)
     monkeypatch.setattr(cf, "effective_categories", lambda _cid: ["Nature & Animals"])
     monkeypatch.setattr(cf, "_age_group", lambda _cid: "9-11")
@@ -670,11 +663,8 @@ def test_social_candidates_filter_final_processing_and_durable_media_before_limi
         # shift the child-id/category parameters that follow it.
         assert sql.count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
         assert params[2] is False
-        if "p.is_reel = TRUE" in sql:
-            assert params[3] == [42]
-        else:
-            assert params[3] == [42]
-            assert params[4] == [42]
+        assert params[3] == ["Nature & Animals"]
+        assert params[4] == "9-11"
 
 def test_materialized_session_rechecks_processing_state_and_renderability(monkeypatch):
     """A stale feed session must not resurrect a post that is no longer publishable."""
@@ -743,8 +733,8 @@ def test_social_candidates_keep_valid_local_media_in_local_mode(monkeypatch):
     sql, params = seen[0]
     assert sql.count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
     assert params[2] is True
-    assert params[3] == [42]
-    assert params[4] == [42]
+    assert params[3] == ["Nature & Animals"]
+    assert params[4] == "9-11"
     assert params[-1] > 10
 
 def test_social_reel_local_media_parameter_alignment(monkeypatch):
@@ -777,6 +767,6 @@ def test_social_reel_local_media_parameter_alignment(monkeypatch):
     assert [item["source_id"] for item in items] == [902]
     assert captured["sql"].count("(%s = TRUE AND p.media_path LIKE 'uploads/%%')") == 1
     assert captured["params"][2] is True
-    assert captured["params"][3] == [42]
-    assert captured["params"][4] == ["Nature & Animals"]
+    assert captured["params"][3] == ["Nature & Animals"]
+    assert captured["params"][4] == "9-11"
 
