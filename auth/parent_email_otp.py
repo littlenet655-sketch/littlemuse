@@ -286,14 +286,15 @@ def resend_parent_email_otp(user_id, with_code=False):
            WHERE u.user_id=%s""",
         (user_id,),
     )
-    if not user or user.get('role') != 'PARENT' or user.get('account_status') not in ('PENDING_APPROVAL',):
-        # Only a genuinely pending parent may be sent (or re-sent) a code:
-        # SUSPENDED / REJECTED / DEACTIVATED accounts must not be able to
-        # restart verification on their own.
+    if not user or user.get('role') != 'PARENT':
         err = 'No pending parent verification was found.'
         return (False, err, None) if with_code else (False, err)
-    if user.get('verified_at'):
+    if user.get('account_status') == 'ACTIVE' or user.get('verified_at'):
         err = 'Email is already verified.'
+        return (False, err, None) if with_code else (False, err)
+    if user.get('account_status') not in ('PENDING_APPROVAL',):
+        # Suspended/rejected/deactivated accounts cannot restart verification.
+        err = 'No pending parent verification was found.'
         return (False, err, None) if with_code else (False, err)
 
     code = _new_code()
