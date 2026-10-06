@@ -30,6 +30,19 @@ function stepIndexFor(stage: string): number {
   return 1;
 }
 
+function statusPresentation(stage: string): {
+  label: string;
+  subtitle: string;
+  icon: keyof typeof Feather.glyphMap;
+} {
+  if (stage === 'allowed') return { label: 'Published', subtitle: 'Your post is live!', icon: 'check-circle' };
+  if (stage === 'blocked') return { label: 'Not shared', subtitle: 'Safety check finished — this post was not shared.', icon: 'x-circle' };
+  if (stage === 'review') return { label: 'Parent review', subtitle: 'Waiting for your parent to review this post.', icon: 'eye' };
+  if (stage === 'retryable') return { label: 'Needs another try', subtitle: 'Processing paused — you can try this post again.', icon: 'refresh-cw' };
+  if (stage === 'failed') return { label: 'Could not finish', subtitle: 'Processing could not finish for this post.', icon: 'alert-circle' };
+  return { label: 'Waiting for safety check', subtitle: 'Uploaded ✓ — checking privately', icon: 'clock' };
+}
+
 /** Elapsed seconds since mount — makes a slow safety check visible instead of a frozen spinner. */
 function useElapsedSeconds(running: boolean): number {
   const [elapsed, setElapsed] = useState(0);
@@ -68,6 +81,8 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
   const blocked = poll.stage === 'blocked';
   const allowed = poll.stage === 'allowed';
   const failed = poll.stage === 'failed' || poll.stage === 'retryable';
+  const checking = poll.stage === 'processing' || poll.stage === 'uploading';
+  const statusUi = statusPresentation(poll.stage);
   // The local preview is a comfort placeholder only. The server result is
   // authoritative: nothing is shown as published unless stage === 'allowed'.
   // Local video files cannot render in an Image, so they get a placeholder.
@@ -77,7 +92,7 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
   const previewUri = allowed ? serverPreview || localImagePreview : localImagePreview;
   const showVideoPlaceholder = !allowed && params.mediaType === 'VIDEO';
   const localVideoUri = showVideoPlaceholder ? params.localUri : undefined;
-  const elapsed = useElapsedSeconds(!allowed && !blocked);
+  const elapsed = useElapsedSeconds(checking);
   // Local preview player: paused, muted, no controls — shows the real first
   // frame of the kid's own video while the server check runs. Display only;
   // the server result stays authoritative.
@@ -91,14 +106,14 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
 
   return (
     <Screen hasNativeHeader={false}>
-      <BrandHeader title="Safety check" onBack={() => navigation.goBack()} subtitle={allowed ? 'Your post is live!' : 'Uploaded ✓ — checking privately'} />
+      <BrandHeader title="Safety check" onBack={() => navigation.goBack()} subtitle={statusUi.subtitle} />
 
       {previewUri ? (
         <Card style={styles.previewCard}>
           <Image source={{ uri: previewUri }} style={styles.preview} contentFit="cover" cachePolicy="memory-disk" />
           <View style={styles.previewTag}>
-            <Feather name={allowed ? 'check-circle' : 'clock'} size={12} color="#FFFFFF" />
-            <Text style={styles.previewTagText}>{allowed ? 'Published' : 'Waiting for safety check'}</Text>
+            <Feather name={statusUi.icon} size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>{statusUi.label}</Text>
           </View>
         </Card>
       ) : null}
@@ -116,8 +131,8 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
             </View>
           )}
           <View style={styles.previewTag}>
-            <Feather name="clock" size={12} color="#FFFFFF" />
-            <Text style={styles.previewTagText}>Waiting for safety check</Text>
+            <Feather name={statusUi.icon} size={12} color="#FFFFFF" />
+            <Text style={styles.previewTagText}>{statusUi.label}</Text>
           </View>
         </Card>
       ) : null}
@@ -140,7 +155,7 @@ export function ProcessingStatusScreen({ route, navigation }: ChildScreenProps<'
           })}
         </View>
         <Text style={styles.copy}>{moderationCopy(poll.stage)}</Text>
-        {!allowed && !blocked ? (
+        {checking ? (
           <>
             <Text style={styles.uploadAck}>Uploaded ✓. Our safety models are checking it privately.</Text>
             <Text style={styles.elapsed}>Checking {formatElapsed(elapsed)} — you can keep browsing while this finishes.</Text>
