@@ -33,5 +33,9 @@ export function sendCreatorChat(
   return apiRequest(routes.creatorChat(creatorId), {
     method: 'POST',
     body: JSON.stringify({ message_text: messageText }),
+    // K2 generation is server-side and may legitimately outlive the normal
+    // 10s REST timeout. Keep the mobile request below the server's bounded
+    // provider timeout rather than retrying an in-flight generation.
+    timeoutMs: 35_000,
   }, token);
 }
