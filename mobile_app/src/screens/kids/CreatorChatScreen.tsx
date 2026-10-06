@@ -64,7 +64,7 @@ export function CreatorChatScreen({ route, navigation }: ChildScreenProps<'Creat
         <Feather name="book-open" size={20} color={colors.brand} />
       </View>
 
-      {loading ? <LoadingState message="Opening learning chat…" /> : error && messages.length === 0 ? <ErrorState onRetry={() => void load()} /> : (
+      {loading ? <LoadingState message="Opening learning chat…" /> : error && messages.length === 0 ? <ErrorState message="Creator chat could not load." onRetry={() => void load()} /> : (
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <FlatList
             data={messages}
