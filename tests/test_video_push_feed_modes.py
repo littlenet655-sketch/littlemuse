@@ -268,9 +268,9 @@ def test_push_notifications_privacy_filter():
 
 def test_feed_modes_server_filtering():
     sample_session_items = [
-        {"source_type": "SOCIAL", "source_id": 1, "category": "General", "moderation_status": "ALLOWED"},
+        {"source_type": "SOCIAL", "source_id": 1, "category": "General", "moderation_status": "ALLOWED", "ranking_metadata": {"is_following": True}},
         {"source_type": "CURATED", "source_id": 10, "category": "Science", "moderation_status": "ALLOWED"},
-        {"source_type": "SOCIAL", "source_id": 2, "category": "Art", "moderation_status": "ALLOWED"},
+        {"source_type": "SOCIAL", "source_id": 2, "category": "Art", "moderation_status": "ALLOWED", "ranking_metadata": {"is_following": False}},
         {"source_type": "CURATED", "source_id": 20, "category": "Math", "moderation_status": "ALLOWED"},
     ]
 
@@ -280,10 +280,10 @@ def test_feed_modes_server_filtering():
         page_all = get_feed_page(child_id=1, surface="FEED", mode="for_you")
         assert len(page_all["items"]) == 4
 
-        # Friends: only SOCIAL items
+        # Friends: only SOCIAL items from ACTIVE friendships
         page_friends = get_feed_page(child_id=1, surface="FEED", mode="friends")
-        assert len(page_friends["items"]) == 2
-        assert all(it["source_type"] == "SOCIAL" for it in page_friends["items"])
+        assert len(page_friends["items"]) == 1
+        assert page_friends["items"][0]["source_id"] == 1
 
         # Learn: only CURATED or educational items
         page_learn = get_feed_page(child_id=1, surface="FEED", mode="learn")
