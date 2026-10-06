@@ -46,14 +46,41 @@ def run_probe(child_a: int, child_b: int) -> dict:
     if not base.startswith("https://") or not db_url or len(secret) < 16:
         raise RuntimeError("release probe environment is incomplete")
 
-    child_a = int(child_a)
-    child_b = int(child_b)
-    if child_a <= 0 or child_b <= 0 or child_a == child_b:
-        raise RuntimeError("release probe child fixture IDs must be distinct positive integers")
+    child_a = int(child_a or 0)
+    child_b = int(child_b or 0)
 
     conn = psycopg2.connect(db_url)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if child_a <= 0 or child_b <= 0 or child_a == child_b:
+                cur.execute(
+                    """SELECT f1.child_id AS child_a, f1.following_child_id AS child_b
+                         FROM followers f1
+                         JOIN followers f2
+                           ON f2.child_id=f1.following_child_id
+                          AND f2.following_child_id=f1.child_id
+                         JOIN users a ON a.user_id=f1.child_id
+                         JOIN users b ON b.user_id=f1.following_child_id
+                         LEFT JOIN child_time_limits ta ON ta.child_id=a.user_id
+                         LEFT JOIN child_time_limits tb ON tb.child_id=b.user_id
+                        WHERE f1.approved=TRUE AND f2.approved=TRUE
+                          AND f1.approval_stage='ACTIVE' AND f2.approval_stage='ACTIVE'
+                          AND a.role='CHILD' AND b.role='CHILD'
+                          AND a.account_status='ACTIVE' AND b.account_status='ACTIVE'
+                          AND a.parent_paused=FALSE AND b.parent_paused=FALSE
+                          AND (a.demo_unlimited=TRUE OR ta.child_id IS NULL)
+                          AND (b.demo_unlimited=TRUE OR tb.child_id IS NULL)
+                        ORDER BY
+                          CASE WHEN a.demo_unlimited AND b.demo_unlimited THEN 0 ELSE 1 END,
+                          f1.child_id, f1.following_child_id
+                        LIMIT 1"""
+                )
+                fixture = cur.fetchone()
+                if not fixture:
+                    raise RuntimeError("release probe could not find a safe active child fixture pair")
+                child_a = int(fixture["child_a"])
+                child_b = int(fixture["child_b"])
+
             cur.execute(
                 """SELECT user_id,username,full_name,role,account_status,session_version
                      FROM users WHERE user_id IN (%s,%s) ORDER BY user_id""",
@@ -415,13 +442,9 @@ def run_probe(child_a: int, child_b: int) -> dict:
 @app.local_entrypoint()
 def main():
     try:
-        child_a = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_A"])
-        child_b = int(os.environ["LITTLENET_RELEASE_PROBE_CHILD_B"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError(
-            "release probe requires explicit LITTLENET_RELEASE_PROBE_CHILD_A/B fixture IDs"
-        ) from exc
-    if child_a <= 0 or child_b <= 0 or child_a == child_b:
-        raise RuntimeError("release probe child fixture IDs must be distinct positive integers")
+        child_a = int(os.environ.get("LITTLENET_RELEASE_PROBE_CHILD_A") or 0)
+        child_b = int(os.environ.get("LITTLENET_RELEASE_PROBE_CHILD_B") or 0)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("release probe child fixture IDs must be integers when provided") from exc
     result = run_probe.remote(child_a, child_b)
     print("LIVE_MEDIA_PROBE " + json.dumps(result, sort_keys=True))

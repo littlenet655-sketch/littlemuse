@@ -34,8 +34,6 @@ jobs:
       - name: Run real production R2 image + Reel probe
         run: |
           set -euo pipefail
-          test -n "$LITTLENET_RELEASE_PROBE_CHILD_A" || (echo 'Missing LITTLENET_RELEASE_PROBE_CHILD_A variable' && exit 1)
-          test -n "$LITTLENET_RELEASE_PROBE_CHILD_B" || (echo 'Missing LITTLENET_RELEASE_PROBE_CHILD_B variable' && exit 1)
           modal run tools/live_release_media_probe.py | tee live-media-probe.log
           grep -q 'LIVE_MEDIA_PROBE .*"ok": true' live-media-probe.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

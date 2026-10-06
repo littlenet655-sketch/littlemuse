@@ -154,3 +154,15 @@ def test_live_probe_passes_fixture_ids_explicitly_into_remote_function():
     probe = (ROOT / "tools/live_release_media_probe.py").read_text(encoding="utf-8")
     assert "def run_probe(child_a: int, child_b: int)" in probe
     assert "run_probe.remote(child_a, child_b)" in probe
+
+
+def test_live_media_probe_can_auto_select_fixture_pair():
+    repo_root = Path(__file__).parents[1]
+    src = (repo_root / "tools" / "live_release_media_probe.py").read_text(encoding="utf-8")
+    workflow = (repo_root / ".github" / "workflows" / "live-media-probe.yml").read_text(encoding="utf-8")
+    assert 'os.environ.get("LITTLENET_RELEASE_PROBE_CHILD_A") or 0' in src
+    assert 'release probe could not find a safe active child fixture pair' in src
+    assert "JOIN followers f2" in src
+    assert "a.parent_paused=FALSE" in src
+    assert "b.parent_paused=FALSE" in src
+    assert "Missing LITTLENET_RELEASE_PROBE_CHILD_A variable" not in workflow
