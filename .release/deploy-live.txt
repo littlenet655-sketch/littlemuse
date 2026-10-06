@@ -1,3 +1,9 @@
-Deploy current audited main after APK findings fixes on 2026-09-23.
-Source fixes merged via PR #7; main CI and React Native checks are green.
-Database migration remains skipped: production was previously reconciled and this release changes application code only.
+Deploy current audited LittleNet main on 2026-10-06.
+
+Release includes:
+- PR #38: global For You eligibility, true ACTIVE-friends feed, corrected two-parent friendship messaging.
+- PR #40: protected niche AI chat for curated creators with server-side K2, PII/safety checks, bounded interactive latency, Feed/Reels entry points, and parent messaging gate.
+- Migration 20261006154500_creator_ai_chat.sql must be applied through the guarded dbmate release path.
+- Mobile validation, source audit, Python security, secret scan, PostgreSQL role E2E, and current-main APK build are green.
+
+Do not warm GPU models for this release.
