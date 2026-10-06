@@ -229,6 +229,24 @@ def process_media_job_background(post_id: int, child_id: int, object_key: str, k
 
 @app.function(
     image=web_image,
+    cpu=0.5,
+    memory=512,
+    secrets=[web_secret, r2_secret],
+    schedule=modal.Cron("*/15 * * * *"),
+    timeout=300,
+    min_containers=0,
+    max_containers=1,
+)
+def recovery_sweep():
+    """Reap stale media jobs and abandoned upload sessions every 15 minutes."""
+    os.chdir("/root/littlenet")
+    from services.recovery import run_recovery_sweep
+
+    return run_recovery_sweep()
+
+
+@app.function(
+    image=web_image,
     secrets=[web_secret, r2_secret],
     timeout=1800,
     min_containers=0,
