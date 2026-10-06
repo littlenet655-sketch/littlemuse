@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 
 const ALLOWED_NO_FIX = new Set([
-  'GHSA-vfj7-8cjw-p6xm', // braces <=3.0.3: no patched upstream release
-  'GHSA-86w9-cpqp-85rv', // node-forge 1.4.0 follow-up: no patched upstream release
+  'GHSA-VFJ7-8CJW-P6XM', // braces <=3.0.3: no patched upstream release
+  'GHSA-86W9-CPQP-85RV', // node-forge 1.4.0 follow-up: no patched upstream release
 ]);
 
 const rank = { low: 1, moderate: 2, high: 3, critical: 4 };
