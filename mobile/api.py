@@ -1847,6 +1847,16 @@ def register_mobile_api(bp):
             child_message=text,
             history=list(reversed(history or [])),
         )
+        reply_text = str(result.reply or "").strip()
+        reply_pii = scan_pii(reply_text)
+        _, reply_decision = evaluate(uid, "TEXT", reply_text)
+        if (
+            not reply_text
+            or reply_decision.action != "ALLOW"
+            or (reply_pii.get("detected") and reply_pii.get("policy_action") == "BLOCK")
+        ):
+            niche = str(creator.get("interest_vertical") or "this topic")
+            reply_text = f"Let's keep this learning chat safe. Ask me another question about {niche}."
 
         conn = get_db_connection()
         try:
@@ -1859,7 +1869,7 @@ def register_mobile_api(bp):
             cur.execute(
                 """INSERT INTO creator_chat_messages(child_id,creator_id,sender,message_text)
                    VALUES(%s,%s,'CREATOR',%s) RETURNING message_id""",
-                (uid, creator_id, result.reply),
+                (uid, creator_id, reply_text),
             )
             conn.commit()
         except Exception:
