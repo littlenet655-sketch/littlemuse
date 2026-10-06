@@ -47,3 +47,13 @@ def test_creator_chat_review_like_input_fails_closed_without_fake_parent_queue()
     assert '"CREATOR_CHAT_MESSAGE_HELD"' in body
     assert '"MESSAGE_BLOCKED"' in body
     assert '"REVIEW_REQUIRED"' not in body
+
+
+def test_creator_reply_uses_single_bounded_provider_attempt():
+    client = text("services/ai/client.py")
+    body = client.split("def generate_creator_reply")[1].split("# ── 6.")[0]
+    assert "read_timeout=20.0" in body
+    assert "max_retries=0" in body
+    provider = text("services/ai/providers/k2.py")
+    assert "read_timeout: Optional[float] = None" in provider
+    assert "max_retries: Optional[int] = None" in provider
