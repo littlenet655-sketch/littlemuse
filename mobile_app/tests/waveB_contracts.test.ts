@@ -144,7 +144,7 @@ describe('Task 8: Reels Follow + Audio Controls Contracts', () => {
     assert.doesNotMatch(muteSlice, /currentTime/);
   });
 
-  it('ReelsScreen wires SOCIAL creator follow with optimistic Requested state and curated disabled', () => {
+  it('ReelsScreen wires SOCIAL follow and keeps curated creators out of the child-follow graph', () => {
     const filePath = join(SRC, 'screens/kids/ReelsScreen.tsx');
     const content = readFileSync(filePath, 'utf-8');
 
@@ -154,9 +154,11 @@ describe('Task 8: Reels Follow + Audio Controls Contracts', () => {
     assert.match(content, /currentStatus\s*===\s*'Follow'\s*\?\s*'Requested'\s*:\s*'Follow'/);
     // Rollback on failure
     assert.match(content, /setFollowStates\(\(\s*prev\s*\)\s*=>\s*\(\{\s*\.\.\.prev,\s*\[childId\]:\s*currentStatus\s*\}\)\)/);
-    // Curated creator follow disabled (does not fake child id)
-    assert.match(content, /item\.source_type\s*!==\s*'SOCIAL'/);
-    assert.match(content, /accessibilityLabel="Curated creator"/);
+    // Curated personas never call toggleFollow or fake a child id. They open
+    // the dedicated server-side learning chat instead.
+    assert.match(content, /item\.source_type\s*===\s*'CURATED'\s*&&\s*item\.creator_id/);
+    assert.match(content, /nav\.navigate\('CreatorChat',\s*creatorChat\)/);
+    assert.match(content, /<Text style=\{styles\.followPillText\}>Chat<\/Text>/);
   });
 
   it('Reels UI exposes audio control via disc and audio tag using authoritative hook state', () => {
