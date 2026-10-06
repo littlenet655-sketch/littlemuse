@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 
 const ALLOWED_NO_FIX = new Set([
-  'GHSA-vfj7-8cjw-p6xm', // braces <=3.0.3: upstream has no patched release
-  'GHSA-86w9-cpqp-85rv', // node-forge 1.4.0 follow-up: upstream has no patched release
+  'GHSA-vfj7-8cjw-p6xm', // braces <=3.0.3: no patched upstream release
+  'GHSA-86w9-cpqp-85rv', // node-forge 1.4.0 follow-up: no patched upstream release
 ]);
 
 const rank = { low: 1, moderate: 2, high: 3, critical: 4 };
@@ -21,51 +21,54 @@ try {
 }
 
 const vulnerabilities = report.vulnerabilities || {};
-const memo = new Map();
+const rootMemo = new Map();
 
-function advisoryAllowed(via) {
-  const haystack = [
-    via?.url,
-    via?.title,
-    via?.name,
-    via?.source,
-  ].filter(Boolean).join(' ');
-  return [...ALLOWED_NO_FIX].some((id) => haystack.includes(id));
+function advisoryId(via) {
+  const haystack = [via?.url, via?.title, via?.name, via?.source]
+    .filter(Boolean)
+    .join(' ');
+  const match = haystack.match(/GHSA-[0-9a-z-]+/i);
+  return match ? match[0].toUpperCase() : null;
 }
 
-function packageAllowed(name, trail = new Set()) {
-  if (memo.has(name)) return memo.get(name);
-  if (trail.has(name)) return false;
+function rootAdvisories(name, trail = new Set()) {
+  if (rootMemo.has(name) && trail.size === 0) return new Set(rootMemo.get(name));
+  if (trail.has(name)) return new Set();
+
   const vuln = vulnerabilities[name];
-  if (!vuln || (rank[vuln.severity] || 0) < rank.high) {
-    memo.set(name, true);
-    return true;
-  }
+  if (!vuln || (rank[vuln.severity] || 0) < rank.high) return new Set();
 
   const nextTrail = new Set(trail);
   nextTrail.add(name);
-  const vias = Array.isArray(vuln.via) ? vuln.via : [];
-  if (!vias.length) {
-    memo.set(name, false);
-    return false;
+  const roots = new Set();
+  for (const via of Array.isArray(vuln.via) ? vuln.via : []) {
+    if (typeof via === 'string') {
+      for (const root of rootAdvisories(via, nextTrail)) roots.add(root);
+      continue;
+    }
+    if ((rank[via?.severity] || 0) < rank.high) continue;
+    roots.add(advisoryId(via) || `UNIDENTIFIED:${name}`);
   }
 
-  const allowed = vias.every((via) => {
-    if (typeof via === 'string') {
-      return packageAllowed(via, nextTrail);
-    }
-    if ((rank[via?.severity] || 0) < rank.high) return true;
-    return advisoryAllowed(via);
-  });
-  memo.set(name, allowed);
-  return allowed;
+  if (trail.size === 0) rootMemo.set(name, [...roots]);
+  return roots;
 }
 
 const highOrCritical = Object.keys(vulnerabilities).filter(
   (name) => (rank[vulnerabilities[name]?.severity] || 0) >= rank.high,
 );
-const blocked = highOrCritical.filter((name) => !packageAllowed(name));
-const accepted = highOrCritical.filter((name) => packageAllowed(name));
+
+const blocked = [];
+const accepted = [];
+for (const name of highOrCritical) {
+  const roots = rootAdvisories(name);
+  const ids = [...roots];
+  if (ids.length > 0 && ids.every((id) => ALLOWED_NO_FIX.has(id))) {
+    accepted.push(name);
+  } else {
+    blocked.push({ name, roots: ids.length ? ids : ['UNRESOLVED_ROOT'] });
+  }
+}
 
 if (accepted.length) {
   console.warn(
@@ -74,8 +77,10 @@ if (accepted.length) {
   );
 }
 if (blocked.length) {
-  console.error('Unapproved high/critical npm vulnerabilities: ' + blocked.sort().join(', '));
+  for (const item of blocked) {
+    console.error(`Unapproved high/critical npm vulnerability: ${item.name} <- ${item.roots.join(', ')}`);
+  }
   process.exit(1);
 }
 
-console.log('npm high/critical audit gate passed; only explicitly documented no-fix advisories remain.');
+console.log('npm high/critical audit gate passed; only explicitly documented no-fix root advisories remain.');
