@@ -1,3 +1,3 @@
 Run the real production R2 image/Reel release probe after successful Modal deployment.
-Retry with DB fingerprint at 2026-09-23 release audit.
-Retry after migrating Modal-connected live DB and selecting child_a/child_b.
+Verified backend-only Modal deployment from main commit 36236959a660ebf8730c839e8ed86f0e982e5110 on 2026-10-06.
+Also trigger the final local standalone APK build from this audited head.
