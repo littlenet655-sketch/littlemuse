@@ -233,11 +233,20 @@ const FeedRow = memo(function FeedRow({
 }) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
+  const creatorChat = item.source_type === 'CURATED' && item.creator_id ? {
+    creatorId: Number(item.creator_id),
+    displayName: item.full_name ?? 'Learning creator',
+    vertical: item.content_category ?? '',
+  } : null;
   return (
     <PostCard
       item={item}
       onOpen={post ? () => nav.navigate('PostDetail', post) : undefined}
-      onProfile={profile ? () => nav.navigate('OtherProfile', profile) : undefined}
+      onProfile={profile
+        ? () => nav.navigate('OtherProfile', profile)
+        : creatorChat
+          ? () => nav.navigate('CreatorChat', creatorChat)
+          : undefined}
       onNotInterested={tab === 'Friends' ? undefined : () => onNotInterestedItem(item.source_type, item.source_id)}
       onControlledShare={post ? () => nav.navigate('PostDetail', { ...post, openShare: true }) : undefined}
       onDeleted={() => onDeletedItem(item)}

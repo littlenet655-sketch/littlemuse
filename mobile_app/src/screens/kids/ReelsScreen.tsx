@@ -104,6 +104,11 @@ const ReelCell = memo(function ReelCell({
 }: ReelCellProps) {
   const post = socialPostTarget(item);
   const profile = socialProfileTarget(item);
+  const creatorChat = item.source_type === 'CURATED' && item.creator_id ? {
+    creatorId: Number(item.creator_id),
+    displayName: item.full_name ?? 'Learning creator',
+    vertical: item.content_category ?? '',
+  } : null;
   const toggleMuteRef = useRef<(() => void) | null>(null);
   const [cellMuted, setCellMuted] = useState(false);
 
@@ -269,8 +274,11 @@ const ReelCell = memo(function ReelCell({
         <View style={styles.creatorRow}>
           <Pressable
             style={styles.creatorIdentity}
-            onPress={() => profile && nav.navigate('OtherProfile', profile)}
-            disabled={!profile}
+            onPress={() => {
+              if (profile) nav.navigate('OtherProfile', profile);
+              else if (creatorChat) nav.navigate('CreatorChat', creatorChat);
+            }}
+            disabled={!profile && !creatorChat}
           >
             <Avatar uri={item.avatar_url} name={item.full_name ?? 'F'} size={36} />
             <Text style={styles.creatorName} numberOfLines={1}>
@@ -299,14 +307,15 @@ const ReelCell = memo(function ReelCell({
                 {isFollowBusy ? '…' : (followStatus ?? 'Follow')}
               </Text>
             </Pressable>
-          ) : item.source_type !== 'SOCIAL' ? (
+          ) : item.source_type !== 'SOCIAL' && item.creator_id ? (
             <Pressable
-              style={[styles.followPill, styles.followPillDisabled]}
-              disabled={true}
+              style={styles.followPill}
+              onPress={() => creatorChat && nav.navigate('CreatorChat', creatorChat)}
               accessibilityRole="button"
-              accessibilityLabel="Curated creator"
+              accessibilityLabel={`Chat with ${item.full_name ?? 'learning creator'}`}
+              hitSlop={6}
             >
-              <Text style={styles.followPillText}>Curated</Text>
+              <Text style={styles.followPillText}>Chat</Text>
             </Pressable>
           ) : null}
         </View>

@@ -8,7 +8,8 @@ from .schemas import (
     LanguageDrill,
     ContentClassificationResult,
     ParentDigestResult,
-    SafetySummaryResult
+    SafetySummaryResult,
+    CreatorReplyResult
 )
 from .circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
 
@@ -24,6 +25,7 @@ __all__ = [
     "ContentClassificationResult",
     "ParentDigestResult",
     "SafetySummaryResult",
+    "CreatorReplyResult",
     "CircuitBreaker",
     "CircuitBreakerOpenException"
 ]

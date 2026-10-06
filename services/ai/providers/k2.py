@@ -107,7 +107,15 @@ class K2Provider:
         )
         return sandboxed_system, sandboxed_user
 
-    def generate(self, system_instruction: str, user_content: str, temperature: float = 0.2) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def generate(
+        self,
+        system_instruction: str,
+        user_content: str,
+        temperature: float = 0.2,
+        *,
+        read_timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Executes a completion request against K2-Horizon.
         Enforces system instruction isolation and structured untrusted content sandboxing.
@@ -141,15 +149,17 @@ class K2Provider:
         # Clean None values
         payload = {k: v for k, v in payload.items() if v is not None}
 
+        request_read_timeout = self.read_timeout if read_timeout is None else max(1.0, float(read_timeout))
+        retry_limit = self.max_retries if max_retries is None else max(0, int(max_retries))
         last_exc = None
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(retry_limit + 1):
             t0 = time.time()
             try:
                 resp = requests.post(
                     endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=(self.connect_timeout, self.read_timeout)
+                    timeout=(self.connect_timeout, request_read_timeout)
                 )
                 latency_ms = int((time.time() - t0) * 1000)
 
@@ -179,13 +189,13 @@ class K2Provider:
                 return parsed_json, telemetry
 
             except (requests.Timeout, requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout) as e:
-                last_exc = K2TimeoutError(f"K2 Horizon timeout after {self.read_timeout}s: {e}")
+                last_exc = K2TimeoutError(f"K2 Horizon timeout after {request_read_timeout}s: {e}")
             except (requests.ConnectionError, K2RateLimitError, K2Error) as e:
                 last_exc = e
             except Exception as e:
                 last_exc = K2InvalidResponseError(f"K2 request parsing error: {e}")
 
-            if attempt < self.max_retries:
+            if attempt < retry_limit:
                 time.sleep(0.5 * (2 ** attempt))
 
         raise last_exc or K2Error("K2 Horizon generation failed after all retries.")
