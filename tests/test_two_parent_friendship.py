@@ -105,3 +105,12 @@ def test_legacy_parent_route_remains_compatible_with_database_state_machine():
     # the receiving parent's own child, so the same ownership guard remains valid.
     migration = text('database/friendship_upgrade.sql')
     assert 'OLD.following_child_id,OLD.child_id' in migration
+
+
+def test_mobile_first_parent_approval_never_claims_friendship_active():
+    mobile = text('mobile/api.py')
+    body = mobile.split('def mobile_parent_follow_action')[1].split('def mobile_parent_notifications')[0]
+    assert '"FRIEND_ADDED"' not in body
+    assert 'FRIEND_REQUEST_WAITING' in body
+    assert 'Waiting for the other child\'s parent.' in body
+    assert 'approval_stage' in body and '"ACTIVE"' in body
