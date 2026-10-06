@@ -3350,6 +3350,23 @@ const styles = StyleSheet.create({
   categoryPillSelected: { backgroundColor: colors.brand, borderColor: colors.brand },
   categoryPillText: { color: '#334155', fontWeight: '700', fontSize: 12 },
   categoryPillTextSelected: { color: '#FFFFFF' },
+  brainBreakCadenceCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    backgroundColor: '#F5F3FF',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  brainBreakCadenceTitle: {
+    color: '#5B21B6',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
 
   /* Follow Requests */
   friendshipStagePill: {
