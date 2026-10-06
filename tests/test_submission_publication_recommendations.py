@@ -42,18 +42,17 @@ def test_review_is_creator_private_and_block_has_no_public_visibility_predicate(
     assert "p.moderation_status='BLOCKED'" not in visibility
 
 
-def test_reels_candidates_use_discoverability_boundary(monkeypatch):
-    import child.service as child_service
+def test_reels_candidates_use_public_safe_boundary(monkeypatch):
     import services.curated_feed as curated
 
-    monkeypatch.setattr(child_service, "discoverable_child_ids", lambda _cid: [42])
     monkeypatch.setattr(curated, "effective_categories", lambda _cid: ["Science"])
     monkeypatch.setattr(curated, "_age_group", lambda _cid: "9-11")
     seen = {}
     monkeypatch.setattr(curated, "fetch_all", lambda sql, params: seen.update(sql=sql, params=params) or [])
     assert fetch_social_candidates(7, surface="REELS") == []
-    assert "p.child_id = ANY(%s::int[])" in seen["sql"]
-    assert [42] in seen["params"]
+    assert "p.child_id = ANY(%s::int[])" not in seen["sql"]
+    assert "p.moderation_status = 'ALLOWED'" in seen["sql"]
+    assert "p.is_safe = TRUE" in seen["sql"]
 
 
 def test_persisted_session_hydration_rechecks_current_visibility(monkeypatch):
@@ -100,7 +99,7 @@ def test_mobile_review_approval_refreshes_text_posts_after_commit():
     assert "if p_row.get(\"source_media_path\"):" in approval
 
 def test_v2_for_you_social_candidates_are_global_and_friends_mode_is_active_only():
-    source = text('services/curated_feed.py')
+    source = (Path(__file__).parents[1] / "services" / "curated_feed.py").read_text(encoding="utf-8")
     fetch_body = source.split('def fetch_social_candidates')[1].split('def get_recent_impression_keys')[0]
     assert 'discoverable_child_ids' not in fetch_body
     assert 'p.child_id = ANY(' not in fetch_body
