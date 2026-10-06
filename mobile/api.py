@@ -1894,6 +1894,30 @@ def register_mobile_api(bp):
             f"chat_quarantine/{uid}/{upload_id}/source.{ext}"
         )
         expires_seconds = 900
+
+        # Match the normal Post/Reel/Story upload invariant: do not persist a
+        # PENDING chat upload session until an upload target has actually been
+        # issued. Otherwise an R2 signing/configuration failure leaves a dead
+        # row that can only be removed later by the recovery sweeper.
+        if object_storage.enabled():
+            try:
+                upload_url = object_storage.signed_upload_url(
+                    object_key,
+                    content_type=mime_type,
+                    expires_seconds=expires_seconds,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "chat upload target generation failed for child_id=%s peer_id=%s",
+                    uid,
+                    peer_id,
+                )
+                return jsonify(error="upload_target_unavailable"), 503
+        elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
+            return jsonify(error="storage_configuration_error"), 500
+        else:
+            upload_url = f"{Config.BASE_URL}/api/mobile/v2/kids/chat/uploads/mock-put/{upload_id}"
+
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_seconds)
         execute(
             """INSERT INTO chat_upload_sessions(
@@ -1905,17 +1929,6 @@ def register_mobile_api(bp):
                 size_bytes,mime_type,ext,expires_at,
             ),
         )
-
-        if object_storage.enabled():
-            upload_url = object_storage.signed_upload_url(
-                object_key,
-                content_type=mime_type,
-                expires_seconds=expires_seconds,
-            )
-        elif Config._PRODUCTION and not os.getenv("PYTEST_CURRENT_TEST"):
-            return jsonify(error="storage_configuration_error"), 500
-        else:
-            upload_url = f"{Config.BASE_URL}/api/mobile/v2/kids/chat/uploads/mock-put/{upload_id}"
 
         return jsonify(
             ok=True,
