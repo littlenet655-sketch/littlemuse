@@ -171,14 +171,14 @@ class PoolExhaustedError(RuntimeError):
     """Raised when the configured connection pool cannot serve a connection.
 
     Production must never bypass DB_POOL_MAX_CONNECTIONS with an unrestricted
-    direct psycopg2.connect() fallback during pool pressure.
+    direct psycopg2 connection when the pool is exhausted or unhealthy.
     """
 
 
 def get_db_connection():
     pool = _get_pool()
     maxconn = max(1, int(os.getenv("DB_POOL_MAX_CONNECTIONS", "20")))
-    last_error = None
+    last_error: Exception | None = None
     for _ in range(2):
         try:
             started = time.monotonic()

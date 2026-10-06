@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import os
 import threading
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -80,15 +81,33 @@ def _set_autoscaler(seconds: int) -> None:
     cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=bounded)
 
 
-def _restore_autoscaler() -> None:
+def _configured_scaledown(env_name: str) -> int:
+    """Return the deployed idle window rather than assuming a 30s default."""
+    raw = (os.getenv(env_name) or str(DEFAULT_SCALEDOWN_SECONDS)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_SCALEDOWN_SECONDS
+    return max(1, min(value, 60 * 65))
+
+
+def _restore_autoscaler() -> bool:
+    """Restore configured idle windows; keep retry state if Modal is unavailable."""
     try:
         gpu, cpu = _modal_functions()
-        gpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
-        cpu.update_autoscaler(min_containers=0, max_containers=1, scaledown_window=DEFAULT_SCALEDOWN_SECONDS)
+        gpu.update_autoscaler(
+            min_containers=0,
+            max_containers=1,
+            scaledown_window=_configured_scaledown("MODAL_AI_GPU_SCALEDOWN_WINDOW"),
+        )
+        cpu.update_autoscaler(
+            min_containers=0,
+            max_containers=1,
+            scaledown_window=_configured_scaledown("MODAL_AI_IMAGE_CPU_SCALEDOWN_WINDOW"),
+        )
+        return True
     except Exception:
-        # State expiry remains authoritative. A later status/admin call retries
-        # the restore; min_containers was never raised above zero.
-        pass
+        return False
 
 
 def _mark_ready(expected_expiry) -> None:
@@ -134,7 +153,11 @@ def _warm_async(expected_expiry) -> None:
         _mark_warm_error(expected_expiry, exc)
 
 
-def _start_warm_thread(expected_expiry) -> None:
+def _start_warm_thread(expected_expiry, delay_seconds: float | None = None) -> None:
+    if delay_seconds is None:
+        row = _row()
+        delay_seconds = max(0.1, float((row or {}).get("remaining_seconds") or 0.1))
+    _schedule_auto_restore(delay_seconds)
     thread = threading.Thread(target=_warm_async, args=(expected_expiry,), daemon=True, name="littlenet-demo-warm")
     thread.start()
 
@@ -149,12 +172,14 @@ def status() -> dict:
     # future requests. Restore defaults lazily the first time any app screen
     # polls status after expiry.
     if str(row.get("status") or "OFF").upper() != "OFF":
-        execute(
-            """UPDATE demo_boost_state
-               SET status='OFF',activated_by=NULL,last_error=NULL,updated_at=NOW()
-               WHERE state_id=1"""
-        )
-        _restore_autoscaler()
+        # Only forget the boost after Modal confirms that normal autoscaling
+        # was restored. A transient Modal outage is retried on the next poll.
+        if _restore_autoscaler():
+            execute(
+                """UPDATE demo_boost_state
+                   SET status='OFF',activated_by=NULL,last_error=NULL,updated_at=NOW()
+                   WHERE state_id=1"""
+            )
     return _public(_row())
 
 
@@ -174,7 +199,7 @@ def activate(admin_id: int, minutes: int) -> dict:
         (admin_id, seconds),
     )
     expected_expiry = row["expires_at"]
-    _start_warm_thread(expected_expiry)
+    _start_warm_thread(expected_expiry, delay_seconds=seconds)
     return status()
 
 
@@ -199,15 +224,73 @@ def extend(admin_id: int, minutes: int) -> dict:
     remaining = max(DEFAULT_SCALEDOWN_SECONDS, int(row.get("remaining_seconds") or 0))
     _set_autoscaler(remaining)
     if _public({**row, "status": "WARMING"})["remaining_seconds"] > 0:
-        _start_warm_thread(row["expires_at"])
+        _start_warm_thread(row["expires_at"], delay_seconds=remaining)
     return status()
 
 
 def stop() -> dict:
     execute(
         """UPDATE demo_boost_state
-           SET status='OFF',activated_by=NULL,expires_at=NOW(),last_error=NULL,updated_at=NOW()
+           SET expires_at=NOW(),last_error=NULL,updated_at=NOW()
            WHERE state_id=1"""
     )
-    _restore_autoscaler()
     return status()
+
+
+_TIMER_LOCK = threading.Lock()
+_TIMER_HANDLE = None
+
+
+def _schedule_auto_restore(delay_seconds: float) -> None:
+    global _TIMER_HANDLE
+    with _TIMER_LOCK:
+        if _TIMER_HANDLE is not None:
+            try:
+                _TIMER_HANDLE.cancel()
+            except Exception:
+                pass
+        timer = threading.Timer(max(0.1, float(delay_seconds)), _auto_restore_worker)
+        timer.daemon = True
+        timer.name = "littlenet-demo-boost-auto-restore"
+        _TIMER_HANDLE = timer
+        timer.start()
+
+
+def _auto_restore_worker() -> None:
+    global _TIMER_HANDLE
+    with _TIMER_LOCK:
+        _TIMER_HANDLE = None
+    try:
+        auto_restore_if_expired()
+    except Exception:
+        pass
+
+
+def auto_restore_if_expired(max_retries: int = 3, backoff_base: float = 0.5) -> bool:
+    row = _row()
+    if not row or str(row.get("status") or "OFF").upper() == "OFF":
+        return True
+    remaining = max(0, int(row.get("remaining_seconds") or 0))
+    if remaining > 0:
+        _schedule_auto_restore(remaining)
+        return False
+
+    for attempt in range(max(1, int(max_retries))):
+        if _restore_autoscaler():
+            execute(
+                """UPDATE demo_boost_state
+                   SET status='OFF',activated_by=NULL,last_error=NULL,updated_at=NOW()
+                   WHERE state_id=1"""
+            )
+            return True
+        if attempt < max_retries - 1:
+            time.sleep(float(backoff_base) * (2 ** attempt))
+    return False
+
+
+def reconcile_demo_boost_on_startup() -> bool:
+    """Recover an expired persisted boost after a cold container restart."""
+    try:
+        return auto_restore_if_expired(max_retries=2)
+    except Exception:
+        return False

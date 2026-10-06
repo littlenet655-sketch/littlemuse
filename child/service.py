@@ -33,6 +33,18 @@ def is_follow_pending(a,b):
     return bool(fetch_one('''SELECT 1 FROM followers WHERE approved=FALSE
         AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s)) LIMIT 1''',(a,b,b,a)))
 
+def batch_relationship_states(viewer_id, target_ids):
+    if not viewer_id or not target_ids: return {}
+    unique_targets = list({int(tid) for tid in target_ids if tid is not None and int(tid) != int(viewer_id)})
+    if not unique_targets: return {}
+    sql = "SELECT CASE WHEN child_id = %s THEN following_child_id ELSE child_id END AS other_id, bool_or(approved = TRUE AND approval_stage = 'ACTIVE') AS is_following, bool_or(approved = FALSE) AS is_pending " + "FROM followers WHERE (child_id = %s AND following_child_id = ANY(%s)) OR (following_child_id = %s AND child_id = ANY(%s)) GROUP BY other_id"
+    rows = fetch_all(sql, (viewer_id, viewer_id, unique_targets, viewer_id, unique_targets))
+    result = {tid: {"is_following": False, "is_pending": False} for tid in unique_targets}
+    for r in (rows or []):
+        oid = int(r["other_id"])
+        result[oid] = {"is_following": bool(r.get("is_following")), "is_pending": bool(r.get("is_pending"))}
+    return result
+
 def follow_child(a,b):
     execute("""INSERT INTO followers(child_id,following_child_id,approved,approval_stage)
         VALUES(%s,%s,FALSE,'REQUESTED') ON CONFLICT(child_id,following_child_id) DO NOTHING""",(a,b))

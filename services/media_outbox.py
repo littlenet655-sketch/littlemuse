@@ -4,18 +4,26 @@ from __future__ import annotations
 from database.connection import execute, fetch_all
 
 
-def enqueue_delete(reference: str, source_table: str = "compensation", source_id=None) -> None:
-    """Persist a private-object deletion request for retry after transient failures."""
-    if not reference or not str(reference).startswith("uploads/r2/"):
-        return
-    execute(
-        """INSERT INTO media_delete_outbox(reference,source_table,source_id)
+# A re-enqueued exhausted/completed delete starts one new bounded retry cycle.
+# An in-flight row keeps its attempt count so concurrent callers cannot reset
+# the budget indefinitely.
+ENQUEUE_DELETE_SQL = """INSERT INTO media_delete_outbox(reference,source_table,source_id)
            VALUES(%s,%s,%s)
            ON CONFLICT(reference) DO UPDATE
-             SET completed_at=NULL,last_error=NULL,source_table=EXCLUDED.source_table,
-                 source_id=COALESCE(EXCLUDED.source_id,media_delete_outbox.source_id)""",
-        (reference, source_table, source_id),
-    )
+             SET completed_at=NULL,last_error=NULL,
+                 attempts=CASE
+                   WHEN media_delete_outbox.attempts >= 8
+                     OR media_delete_outbox.completed_at IS NOT NULL
+                   THEN 0 ELSE media_delete_outbox.attempts END,
+                 source_table=EXCLUDED.source_table,
+                 source_id=COALESCE(EXCLUDED.source_id,media_delete_outbox.source_id)"""
+
+
+def enqueue_delete(reference: str, source_table: str = "compensation", source_id=None) -> None:
+    """Persist a private-object deletion request for bounded retry."""
+    if not reference or not str(reference).startswith("uploads/r2/"):
+        return
+    execute(ENQUEUE_DELETE_SQL, (reference, source_table, source_id))
 
 
 def reconcile_pending_deletes(limit: int = 20) -> dict:
@@ -25,7 +33,8 @@ def reconcile_pending_deletes(limit: int = 20) -> dict:
         limit = 20
     rows = fetch_all(
         """SELECT outbox_id,reference FROM media_delete_outbox
-           WHERE completed_at IS NULL ORDER BY created_at,outbox_id LIMIT %s""",
+           WHERE completed_at IS NULL AND attempts < 8
+           ORDER BY created_at,outbox_id LIMIT %s""",
         (limit,),
     )
     completed = 0

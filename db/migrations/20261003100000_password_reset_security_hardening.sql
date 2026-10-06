@@ -1,7 +1,7 @@
 -- migrate:up
--- Reconcile retained-production password reset recovery schema.
--- The live database already carries this migration version; keeping the SQL in
--- source makes retained-db history auditable and gives fresh databases the same schema.
+-- Password reset security hardening:
+-- 1. Opaque reset transactions with uniform responses across existing and decoy accounts.
+-- 2. Durable email outbox so HTTP requests do not block on SMTP/Resend transport or scale-to-zero.
 CREATE TABLE IF NOT EXISTS password_reset_transactions (
     reset_token TEXT PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
@@ -12,16 +12,17 @@ CREATE TABLE IF NOT EXISTS password_reset_transactions (
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     is_decoy BOOLEAN NOT NULL DEFAULT FALSE,
-    status TEXT NOT NULL DEFAULT 'ACTIVE'
-      CHECK (status IN ('ACTIVE','COMPLETED','EXPIRED','REVOKED'))
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED', 'EXPIRED', 'REVOKED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_pw_reset_tx_expires_status
-  ON password_reset_transactions(expires_at,status);
-CREATE INDEX IF NOT EXISTS idx_pw_reset_tx_ip_created
-  ON password_reset_transactions(request_ip,created_at);
+    ON password_reset_transactions(expires_at, status);
+
 CREATE INDEX IF NOT EXISTS idx_pw_reset_tx_user_status
-  ON password_reset_transactions(user_id,status);
+    ON password_reset_transactions(user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_pw_reset_tx_ip_created
+    ON password_reset_transactions(request_ip, created_at);
 
 CREATE TABLE IF NOT EXISTS password_reset_email_outbox (
     outbox_id BIGSERIAL PRIMARY KEY,
@@ -37,13 +38,9 @@ CREATE TABLE IF NOT EXISTS password_reset_email_outbox (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reset_email_outbox_pending
-  ON password_reset_email_outbox(created_at)
-  WHERE completed_at IS NULL AND attempts < 5;
+    ON password_reset_email_outbox(created_at)
+    WHERE completed_at IS NULL AND attempts < 5;
 
 -- migrate:down
-DROP INDEX IF EXISTS idx_reset_email_outbox_pending;
 DROP TABLE IF EXISTS password_reset_email_outbox;
-DROP INDEX IF EXISTS idx_pw_reset_tx_user_status;
-DROP INDEX IF EXISTS idx_pw_reset_tx_ip_created;
-DROP INDEX IF EXISTS idx_pw_reset_tx_expires_status;
 DROP TABLE IF EXISTS password_reset_transactions;
