@@ -116,7 +116,9 @@ jobs:
       - name: Validate retained database migration history
         run: modal run modal_web.py --migration-status-check
       - name: Apply reviewed pending dbmate migrations
-        if: ${{ inputs.migrate_database }}
+        # A push to the dedicated release marker is itself an explicit live
+        # release action; workflow_dispatch keeps the opt-in checkbox.
+        if: ${{ github.event_name == 'push' || inputs.migrate_database }}
         run: modal run modal_web.py --migrate-db
       - name: Require database schema current for this release
         run: modal run modal_web.py --require-db-current
