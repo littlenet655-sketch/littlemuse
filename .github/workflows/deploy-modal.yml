@@ -88,10 +88,14 @@ jobs:
       - name: Verify web/AI release identity and shared secret parity without GPU
         run: |
           set -euo pipefail
-          modal run modal_ai.py --secret-preflight | tee ai-secret-preflight.log
-          modal run modal_web.py --secret-preflight | tee web-secret-preflight.log
+          AI_PREFLIGHT_LOG="$RUNNER_TEMP/ai-secret-preflight.log"
+          WEB_PREFLIGHT_LOG="$RUNNER_TEMP/web-secret-preflight.log"
+          modal run modal_ai.py --secret-preflight | tee "$AI_PREFLIGHT_LOG"
+          modal run modal_web.py --secret-preflight | tee "$WEB_PREFLIGHT_LOG"
+          export AI_PREFLIGHT_LOG WEB_PREFLIGHT_LOG
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           def report(path):
@@ -100,8 +104,8 @@ jobs:
                       return json.loads(line.split(" ", 1)[1])
               raise SystemExit(f"Missing secret-preflight report in {path}")
 
-          ai = report("ai-secret-preflight.log")
-          web = report("web-secret-preflight.log")
+          ai = report(os.environ["AI_PREFLIGHT_LOG"])
+          web = report(os.environ["WEB_PREFLIGHT_LOG"])
           if not ai.get("present") or not web.get("present"):
               raise SystemExit("AI_SHARED_SECRET is missing from one release secret")
           if ai.get("fingerprint") != web.get("fingerprint"):

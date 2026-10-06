@@ -99,6 +99,17 @@ def test_release_preflight_rejects_stale_ai_endpoint_or_secret_drift():
     assert "AI_SHARED_SECRET mismatch between AI and web release secrets" in deploy
 
 
+def test_modal_secret_preflight_logs_stay_outside_source_tree():
+    for workflow_name in ("deploy-modal.yml", "deploy-web-only.yml"):
+        workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        assert '$RUNNER_TEMP/ai-secret-preflight.log' in workflow
+        assert '$RUNNER_TEMP/web-secret-preflight.log' in workflow
+        assert 'tee ai-secret-preflight.log' not in workflow
+        assert 'tee web-secret-preflight.log' not in workflow
+        assert "AI_PREFLIGHT_LOG" in workflow
+        assert "WEB_PREFLIGHT_LOG" in workflow
+
+
 def test_web_only_deploy_cannot_bypass_release_identity_or_database_gates():
     workflow = (ROOT / ".github/workflows/deploy-web-only.yml").read_text(encoding="utf-8")
     secret = "modal run modal_web.py --secret-preflight"
