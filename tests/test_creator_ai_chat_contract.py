@@ -31,3 +31,19 @@ def test_creator_reply_is_safety_checked_before_storage():
     assert 'reply_decision = evaluate(uid, "TEXT", reply_text)' in body
     assert "reply_pii = scan_pii(reply_text)" in body
     assert "reply_decision.action != \"ALLOW\"" in body
+
+
+def test_creator_chat_mobile_uses_bounded_generation_timeout_and_feed_entrypoint():
+    api = text("mobile_app/src/api/creatorChat.ts")
+    assert "timeoutMs: 35_000" in api
+    feed = text("mobile_app/src/screens/kids/FeedScreen.tsx")
+    assert "item.source_type === 'CURATED' && item.creator_id" in feed
+    assert "nav.navigate('CreatorChat', creatorChat)" in feed
+
+
+def test_creator_chat_review_like_input_fails_closed_without_fake_parent_queue():
+    mobile = text("mobile/api.py")
+    body = mobile.split("def mobile_kids_creator_chat")[1].split("def mobile_kids_message_reaction")[0]
+    assert '"CREATOR_CHAT_MESSAGE_HELD"' in body
+    assert '"MESSAGE_BLOCKED"' in body
+    assert '"REVIEW_REQUIRED"' not in body
