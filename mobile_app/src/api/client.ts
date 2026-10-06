@@ -132,6 +132,7 @@ export const routes = {
   notificationsRead: '/api/mobile/v1/kids/notifications/read',
   conversations: '/api/mobile/v1/kids/messages',
   chat: (peerId: number) => `/api/mobile/v1/kids/chat/${peerId}`,
+  creatorChat: (creatorId: number) => `/api/mobile/v1/kids/creators/${creatorId}/chat`,
   messageReaction: (peerId: number, messageId: number) => `/api/mobile/v1/kids/chat/${peerId}/messages/${messageId}/reaction`,
   chatUploadSession: (peerId: number) => `/api/mobile/v2/kids/chat/${peerId}/uploads/session`,
   chatUploadComplete: (peerId: number, uploadId: string) => `/api/mobile/v2/kids/chat/${peerId}/uploads/${encodeURIComponent(uploadId)}/complete`,
