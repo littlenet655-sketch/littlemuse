@@ -382,7 +382,16 @@ class AIServiceClient:
             f"\n\nStudent's new message:\n{safe_message}"
         )
         try:
-            raw_json, _ = self.k2.generate(system_prompt, user_content, temperature=0.35)
+            # Interactive creator chat has a strict latency budget: one
+            # provider attempt only. Other K2 workloads keep their configured
+            # retry policy.
+            raw_json, _ = self.k2.generate(
+                system_prompt,
+                user_content,
+                temperature=0.35,
+                read_timeout=20.0,
+                max_retries=0,
+            )
             self.circuit_breaker.record_success()
             result = CreatorReplyResult.model_validate(raw_json)
             reply_lower = result.reply.lower()
