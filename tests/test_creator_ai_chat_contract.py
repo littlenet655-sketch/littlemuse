@@ -23,3 +23,11 @@ def test_creator_chat_mobile_route_is_only_for_curated_creators():
     assert "item.source_type !== 'SOCIAL'" in reels
     types = text("mobile_app/src/navigation/types.ts")
     assert "CreatorChat:" in types
+
+
+def test_creator_reply_is_safety_checked_before_storage():
+    mobile = text("mobile/api.py")
+    body = mobile.split("def mobile_kids_creator_chat")[1].split("def mobile_kids_message_reaction")[0]
+    assert 'reply_decision = evaluate(uid, "TEXT", reply_text)' in body
+    assert "reply_pii = scan_pii(reply_text)" in body
+    assert "reply_decision.action != \"ALLOW\"" in body
