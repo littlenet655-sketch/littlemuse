@@ -341,19 +341,29 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
 
 
 def process_password_reset_email_outbox(batch_size: int = 10) -> int:
-    """Durable outbox dispatcher: sends queued password reset emails."""
+    """Durable outbox dispatcher: send only still-valid reset emails.
+
+    Expired/revoked transactions are reaped before dispatch, and the SELECT
+    independently joins the parent transaction with an ACTIVE + future-expiry
+    guard. This prevents a delayed cron/deployment from emailing a stale OTP.
+    """
+    reap_expired_reset_transactions()
     conn = get_db_connection()
     sent_count = 0
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT outbox_id, recipient, subject, body_html
-                FROM password_reset_email_outbox
-                WHERE completed_at IS NULL AND attempts < max_attempts
-                ORDER BY created_at
+                SELECT o.outbox_id, o.recipient, o.subject, o.body_html
+                FROM password_reset_email_outbox o
+                JOIN password_reset_transactions t ON t.reset_token = o.reset_token
+                WHERE o.completed_at IS NULL
+                  AND o.attempts < o.max_attempts
+                  AND t.status = 'ACTIVE'
+                  AND t.expires_at > NOW()
+                ORDER BY o.created_at
                 LIMIT %s
-                FOR UPDATE SKIP LOCKED
+                FOR UPDATE OF o SKIP LOCKED
                 """,
                 (batch_size,),
             )
