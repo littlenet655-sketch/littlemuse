@@ -98,3 +98,12 @@ def test_mobile_review_approval_refreshes_text_posts_after_commit():
     assert "if p_row:" in approval
     assert "refresh_publication_visibility" in approval
     assert "if p_row.get(\"source_media_path\"):" in approval
+
+def test_v2_for_you_social_candidates_are_global_and_friends_mode_is_active_only():
+    source = text('services/curated_feed.py')
+    fetch_body = source.split('def fetch_social_candidates')[1].split('def get_recent_impression_keys')[0]
+    assert 'discoverable_child_ids' not in fetch_body
+    assert 'p.child_id = ANY(' not in fetch_body
+    filter_body = source.split('def _filter_feed_mode')[1].split('def _has_refill_candidates')[0]
+    assert 'ranking_metadata' in filter_body
+    assert 'is_following' in filter_body
