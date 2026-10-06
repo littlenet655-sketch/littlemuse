@@ -49,3 +49,38 @@ def test_password_reset_outbox_stores_no_plaintext_otp():
         sent_html = mock_send.call_args[0][2]
         assert "LittleNet Password Reset" in sent_html
         assert "Enter the verification code below" in sent_html
+
+def test_expired_reset_outbox_is_reaped_without_sending():
+    """A delayed cron must never send an OTP after its reset transaction expired."""
+    token = "prt_expired_outbox_regression"
+    recipient = "expired_reset@example.com"
+
+    execute("DELETE FROM password_reset_transactions WHERE reset_token = %s", (token,))
+    execute(
+        """
+        INSERT INTO password_reset_transactions
+            (reset_token, user_id, code_hash, request_ip, attempts, max_attempts,
+             expires_at, created_at, is_decoy, status)
+        VALUES (%s, NULL, 'expired-hash', '127.0.0.2', 0, 5,
+                NOW() - INTERVAL '1 minute', NOW() - INTERVAL '20 minutes',
+                TRUE, 'ACTIVE')
+        """,
+        (token,),
+    )
+    execute(
+        """
+        INSERT INTO password_reset_email_outbox
+            (reset_token, recipient, subject, body_html, attempts, max_attempts, created_at)
+        VALUES (%s, %s, 'Expired reset', %s, 0, 5, NOW() - INTERVAL '20 minutes')
+        """,
+        (token, recipient, encrypt_outbox_body("Expired OTP 123456")),
+    )
+
+    with patch("auth.password_reset.send_email", return_value=True) as mock_send:
+        sent = process_password_reset_email_outbox(batch_size=20)
+
+    assert sent == 0
+    mock_send.assert_not_called()
+    assert fetch_one("SELECT 1 FROM password_reset_transactions WHERE reset_token=%s", (token,)) is None
+    assert fetch_one("SELECT 1 FROM password_reset_email_outbox WHERE reset_token=%s", (token,)) is None
+
