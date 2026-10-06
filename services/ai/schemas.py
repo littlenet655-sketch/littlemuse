@@ -172,3 +172,7 @@ class SafetySummaryResult(BaseModel):
     contact_attempts_blocked: int = 0
     reviews_queued: int = 0
     safety_status_text: str = "All monitored activity meets safety thresholds."
+
+
+class CreatorReplyResult(BaseModel):
+    reply: str = Field(min_length=1, max_length=1200)
