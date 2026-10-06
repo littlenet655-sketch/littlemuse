@@ -8,7 +8,7 @@ Pillow==12.3.0
 defusedxml==0.7.1
 PyYAML==6.0.3
 
-pypdf==6.16.1
+pypdf==6.19.0
 
 gunicorn==23.0.0
 
@@ -17,7 +17,7 @@ requests==2.33.0
 # web/AWS backend authenticates with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET.
 modal>=1.1,<2
 boto3==1.40.17
-PyJWT[crypto]==2.15.0
+PyJWT[crypto]==2.15.1
 
 # OCR backend for burned-in text screening (safety/visual_service.py).
 # rapidocr-onnxruntime is the module's preferred backend (tried first; the
