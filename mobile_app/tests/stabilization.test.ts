@@ -49,3 +49,15 @@ test('Story loading, error and empty returns cannot skip the gesture hook', () =
     assert.ok(hook < source.indexOf(guard), `${guard} skips the gesture hook`);
   }
 });
+
+
+test('terminal processing states never keep the waiting-for-safety-check copy', () => {
+  const source = readFileSync('src/screens/kids/ProcessingScreen.tsx', 'utf8');
+  assert.match(source, /stage === 'blocked'.*label: 'Not shared'/);
+  assert.match(source, /stage === 'review'.*label: 'Parent review'/);
+  assert.match(source, /stage === 'retryable'.*label: 'Needs another try'/);
+  assert.match(source, /stage === 'failed'.*label: 'Could not finish'/);
+  assert.match(source, /const checking = poll\.stage === 'processing' \|\| poll\.stage === 'uploading'/);
+  assert.match(source, /subtitle=\{statusUi\.subtitle\}/);
+  assert.match(source, /<Text style=\{styles\.previewTagText\}>\{statusUi\.label\}<\/Text>/);
+});
