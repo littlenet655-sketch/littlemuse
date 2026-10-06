@@ -157,8 +157,9 @@ def test_live_probe_passes_fixture_ids_explicitly_into_remote_function():
 
 
 def test_live_media_probe_can_auto_select_fixture_pair():
-    src = (REPO_ROOT / "tools" / "live_release_media_probe.py").read_text(encoding="utf-8")
-    workflow = (REPO_ROOT / ".github" / "workflows" / "live-media-probe.yml").read_text(encoding="utf-8")
+    repo_root = Path(__file__).parents[1]
+    src = (repo_root / "tools" / "live_release_media_probe.py").read_text(encoding="utf-8")
+    workflow = (repo_root / ".github" / "workflows" / "live-media-probe.yml").read_text(encoding="utf-8")
     assert 'os.environ.get("LITTLENET_RELEASE_PROBE_CHILD_A") or 0' in src
     assert 'release probe could not find a safe active child fixture pair' in src
     assert "JOIN followers f2" in src
