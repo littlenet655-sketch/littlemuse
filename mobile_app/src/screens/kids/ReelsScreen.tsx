@@ -299,14 +299,19 @@ const ReelCell = memo(function ReelCell({
                 {isFollowBusy ? '…' : (followStatus ?? 'Follow')}
               </Text>
             </Pressable>
-          ) : item.source_type !== 'SOCIAL' ? (
+          ) : item.source_type !== 'SOCIAL' && item.creator_id ? (
             <Pressable
-              style={[styles.followPill, styles.followPillDisabled]}
-              disabled={true}
+              style={styles.followPill}
+              onPress={() => nav.navigate('CreatorChat', {
+                creatorId: Number(item.creator_id),
+                displayName: item.full_name ?? 'Learning creator',
+                vertical: item.content_category ?? '',
+              })}
               accessibilityRole="button"
-              accessibilityLabel="Curated creator"
+              accessibilityLabel={`Chat with ${item.full_name ?? 'learning creator'}`}
+              hitSlop={6}
             >
-              <Text style={styles.followPillText}>Curated</Text>
+              <Text style={styles.followPillText}>Chat</Text>
             </Pressable>
           ) : null}
         </View>
