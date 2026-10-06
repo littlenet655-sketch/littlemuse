@@ -15,6 +15,7 @@ import { ScreenTimeLockedScreen } from '../screens/kids/ScreenTimeLockedScreen';
 import { NotificationsScreen } from '../screens/kids/NotificationsScreen';
 import { ConversationsScreen } from '../screens/kids/ConversationsScreen';
 import { ChatScreen } from '../screens/kids/ChatScreen';
+import { CreatorChatScreen } from '../screens/kids/CreatorChatScreen';
 import { ChatDetailsScreen, ConnectionsScreen, EditProfileScreen, NewMessageScreen, SavedContentScreen } from '../screens/kids/SocialStates';
 import { CreateScreen } from '../screens/kids/CreateScreen';
 import { ProcessingStatusScreen } from '../screens/kids/ProcessingScreen';
@@ -174,6 +175,7 @@ function ChildNavigator() {
       <ChildStack.Screen name="NotificationsTab" component={withGateSync(NotificationsScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="Conversations" component={withGateSync(ConversationsScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="Chat" component={withGateSync(ChatScreen)} options={{ headerShown: false }} />
+      <ChildStack.Screen name="CreatorChat" component={withGateSync(CreatorChatScreen)} options={{ headerShown: false }} />
       <ChildStack.Screen name="ChatDetails" component={withGateSync(ChatDetailsScreen)} options={{ title: 'Chat details' }} />
       <ChildStack.Screen name="NewMessage" component={withGateSync(NewMessageScreen)} options={{ title: 'New message' }} />
       <ChildStack.Screen name="SavedContent" component={withGateSync(SavedContentScreen)} options={{ title: 'Saved' }} />
