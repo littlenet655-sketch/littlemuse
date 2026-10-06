@@ -52,7 +52,8 @@ export function CreatorChatScreen({ route, navigation }: ChildScreenProps<'Creat
   }
 
   return (
-    <Screen hasNativeHeader={false} contentStyle={styles.screen}>
+    <Screen hasNativeHeader={false}>
+      <View style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Feather name="arrow-left" size={22} color={colors.ink} />
@@ -96,6 +97,7 @@ export function CreatorChatScreen({ route, navigation }: ChildScreenProps<'Creat
           {error && messages.length ? <Text style={styles.error}>That message could not be sent. Try again.</Text> : null}
         </KeyboardAvoidingView>
       )}
+      </View>
     </Screen>
   );
 }
