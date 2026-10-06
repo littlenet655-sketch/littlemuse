@@ -31,6 +31,7 @@ from auth.password_reset import (
 )
 from auth.service import login_user
 from child.service import (
+    batch_relationship_states,
     can_discover_child,
     cancel_outgoing_follow,
     child_has_guardian,
@@ -851,29 +852,15 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
         decisions[ref] = ref == "uploads/profile_pictures/download.webp" and role_u in {"CHILD", "PARENT", "ADMIN"}
     return decisions
 
-def _merge_signals(*signals):
-    out = {
-        "adult_score": 0.0,
-        "violence_score": 0.0,
-        "weapon_score": 0.0,
-        "toxicity_score": 0.0,
-        "general_score": 0.0,
-        "partial_safety_failure": False,
-        "total_safety_failure": False,
-        "sources": [],
-    }
-    valid = [s for s in signals if s]
-    if not valid:
-        out["total_safety_failure"] = True
-        return out
-    for sig in valid:
-        for key in ("adult_score", "violence_score", "weapon_score", "toxicity_score", "general_score"):
-            out[key] = max(float(out.get(key, 0)), float(sig.get(key, 0) or 0))
-        out["partial_safety_failure"] = out["partial_safety_failure"] or bool(sig.get("partial_safety_failure"))
-        out["total_safety_failure"] = out["total_safety_failure"] or bool(sig.get("total_safety_failure"))
-        out["sources"].append(sig.get("category", "UNKNOWN"))
-    out["category"] = "ADULT" if out["adult_score"] >= Config.ADULT_HARD_BLOCK_THRESHOLD else "CONTENT"
-    return out
+def _merge_signals(text_signals: dict | None = None, media_signals: dict | None = None, *extra_signals) -> dict:
+    """Use the canonical moderation merge so API and worker decisions cannot drift."""
+    from services.media_processor import _merge_signals as _canonical_merge_signals
+
+    merged = _canonical_merge_signals(text_signals, media_signals)
+    for extra in extra_signals:
+        if extra:
+            merged = _canonical_merge_signals(merged, extra)
+    return merged
 
 def _resolve_parent_review(
     reviewer_id: int,
@@ -1315,7 +1302,20 @@ def register_mobile_api(bp):
         resp = {"ok": bool(ok), "error": None if ok else error}
         if dev_code:
             resp["dev_code"] = dev_code
-        return jsonify(resp), (200 if ok else 503)
+        if ok:
+            return jsonify(resp), 200
+        err_str = str(error or "").lower()
+        if "just sent" in err_str or "wait a minute" in err_str or "too many incorrect attempts" in err_str:
+            status_code = 429
+        elif "already verified" in err_str:
+            status_code = 409
+        elif "no pending" in err_str:
+            status_code = 404
+        elif "mail" in err_str or "transport" in err_str or "send" in err_str:
+            status_code = 503
+        else:
+            status_code = 500
+        return jsonify(ok=False, error=error), status_code
 
     @bp.route("/api/mobile/v1/auth/parent/email-status", methods=["POST"])
     @csrf.exempt
@@ -1524,12 +1524,14 @@ def register_mobile_api(bp):
         if q and scan_pii(q).get("detected"):
             return jsonify(ok=True, pii_warning=True, children=[], posts=[])
         kids = discoverable_children(uid, q.lstrip("#") if q and not q.startswith("#") else None, 30)
+        rel_map = batch_relationship_states(uid, [child.get("user_id") for child in kids])
         out = []
         for child in kids:
             row = dict(child)
             row["avatar_url"] = _asset_url(row.get("profile_picture"))
-            row["is_following"] = is_following(uid, row["user_id"])
-            row["is_pending"] = is_follow_pending(uid, row["user_id"])
+            cid = int(row["user_id"])
+            row["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            row["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             row.pop("profile_picture", None)
             out.append(_clean(row))
         posts = visible_posts(uid, False, 30, 0)
@@ -2233,12 +2235,14 @@ def register_mobile_api(bp):
                 out.append(_clean(d))
             return out
 
+        rel_map = batch_relationship_states(uid, [s.get("user_id") for s in suggested_raw])
         out_sug = []
         for s in suggested_raw:
             d = dict(s)
             d["avatar_url"] = _asset_url(d.pop("profile_picture", None))
-            d["is_following"] = is_following(uid, d["user_id"])
-            d["is_pending"] = is_follow_pending(uid, d["user_id"])
+            cid = int(d["user_id"])
+            d["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            d["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             out_sug.append(_clean(d))
 
         return jsonify(
@@ -5196,12 +5200,14 @@ def register_mobile_api(bp):
             return jsonify(ok=True, pii_warning=True, children=[], posts=[], curated=[])
 
         kids = discoverable_children(uid, q.lstrip("#") if q and not q.startswith("#") else None, 30)
+        rel_map = batch_relationship_states(uid, [child.get("user_id") for child in kids])
         out_kids = []
         for child in kids:
             row = dict(child)
             row["avatar_url"] = _asset_url(row.get("profile_picture"))
-            row["is_following"] = is_following(uid, row["user_id"])
-            row["is_pending"] = is_follow_pending(uid, row["user_id"])
+            cid = int(row["user_id"])
+            row["is_following"] = rel_map.get(cid, {}).get("is_following", False)
+            row["is_pending"] = rel_map.get(cid, {}).get("is_pending", False)
             row.pop("profile_picture", None)
             out_kids.append(_clean(row))
 
