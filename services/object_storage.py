@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from botocore.exceptions import ClientError
+
 R2_REFERENCE_PREFIX = "uploads/r2/"
 
 
@@ -275,7 +277,12 @@ def signed_upload_url(reference_or_key: str, content_type: str, expires_seconds:
 
 
 def head_object(reference_or_key: str) -> dict | None:
-    """Query object metadata in R2; returns None if object does not exist."""
+    """Query object metadata in R2.
+
+    Return None only for a genuine missing object. Authentication failures,
+    provider/server errors, endpoint failures and timeouts must propagate so
+    callers never misclassify an R2 outage as missing user media.
+    """
     if not _enabled():
         raise RuntimeError("Cloudflare R2 is not configured")
     key = str(reference_or_key)
@@ -288,8 +295,13 @@ def head_object(reference_or_key: str) -> dict | None:
             "content_type": str(res.get("ContentType", "")),
             "etag": str(res.get("ETag", "")),
         }
-    except Exception:
-        return None
+    except ClientError as exc:
+        response = exc.response or {}
+        code = str((response.get("Error") or {}).get("Code", "") or "")
+        status = int((response.get("ResponseMetadata") or {}).get("HTTPStatusCode", 0) or 0)
+        if code in {"NoSuchKey", "NotFound"} or status == 404:
+            return None
+        raise
 
 
 def copy_object(source_ref_or_key: str, target_ref_or_key: str, content_type: str | None = None) -> str:
