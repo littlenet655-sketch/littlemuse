@@ -109,12 +109,13 @@ export function createChild(token: string, input: CreateChildInput): Promise<{ o
   return post(routes.parentCreateChild, { ...input }, token, 60000);
 }
 
-export function requestPasswordReset(identifier: string): Promise<{ ok: boolean; user_id?: number; masked_email?: string; is_parent_proxy?: boolean; message: string }> {
+export function requestPasswordReset(identifier: string): Promise<{ ok: boolean; reset_token?: string; user_id?: number; masked_email?: string; is_parent_proxy?: boolean; message: string }> {
   return post(routes.forgotPassword, { identifier });
 }
 
-export function resetPassword(userId: number, code: string, newPassword: string): Promise<{ ok: boolean; message: string }> {
-  return post(routes.resetPassword, { user_id: userId, code, new_password: newPassword });
+export function resetPassword(tokenOrUserId: string | number, code: string, newPassword: string): Promise<{ ok: boolean; message: string }> {
+  const body = typeof tokenOrUserId === 'number' ? { user_id: tokenOrUserId, code, new_password: newPassword } : { reset_token: tokenOrUserId, code, new_password: newPassword };
+  return post(routes.resetPassword, body);
 }
 
 export interface QuizItem {
