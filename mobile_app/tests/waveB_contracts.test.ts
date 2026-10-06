@@ -197,6 +197,20 @@ describe('Task 12: Child-Safe Explore Learn More Contracts', () => {
   });
 });
 
+describe('Task 15: Discover Search Alignment Contracts', () => {
+  it('keeps the search bar, chips, SafeSpace strip, and people actions aligned on-device', () => {
+    const filePath = join(SRC, 'screens/kids/DiscoverScreen.tsx');
+    const content = readFileSync(filePath, 'utf-8');
+
+    assert.match(content, /style=\{styles\.clearSearchButton\}/);
+    assert.match(content, /clearSearchButton:\s*\{[\s\S]*?width:\s*28,[\s\S]*?height:\s*28,[\s\S]*?alignItems:\s*'center',[\s\S]*?justifyContent:\s*'center'/);
+    assert.match(content, /chipsStrip:\s*\{[\s\S]*?flexGrow:\s*0,[\s\S]*?flexShrink:\s*0/);
+    assert.match(content, /safeStrip:\s*\{[\s\S]*?marginHorizontal:\s*16/);
+    assert.match(content, /safeStripLeft:\s*\{[\s\S]*?minWidth:\s*0/);
+    assert.match(content, /personActionBtn:\s*\{[\s\S]*?minWidth:\s*88,[\s\S]*?alignItems:\s*'center'/);
+  });
+});
+
 describe('Task 14: Parent Date-of-Birth Picker Contracts', () => {
   function serializeCanonicalDob(year: number, month1Indexed: number, day: number): string {
     const mm = String(month1Indexed).padStart(2, '0');
