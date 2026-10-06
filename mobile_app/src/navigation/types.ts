@@ -21,6 +21,7 @@ export type ChildStackParamList = {
   NotificationsTab: undefined;
   Conversations: undefined;
   Chat: { peerId: number; postId?: number };
+  CreatorChat: { creatorId: number; displayName: string; vertical?: string };
   ChatDetails: { peerId: number };
   NewMessage: undefined;
   SavedContent: undefined;
