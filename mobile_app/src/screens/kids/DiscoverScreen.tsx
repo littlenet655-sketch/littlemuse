@@ -379,6 +379,7 @@ export function DiscoverScreen({ navigation }: ChildScreenProps<'KidsTabs'>) {
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Clear search"
+              style={styles.clearSearchButton}
             >
               <Text style={styles.clearGlyph}>×</Text>
             </Pressable>
@@ -688,9 +689,18 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     fontSize: 14,
+    lineHeight: 20,
     color: colors.ink,
     paddingVertical: 0,
+  },
+  clearSearchButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -4,
   },
   clearGlyph: {
     fontSize: 18,
@@ -734,6 +744,8 @@ const styles = StyleSheet.create({
   },
   chipsStrip: {
     backgroundColor: colors.surface,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   chipsRow: {
     paddingHorizontal: 16,
@@ -762,7 +774,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginHorizontal: 12,
+    marginHorizontal: 16,
     marginTop: 2,
     marginBottom: 4,
     paddingVertical: 6,
@@ -775,6 +787,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flex: 1,
+    minWidth: 0,
   },
   safeStripText: {
     fontSize: 11,
@@ -784,8 +797,11 @@ const styles = StyleSheet.create({
   },
   safeStripLink: {
     fontSize: 11,
+    lineHeight: 16,
     fontWeight: '600',
     color: colors.brand,
+    marginLeft: 10,
+    textAlignVertical: 'center',
   },
   sectionTitle: {
     fontSize: 14,
@@ -855,10 +871,13 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   personActionBtn: {
-    paddingHorizontal: 14,
+    minWidth: 88,
+    paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 16,
     backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   personActionBtnMuted: {
     backgroundColor: '#F1F5F9',
