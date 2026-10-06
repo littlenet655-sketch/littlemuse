@@ -5,6 +5,43 @@ import { memoryBackend } from '../src/auth/backends';
 import { ApiError } from '../src/api/client';
 
 describe('401 / logout split (no recursion)', () => {
+  it('cancels query work before removing the persisted token', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 'expired' });
+    const order: string[] = [];
+    const originalRemove = storage.removeItem;
+    storage.removeItem = async (key: string) => {
+      if (key === 'littlenet.auth.token') order.push('remove-token');
+      await originalRemove(key);
+    };
+
+    await invalidateLocalSession({
+      storage,
+      clearQueries: async () => {
+        order.push('clear-queries');
+      },
+    });
+
+    assert.deepEqual(order.slice(0, 2), ['clear-queries', 'remove-token']);
+  });
+
+
+  it('still clears credentials if query-cache cleanup throws', async () => {
+    const storage = memoryBackend({
+      'littlenet.auth.token': 'expired',
+      'littlenet.auth.user': '{"user_id":1,"role":"CHILD"}',
+    });
+
+    await invalidateLocalSession({
+      storage,
+      clearQueries: async () => {
+        throw new Error('query cache unavailable');
+      },
+    });
+
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
+    assert.equal(storage.data['littlenet.auth.user'], undefined);
+  });
+
   it('expired-token 401 path clears locally without any server call', async () => {
     const storage = memoryBackend({ 'littlenet.auth.token': 'expired', 'littlenet.auth.user': '{"user_id":1,"role":"CHILD"}' });
     let serverCalls = 0;
@@ -16,6 +53,27 @@ describe('401 / logout split (no recursion)', () => {
     assert.equal(storage.data['littlenet.auth.token'], undefined);
     assert.equal(storage.data['littlenet.auth.user'], undefined);
     assert.equal(storage.data['littlenet.auth.onboarding'], undefined);
+  });
+
+  it('cancels query work before the explicit server logout starts', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 't' });
+    const order: string[] = [];
+
+    await userInitiatedSignOut(
+      {
+        storage,
+        clearQueries: async () => {
+          order.push('clear-queries');
+        },
+        serverLogout: async () => {
+          order.push('server-logout');
+        },
+      },
+      't',
+    );
+
+    assert.deepEqual(order, ['clear-queries', 'server-logout']);
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
   });
 
   it('user logout calls the server exactly once even when it 401s', async () => {
@@ -32,6 +90,27 @@ describe('401 / logout split (no recursion)', () => {
       },
       't',
     );
+    assert.equal(serverCalls, 1);
+    assert.equal(storage.data['littlenet.auth.token'], undefined);
+  });
+
+  it('explicit sign-out still clears credentials if query cancellation fails', async () => {
+    const storage = memoryBackend({ 'littlenet.auth.token': 't' });
+    let serverCalls = 0;
+
+    await userInitiatedSignOut(
+      {
+        storage,
+        clearQueries: async () => {
+          throw new Error('cancel failed');
+        },
+        serverLogout: async () => {
+          serverCalls += 1;
+        },
+      },
+      't',
+    );
+
     assert.equal(serverCalls, 1);
     assert.equal(storage.data['littlenet.auth.token'], undefined);
   });

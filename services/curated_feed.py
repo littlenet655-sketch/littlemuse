@@ -174,6 +174,7 @@ def normalize_social_item(row: dict[str, Any]) -> dict[str, Any]:
         "max_age": 18,
         "is_safe": bool(row.get("is_safe", True)),
         "moderation_status": str(row.get("moderation_status") or "ALLOWED"),
+        "processing_status": str(row.get("processing_status") or "ALLOWED"),
         "likes": int(row.get("likes") or 0),
         "comments_count": int(row.get("comments_count") or 0),
         "comments_enabled": bool(row.get("comments_enabled", True)) and bool(row.get("owner_allows_comments", True)),
@@ -255,6 +256,13 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
     cats = effective_categories(child_id)
     age_grp = _age_group(child_id)
     is_reel = str(surface).upper() == "REELS"
+    # Production/R2 feeds can reject legacy local paths in SQL before LIMIT.
+    # Local development still needs uploads/... files, whose existence can only
+    # be checked on the filesystem after hydration; over-fetch them boundedly
+    # and let _social_media_renderable() perform that final check.
+    from services import object_storage
+    allow_local_media = not object_storage.enabled()
+    query_limit = limit if not allow_local_media else min(max(limit * 4, limit + 20), 240)
     if is_reel:
         rows = fetch_all(
             """SELECT p.*, u.full_name, cp.profile_picture,
@@ -268,7 +276,21 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
                LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
                WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
+                 AND p.processing_status = 'ALLOWED'
                  AND p.is_reel = TRUE
+                 AND (
+                   p.media_type = 'TEXT'
+                   OR (
+                     p.media_path IS NOT NULL
+                     AND (
+                       p.media_path LIKE 'uploads/r2/%%'
+                       OR p.media_path LIKE 'static/%%'
+                       OR p.media_path LIKE 'http://%%'
+                       OR p.media_path LIKE 'https://%%'
+                       OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
+                     )
+                   )
+                 )
                   AND p.child_id = ANY(%s::int[])
                  AND p.content_category = ANY(%s)
                  AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
@@ -279,10 +301,10 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                    UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
                ORDER BY p.created_at DESC
                LIMIT %s""",
-             (child_id, child_id, allowed_child_ids, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, limit),
+             (child_id, child_id, allow_local_media, allowed_child_ids, cats, age_grp, age_grp, child_id, child_id, child_id, child_id, query_limit),
         )
         normalized=[normalize_social_item(r) for r in rows]
-        return [item for item in normalized if _social_media_renderable(item)]
+        return [item for item in normalized if _social_media_renderable(item)][:limit]
     rows = fetch_all(
         """SELECT p.*, u.full_name, cp.profile_picture,
              (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
@@ -295,7 +317,21 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
            LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
            LEFT JOIN parent_control_settings pcs ON pcs.child_id = p.child_id
            WHERE p.moderation_status = 'ALLOWED' AND p.is_safe = TRUE AND p.is_story = FALSE
+             AND p.processing_status = 'ALLOWED'
              AND p.is_reel = FALSE
+             AND (
+               p.media_type = 'TEXT'
+               OR (
+                 p.media_path IS NOT NULL
+                 AND (
+                   p.media_path LIKE 'uploads/r2/%%'
+                   OR p.media_path LIKE 'static/%%'
+                   OR p.media_path LIKE 'http://%%'
+                   OR p.media_path LIKE 'https://%%'
+                   OR (%s = TRUE AND p.media_path LIKE 'uploads/%%')
+                 )
+               )
+             )
              AND (%s::int[] IS NULL OR p.child_id = ANY(%s::int[]))
              AND p.content_category = ANY(%s)
              AND (%s IS NULL OR p.audience_age_group = 'ALL' OR p.audience_age_group = %s)
@@ -306,11 +342,11 @@ def fetch_social_candidates(child_id: int, surface: str = "FEED", limit: int = 6
                UNION SELECT muted_id FROM muted_users WHERE muter_id = %s)
            ORDER BY p.created_at DESC
            LIMIT %s""",
-        (child_id, child_id, allowed_child_ids, allowed_child_ids, cats, age_grp, age_grp,
-         child_id, child_id, child_id, child_id, limit),
+        (child_id, child_id, allow_local_media, allowed_child_ids, allowed_child_ids, cats, age_grp, age_grp,
+         child_id, child_id, child_id, child_id, query_limit),
     )
     normalized=[normalize_social_item(r) for r in rows]
-    return [item for item in normalized if _social_media_renderable(item)]
+    return [item for item in normalized if _social_media_renderable(item)][:limit]
 
 
 def get_recent_impression_keys(child_id: int, surface: str, hours: int = 2) -> set[tuple[str, int]]:
@@ -630,7 +666,9 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
                WHERE cc.content_id = ANY(%s)
                  AND cc.publish_status = 'PUBLISHED'
                  AND cma.moderation_status = 'ALLOWED'
-                 AND cma.is_safe = TRUE""",
+                 AND cma.is_safe = TRUE
+                 AND cat.active = TRUE
+                 AND COALESCE(NULLIF(cma.delivery_object_key, ''), NULLIF(cma.original_object_key, '')) IS NOT NULL""",
             (curated_ids,),
         )
         curated_items = hydrate_curated_engagement(child_id, [normalize_curated_item(r) for r in c_rows])
@@ -641,7 +679,8 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
         s_rows = fetch_all(
             """SELECT p.*, u.full_name, cp.profile_picture,
                  (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.post_id) AS likes,
-                 (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count
+                 (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.post_id AND c.moderation_status = 'ALLOWED') AS comments_count,
+                 COALESCE(pcs.allow_comments, TRUE) AS owner_allows_comments
                FROM posts p
                JOIN users u ON u.user_id = p.child_id
                LEFT JOIN child_profiles cp ON cp.child_id = p.child_id
@@ -703,6 +742,12 @@ def _materialize_session_items(raw_items: list[dict[str, Any]], child_id: int, s
         except (TypeError, ValueError):
             return False
         if item.get("source_type") == "SOCIAL":
+            # A feed-session row is not a publication grant. Re-check the
+            # finalized processing state and renderable media reference on
+            # every hydration so stale sessions cannot resurrect a broken or
+            # re-processing post after it was originally selected.
+            if item.get("processing_status") != "ALLOWED" or not _social_media_renderable(item):
+                return False
             creator_id = int((item.get("ranking_metadata") or {}).get("child_id") or 0)
             if creator_id in blocked_ids or creator_id not in discoverable_ids:
                 return False

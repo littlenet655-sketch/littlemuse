@@ -251,6 +251,20 @@ def _apply_ocr_evidence(result, ocr_text):
     ocr_signals = check_text(text)
     pii = scan_pii(text)
 
+    # Preserve OCR text provenance separately from the aggregate visual scores.
+    # Without this, a benign visual model result could cause policy to apply
+    # visual-model thresholds to an ML sexual score that actually came from
+    # burned-in text, weakening the normal text adult-content gate.
+    result['ocr_adult_score'] = max(
+        float(result.get('ocr_adult_score', 0) or 0),
+        float(ocr_signals.get('adult_score', 0) or 0),
+    )
+    result['ocr_sexual_score'] = max(
+        float(result.get('ocr_sexual_score', 0) or 0),
+        float(ocr_signals.get('sexual_score', 0) or 0),
+    )
+    result['ocr_category'] = str(ocr_signals.get('category') or '').upper()
+
     for key in ('adult_score', 'sexual_score', 'violence_score', 'weapon_score',
                 'toxicity_score', 'general_score'):
         result[key] = max(float(result.get(key, 0) or 0),

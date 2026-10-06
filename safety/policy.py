@@ -32,6 +32,14 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
         adult_threshold = float(thresholds["adult_block"])
 
     adult = max(float(signals.get("adult_score", 0)), float(signals.get("sexual_score", 0)))
+    text_adult = max(
+        float(signals.get("text_adult_score", 0)),
+        float(signals.get("text_sexual_score", 0)),
+        float(signals.get("ocr_adult_score", 0)),
+        float(signals.get("ocr_sexual_score", 0)),
+    )
+    text_category = str(signals.get("text_category", "")).upper()
+    ocr_category = str(signals.get("ocr_category", "")).upper()
     legacy_weapon = float(signals.get("weapon_score", 0))
     violence = float(signals.get("violence_score", 0))
     toxicity = float(signals.get("toxicity_score", 0))
@@ -39,13 +47,22 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
     total_failure = bool(signals.get("total_safety_failure"))
     partial_failure = bool(signals.get("partial_safety_failure"))
 
-    if category in HARD_TEXT_CATEGORIES or signals.get("deterministic_grooming") or signals.get("deterministic_severe_abuse") or signals.get("deterministic_self_harm") or signals.get("deterministic_dangerous_challenge"):
+    if (
+        category in HARD_TEXT_CATEGORIES
+        or signals.get("deterministic_grooming")
+        or signals.get("deterministic_severe_abuse")
+        or signals.get("deterministic_self_harm")
+        or signals.get("deterministic_dangerous_challenge")
+        or signals.get("deterministic_sexual")
+    ):
         if category == "GROOMING" or signals.get("deterministic_grooming"):
             reason = "grooming/coercion hard blocked"
         elif category == "SELF_HARM" or signals.get("deterministic_self_harm"):
             reason = "self-harm crisis language blocked and escalated"
         elif category == "DANGEROUS_CHALLENGE" or signals.get("deterministic_dangerous_challenge"):
             reason = "dangerous challenge instruction blocked"
+        elif signals.get("deterministic_sexual"):
+            reason = "explicit sexual solicitation/language hard blocked"
         else:
             reason = "severe abuse/threat hard blocked"
         return Decision("BLOCK", 100.0, reason)
@@ -55,6 +72,17 @@ def decide(signals: dict, safety_level: str = "STRICT", adult_threshold=None):
         return Decision("BLOCK", 100.0, "burned-in contact/PII text detected in image (OCR)")
     if total_failure:
         return Decision("BLOCK", 100.0, "AI safety unavailable: fail closed")
+
+    # For merged caption+media evidence, keep the adult-text hard block
+    # independent from visual-model calibration. A clean image must not dilute
+    # an explicit/sexual caption, while a borderline visual score must still
+    # use its model-specific NSFW thresholds instead of the generic 0.40 line.
+    if (
+        text_adult >= float(adult_threshold)
+        or text_category in ADULT_CATEGORIES
+        or ocr_category in ADULT_CATEGORIES
+    ):
+        return Decision("BLOCK", max(text_adult * 100, 90), "18+ text content hard blocked")
 
     visual_nsfw = None
     if signals.get("model_signals") and category in {"IMAGE", "VIDEO", "ADULT", "NSFW", "NUDITY", "EXPLICIT"}:

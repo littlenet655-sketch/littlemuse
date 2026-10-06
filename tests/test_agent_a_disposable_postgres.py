@@ -113,13 +113,14 @@ def test_concurrent_upload_complete_produces_exactly_one_post(client, db):
     object_key = f"uploads/r2/quarantine/{uid}/{upload_id}.jpg"
     cur.execute(
         """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind, expected_size_bytes, mime_type, extension, status, expires_at)
-           VALUES(%s, %s, %s, 'IMAGE', 'POST', 1000, 'image/jpeg', 'jpg', 'UPLOADED', NOW() + INTERVAL '1 hour')""",
+           VALUES(%s, %s, %s, 'IMAGE', 'POST', 1000, 'image/jpeg', 'jpg', 'UPLOADED', (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '1 hour')""",
         (upload_id, uid, object_key),
     )
 
     dispatched_jobs = []
 
-    def fake_enqueue(post_id, child_id, key, kind):
+    def fake_enqueue(post_id, child_id, key, kind, lease_token=None):
+        assert lease_token
         job_id = f"modal_job_{uuid.uuid4().hex[:8]}"
         dispatched_jobs.append(job_id)
         return job_id
@@ -176,7 +177,7 @@ def test_dispatch_failure_and_idempotent_retry(client, db):
     object_key = f"uploads/r2/quarantine/{uid}/{upload_id}.jpg"
     cur.execute(
         """INSERT INTO upload_sessions(upload_id, child_id, object_key, media_type, kind, expected_size_bytes, mime_type, extension, status, expires_at)
-           VALUES(%s, %s, %s, 'IMAGE', 'POST', 1000, 'image/jpeg', 'jpg', 'UPLOADED', NOW() + INTERVAL '1 hour')""",
+           VALUES(%s, %s, %s, 'IMAGE', 'POST', 1000, 'image/jpeg', 'jpg', 'UPLOADED', (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '1 hour')""",
         (upload_id, uid, object_key),
     )
 

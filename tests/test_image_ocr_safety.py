@@ -82,6 +82,55 @@ def test_burned_in_grooming_text_propagates_deterministic_flag():
     assert decide(result).action == "BLOCK"
 
 
+def test_probabilistic_ocr_adult_text_keeps_text_policy_with_benign_visual_model(monkeypatch):
+    from safety import text_service
+
+    monkeypatch.setattr(
+        text_service,
+        "check_text",
+        lambda _text: {
+            "adult_score": 0.55,
+            "sexual_score": 0.55,
+            "violence_score": 0.0,
+            "weapon_score": 0.0,
+            "toxicity_score": 0.0,
+            "general_score": 0.55,
+            "category": "SEXUAL_LANGUAGE",
+            "deterministic_grooming": False,
+            "deterministic_severe_abuse": False,
+            "deterministic_self_harm": False,
+            "deterministic_dangerous_challenge": False,
+            "deterministic_sexual": False,
+            "total_safety_failure": False,
+            "partial_safety_failure": False,
+            "errors": [],
+        },
+    )
+    result = _apply_ocr_evidence(
+        _base_result(
+            model_signals={
+                "legacy": {
+                    "clip": {
+                        "adult": 0.05,
+                        "sexual": 0.05,
+                        "violence": 0.0,
+                        "weapon": 0.0,
+                        "general": 0.05,
+                    }
+                }
+            }
+        ),
+        BENIGN_TEXT,
+    )
+
+    assert result["ocr_adult_score"] == pytest.approx(0.55)
+    assert result["ocr_sexual_score"] == pytest.approx(0.55)
+    assert result["ocr_category"] == "SEXUAL_LANGUAGE"
+    decision = decide(result, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "text" in decision.reason.lower()
+
+
 def test_benign_ocr_text_never_weakens_visual_evidence():
     result = _apply_ocr_evidence(_base_result(adult_score=0.9), BENIGN_TEXT)
     assert result["adult_score"] == 0.9

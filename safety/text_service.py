@@ -311,6 +311,10 @@ def check_text(text:str):
             remote_failed=True
 
     toxicity=max(profanity,bullying,severe,self_harm,dangerous_challenge,grooming);sexual=adult;ran=0
+    # Keep probabilistic model violence separate from deterministic lexical abuse.
+    # Conflating them previously turned a >=0.60 model probability into
+    # deterministic_severe_abuse=True, which hard-blocked benign OCR/text.
+    trained_violence=0.0
     errors=['remote_ai_unavailable'] if remote_failed else []
     extras={}
     if text:
@@ -342,14 +346,10 @@ def check_text(text:str):
                     tts = timed_call('trained_text', lambda: _trained_text.predict(text), timeout_seconds('trained_text', 60))
                     sexual = max(sexual, float(tts.get('sexual_score', 0) or 0))
                     toxicity = max(toxicity, float(tts.get('toxicity_score', 0) or 0))
-                    # Model violence_score is a probability, virtually never
-                    # exactly 0 (e.g. 0.0003 for benign text). Folding it raw
-                    # into the lexical `severe` flag would make every message
-                    # truthy-severe and hard-block all chat. Threshold it:
-                    # only a confident model signal joins the severe tier.
-                    trained_violence = float(tts.get('violence_score', 0) or 0)
-                    if trained_violence >= 0.60:
-                        severe = max(severe, trained_violence)
+                    # Model violence_score is probabilistic evidence. Never
+                    # promote it into the deterministic lexical `severe` flag:
+                    # deterministic flags are reserved for explicit rules/phrases.
+                    trained_violence = max(trained_violence, float(tts.get('violence_score', 0) or 0))
                     if tts.get('partial_safety_failure'):
                         # The classifier returned scores no bucket could
                         # interpret (e.g. unknown labels): fail closed to
@@ -376,8 +376,8 @@ def check_text(text:str):
 
     deterministic=adult>0 or bullying>0 or profanity>0 or severe>0 or self_harm>0 or dangerous_challenge>0 or grooming>0
     result={
-        'adult_score':sexual,'sexual_score':sexual,'violence_score':severe,'weapon_score':0,
-        'toxicity_score':toxicity,'general_score':max(sexual,toxicity,severe),'category':category,
+        'adult_score':sexual,'sexual_score':sexual,'violence_score':max(severe,trained_violence),'weapon_score':0,
+        'toxicity_score':toxicity,'general_score':max(sexual,toxicity,severe,trained_violence),'category':category,
         'deterministic_grooming':bool(grooming),'deterministic_severe_abuse':bool(severe),
         'deterministic_self_harm':bool(self_harm),
         'deterministic_dangerous_challenge':bool(dangerous_challenge),

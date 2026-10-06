@@ -82,3 +82,184 @@ def test_merge_keeps_trained_image_hard_block_behavior():
 
     decision = decide(_merge_signals({}, media), "STRICT")
     assert decision.action == "BLOCK"
+
+def test_merge_preserves_deterministic_ocr_pii_even_when_visual_category_wins():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "TEXT",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+        "deterministic_ocr_pii": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["text_category"] == "TEXT"
+    assert merged["media_category"] == "IMAGE"
+    assert merged["deterministic_ocr_pii"] is True
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "pii" in decision.reason.lower()
+
+
+def test_merge_preserves_true_deterministic_text_abuse_flags():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "SEVERE_ABUSE",
+        "violence_score": 1.0,
+        "toxicity_score": 1.0,
+        "general_score": 1.0,
+        "deterministic_severe_abuse": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.0,
+        "sexual_score": 0.0,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.0,
+    }
+
+    merged = _merge_signals(text, media)
+
+    # Visual category stays available for visual-model policy, while the
+    # deterministic text flag remains authoritative for hard safety rules.
+    assert merged["category"] == "IMAGE"
+    assert merged["deterministic_severe_abuse"] is True
+    assert decide(merged, "STRICT").action == "BLOCK"
+
+def test_explicit_text_still_hard_blocks_when_visual_evidence_is_benign():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "SEXUAL_LANGUAGE",
+        "adult_score": 0.50,
+        "sexual_score": 0.50,
+        "violence_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.50,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.10,
+        "sexual_score": 0.10,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.10,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.10,
+                    "sexual": 0.10,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.10,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["text_category"] == "SEXUAL_LANGUAGE"
+    assert merged["text_adult_score"] == pytest.approx(0.50)
+    assert merged["media_adult_score"] == pytest.approx(0.10)
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "text" in decision.reason.lower()
+
+def test_deterministic_sexual_flag_survives_media_merge_and_hard_blocks():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    text = {
+        "category": "TEXT",
+        "adult_score": 1.0,
+        "sexual_score": 1.0,
+        "general_score": 1.0,
+        "deterministic_sexual": True,
+    }
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.05,
+        "sexual_score": 0.05,
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.05,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.05,
+                    "sexual": 0.05,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.05,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals(text, media)
+
+    assert merged["category"] == "IMAGE"
+    assert merged["deterministic_sexual"] is True
+    decision = decide(merged, "STRICT")
+    assert decision.action == "BLOCK"
+    assert "sexual" in decision.reason.lower()
+
+def test_ocr_adult_provenance_survives_caption_media_merge():
+    from safety.policy import decide
+    from services.media_processor import _merge_signals
+
+    media = {
+        "category": "IMAGE",
+        "adult_score": 0.55,
+        "sexual_score": 0.55,
+        "ocr_adult_score": 0.55,
+        "ocr_sexual_score": 0.55,
+        "ocr_category": "SEXUAL_LANGUAGE",
+        "violence_score": 0.0,
+        "weapon_score": 0.0,
+        "toxicity_score": 0.0,
+        "general_score": 0.55,
+        "model_signals": {
+            "legacy": {
+                "clip": {
+                    "adult": 0.05,
+                    "sexual": 0.05,
+                    "violence": 0.0,
+                    "weapon": 0.0,
+                    "general": 0.05,
+                }
+            }
+        },
+    }
+
+    merged = _merge_signals({}, media)
+
+    assert merged["ocr_adult_score"] == pytest.approx(0.55)
+    assert merged["ocr_category"] == "SEXUAL_LANGUAGE"
+    assert decide(merged, "STRICT").action == "BLOCK"
+
