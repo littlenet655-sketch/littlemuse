@@ -1824,12 +1824,20 @@ def register_mobile_api(bp):
 
         signals, local_decision = evaluate(uid, "TEXT", text)
         if local_decision.action != "ALLOW":
+            # Creator chat has no parent-approval delivery path: fail closed
+            # instead of creating a misleading REVIEW_REQUIRED notification
+            # with nothing actionable in the parent's moderation queue.
             parent_notify(
                 uid,
-                "MESSAGE_BLOCKED" if local_decision.action == "BLOCK" else "REVIEW_REQUIRED",
-                "A creator-chat message needs a safety check",
+                "MESSAGE_BLOCKED",
+                "A creator learning-chat message was held by LittleNet safety checks.",
                 "/parent/safety/",
             )
+            log(uid, "CREATOR_CHAT_MESSAGE_HELD", {
+                "creator_id": creator_id,
+                "decision": local_decision.action,
+                "reason": local_decision.reason,
+            })
             return jsonify(error="creator_message_not_safe", status=local_decision.action), 400
 
         history = fetch_all(
