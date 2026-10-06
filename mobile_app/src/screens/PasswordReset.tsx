@@ -35,18 +35,14 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
           setError(response.message || 'Could not send a reset code. Try again.');
           return;
         }
-        if (typeof response.user_id !== 'number' || !response.masked_email) {
-          // Anti-enumeration uniform response: the server does not say
-          // whether an account matched. Show the message and stay here.
-          setInfo(response.message || 'If an account exists, a reset code was sent.');
+        if (!response.reset_token) {
+          setInfo(response.message || 'If an account matches, a reset code has been queued.');
           return;
         }
         navigation.navigate('ResetPassword', {
-          userId: response.user_id,
-          maskedEmail: response.masked_email,
-          message: response.is_parent_proxy
-            ? 'For safety, the code was sent to your verified parent email.'
-            : response.message,
+          resetToken: response.reset_token,
+          maskedEmail: 'your email or verified parent email',
+          message: response.message,
         });
       } catch (err) {
         setError(errorText(err));
@@ -81,7 +77,7 @@ export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'ForgotPass
 
 /** Step 2: code + new password -> existing reset-password endpoint -> Login. */
 export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'ResetPassword'>) {
-  const { userId, maskedEmail, message } = route.params;
+  const { resetToken, userId, maskedEmail, message } = route.params;
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -107,7 +103,8 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
       setBusy(true);
       setError('');
       try {
-        const response = await resetPassword(userId, code.trim(), password);
+        const handle = resetToken || userId || '';
+        const response = await resetPassword(handle, code.trim(), password);
         if (!response.ok) {
           setError(response.message || 'Could not reset your password. Try again.');
           return;
@@ -131,7 +128,7 @@ export function ResetPasswordScreen({ navigation, route }: AuthScreenProps<'Rese
         style={{ flex: 1 }}
       >
         <ScrollView keyboardShouldPersistTaps="handled">
-          <BrandHeader title="New password" subtitle={`Code sent to ${maskedEmail}.`} />
+          <BrandHeader title="New password" subtitle={`Code sent to ${maskedEmail || 'your registered contact'}.`} />
           <Card>
             {message ? <Notice tone="info" message={message} /> : null}
             <Field label="6-digit code" keyboardType="number-pad" maxLength={6} value={code} onChangeText={setCode} />

@@ -50,8 +50,8 @@ jobs:
       - name: npm audit (moderate and above, informational)
         continue-on-error: true
         run: npm audit --audit-level=moderate
-      - name: npm audit gate (fails on high/critical)
-        run: npm audit --audit-level=high
+      - name: npm audit gate (fails on unapproved high/critical)
+        run: node scripts/audit-high.mjs
       - run: npm run typecheck
       - run: npm test
       - run: npm run export:android

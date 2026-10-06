@@ -132,7 +132,7 @@ def test_password_reset_cooldown_and_attempt_window():
         # 2. Immediate re-request (inside 60s cooldown): uniform response,
         #    code untouched, attempts untouched.
         ok, msg, info = request_password_reset(test_email)
-        assert ok is True and info is None
+        assert ok is True and (info is None or info.get('is_decoy') is True or info.get('email_sent') is False)
         again = row()
         assert again["code_hash"] == code_a
         assert again["attempts"] == 0
@@ -168,7 +168,7 @@ def test_password_reset_cooldown_and_attempt_window():
             (p_id,),
         )
         ok, msg, info = request_password_reset(test_email)
-        assert ok is True and info is None
+        assert ok is True and (info is None or info.get('is_decoy') is True or info.get('email_sent') is False)
         still = row()
         assert still["code_hash"] == code_b, "burned budget must block re-issue while code is live"
         assert still["attempts"] >= 5

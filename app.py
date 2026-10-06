@@ -44,6 +44,11 @@ def create_app():
         init_analytics()
     except Exception:
         pass
+    try:
+        from services.demo_boost import reconcile_demo_boost_on_startup
+        reconcile_demo_boost_on_startup()
+    except Exception:
+        pass
     from flask_wtf.csrf import CSRFError
 
     @app.errorhandler(CSRFError)

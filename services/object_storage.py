@@ -279,9 +279,9 @@ def signed_upload_url(reference_or_key: str, content_type: str, expires_seconds:
 def head_object(reference_or_key: str) -> dict | None:
     """Query object metadata in R2.
 
-    Return None only for a genuine missing object. Authentication failures,
-    provider/server errors, endpoint failures and timeouts must propagate so
-    callers never misclassify an R2 outage as missing user media.
+    Return None only when the object is genuinely missing. Authorization,
+    endpoint, timeout, and server failures propagate so callers can distinguish
+    storage outages from absent user media.
     """
     if not _enabled():
         raise RuntimeError("Cloudflare R2 is not configured")
@@ -296,10 +296,10 @@ def head_object(reference_or_key: str) -> dict | None:
             "etag": str(res.get("ETag", "")),
         }
     except ClientError as exc:
-        response = exc.response or {}
-        code = str((response.get("Error") or {}).get("Code", "") or "")
-        status = int((response.get("ResponseMetadata") or {}).get("HTTPStatusCode", 0) or 0)
-        if code in {"NoSuchKey", "NotFound"} or status == 404:
+        error = (exc.response or {}).get("Error", {})
+        code = str(error.get("Code", "") or "")
+        status = int((exc.response or {}).get("ResponseMetadata", {}).get("HTTPStatusCode", 0) or 0)
+        if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
             return None
         raise
 
