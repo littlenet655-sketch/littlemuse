@@ -297,3 +297,15 @@ describe('admin client contracts', () => {
     setUnauthorizedHandler(null);
   });
 });
+
+
+describe('parent Brain Break pacing UI', () => {
+  it('matches the fixed server-authoritative 2–5 Reel Brain Break cadence', () => {
+    const fs = require('node:fs');
+    const source = fs.readFileSync('src/screens/parent/ParentScreens.tsx', 'utf8');
+    assert.match(source, /Random after 2–5 watched Reels/);
+    assert.match(source, /refreshing or reopening Reels cannot postpone a required Brain Break/);
+    assert.doesNotMatch(source, /Balanced · 4–7 reels/);
+    assert.doesNotMatch(source, /Light · 7–10 reels/);
+  });
+});
