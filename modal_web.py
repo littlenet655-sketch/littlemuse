@@ -229,6 +229,24 @@ def process_media_job_background(post_id: int, child_id: int, object_key: str, k
 
 @app.function(
     image=web_image,
+    cpu=0.25,
+    memory=256,
+    secrets=[web_secret, email_secret],
+    schedule=modal.Cron("* * * * *"),
+    timeout=120,
+    min_containers=0,
+    max_containers=1,
+)
+def password_reset_email_sweep():
+    """Deliver queued password-reset emails without exposing account timing."""
+    os.chdir("/root/littlenet")
+    from auth.password_reset import process_password_reset_email_outbox
+
+    return {"sent": process_password_reset_email_outbox(batch_size=20)}
+
+
+@app.function(
+    image=web_image,
     cpu=0.5,
     memory=512,
     secrets=[web_secret, r2_secret],
