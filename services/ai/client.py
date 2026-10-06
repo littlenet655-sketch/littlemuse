@@ -384,7 +384,17 @@ class AIServiceClient:
         try:
             raw_json, _ = self.k2.generate(system_prompt, user_content, temperature=0.35)
             self.circuit_breaker.record_success()
-            return CreatorReplyResult.model_validate(raw_json)
+            result = CreatorReplyResult.model_validate(raw_json)
+            reply_lower = result.reply.lower()
+            internal_markers = (
+                "api key", "system prompt", "hidden instruction", "language model",
+                "model provider", "k2 provider", "openai", "anthropic", "gemini", " llm",
+            )
+            if any(marker in reply_lower for marker in internal_markers):
+                return CreatorReplyResult(
+                    reply=f"I'm your LittleNet learning creator for {niche or 'this topic'}. Ask me a question about it and I'll help."
+                )
+            return result
         except Exception as exc:
             self.circuit_breaker.record_failure()
             logger.warning("K2 creator reply failed: %s", exc)
