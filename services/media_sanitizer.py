@@ -73,18 +73,19 @@ def has_video_stream(path: str) -> bool:
 
 
 def strip_video_audio_in_place(path: str) -> bool:
-    """Remove all audio streams and atomically replace ``path``.
+    """Remove audio and container metadata, then atomically replace ``path``.
 
-    Returns True when an audio stream was removed and False when the video was
-    already silent. Any uncertainty raises so the caller can fail closed.
+    Silent inputs are still remuxed so title/comment/location cannot survive
+    just because there is no audio track. Returns True when an audio stream
+    was removed and False when the video was already silent. Any uncertainty
+    raises so the caller can fail closed.
     """
     source=Path(path)
     if not source.is_file():
         raise MediaSanitizationError('video_file_missing')
     if not has_video_stream(str(source)):
         raise MediaSanitizationError('video_stream_missing')
-    if not has_audio_stream(str(source)):
-        return False
+    had_audio = has_audio_stream(str(source))
 
     fd,tmp=tempfile.mkstemp(prefix='littlenet_silent_',suffix=source.suffix or '.mp4',dir=str(source.parent))
     os.close(fd)
@@ -93,7 +94,7 @@ def strip_video_audio_in_place(path: str) -> bool:
             subprocess.run(
                 [
                     'ffmpeg','-y','-loglevel','error','-i',str(source),
-                    '-map','0:v:0','-c:v','copy','-an','-map_metadata','-1',tmp,
+                    '-map','0:v:0','-c:v','copy','-an','-map_metadata','-1','-map_chapters','-1',tmp,
                 ],
                 capture_output=True,text=True,timeout=120,check=True,
             )
@@ -107,7 +108,7 @@ def strip_video_audio_in_place(path: str) -> bool:
         if has_audio_stream(tmp):
             raise MediaSanitizationError('audio_stream_still_present')
         os.replace(tmp,str(source))
-        return True
+        return had_audio
     finally:
         if os.path.exists(tmp):
             try:os.unlink(tmp)
