@@ -309,3 +309,16 @@ describe('parent Brain Break pacing UI', () => {
     assert.doesNotMatch(source, /Light · 7–10 reels/);
   });
 });
+
+
+describe('parent review media concealment', () => {
+  it('conceals every parent-review image and video poster by default', () => {
+    const fs = require('node:fs');
+    const source = fs.readFileSync('src/screens/parent/ParentScreens.tsx', 'utf8');
+    assert.doesNotMatch(source, /HIGH_RISK_THRESHOLD/);
+    assert.match(source, /const blurred = !revealed/);
+    assert.match(source, /Quarantined image hidden by default\. Tap to review it\./);
+    assert.match(source, /reviewVideoPoster[\s\S]*?blurRadius=\{24\}/);
+    assert.match(source, /Sensitive video hidden • Tap to reveal & play/);
+  });
+});

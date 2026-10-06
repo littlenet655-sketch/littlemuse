@@ -1253,9 +1253,6 @@ export function ParentSafetyScreen({ navigation }: ParentScreenProps<'ParentSafe
   );
 }
 
-/** Risk scores at or above this are shown blurred until the parent reveals them. */
-const HIGH_RISK_THRESHOLD = 0.7;
-
 /**
  * Controlled quarantine video player (expo-video, the project's video
  * component). No autoplay: playback starts only from the explicit play
@@ -1312,12 +1309,13 @@ function ReviewVideo({ mediaUrl, posterUrl, token }: { mediaUrl: string; posterU
               source={{ uri: posterUrl, headers: { Authorization: `Bearer ${token}` } }}
               style={styles.reviewVideoPoster}
               resizeMode="cover"
+              blurRadius={24}
             />
           ) : null}
           <View style={styles.reviewVideoPlayBadge}>
             <Feather name="play" size={28} color="#FFFFFF" />
           </View>
-          <Text style={styles.reviewVideoHint}>Tap to play — stays paused until you do</Text>
+          <Text style={styles.reviewVideoHint}>Sensitive video hidden • Tap to reveal & play</Text>
         </Pressable>
       ) : null}
       {error ? (
@@ -1329,18 +1327,16 @@ function ReviewVideo({ mediaUrl, posterUrl, token }: { mediaUrl: string; posterU
   );
 }
 
-/** High-risk quarantined images render blurred until the parent explicitly reveals them (confirm step). */
-function ReviewImage({ imageUrl, token, riskScore }: { imageUrl: string; token: string; riskScore?: number | string | null }) {
-  const numeric = Number(riskScore);
-  const highRisk = Number.isFinite(numeric) && numeric >= HIGH_RISK_THRESHOLD;
+/** Every quarantined review image starts concealed until the parent explicitly reveals it. */
+function ReviewImage({ imageUrl, token }: { imageUrl: string; token: string }) {
   const [revealed, setRevealed] = useState(false);
-  const blurred = highRisk && !revealed;
+  const blurred = !revealed;
 
   function requestReveal() {
     if (!blurred) return;
     Alert.alert(
       'Reveal this image?',
-      'This image was quarantined as high risk. Reveal it only if you are comfortable viewing it.',
+      'This image is in LittleNet’s private safety-review area. Reveal it only if you are comfortable viewing it.',
       [
         { text: 'Keep hidden', style: 'cancel' },
         { text: 'Reveal', onPress: () => setRevealed(true) },
@@ -1366,11 +1362,11 @@ function ReviewImage({ imageUrl, token, riskScore }: { imageUrl: string; token: 
           <View style={styles.blurVeil} pointerEvents="none">
             <Feather name="eye-off" size={26} color="#FFFFFF" />
             <Text style={styles.blurTitle}>Sensitive content hidden</Text>
-            <Text style={styles.blurBody}>High-risk image held in quarantine. Tap to review it.</Text>
+            <Text style={styles.blurBody}>Quarantined image hidden by default. Tap to review it.</Text>
           </View>
         ) : null}
       </Pressable>
-      {revealed && highRisk ? (
+      {revealed ? (
         <Pressable
           onPress={() => setRevealed(false)}
           style={styles.rehide}
@@ -1392,7 +1388,7 @@ function ReviewMedia({ preview, token, riskScore }: { preview?: ReviewPreview | 
     return <ReviewVideo mediaUrl={preview.media_url} posterUrl={preview?.poster_url} token={token} />;
   }
   if (imageUrl) {
-    if (mediaType === 'IMAGE') return <ReviewImage imageUrl={imageUrl} token={token} riskScore={riskScore} />;
+    if (mediaType === 'IMAGE') return <ReviewImage imageUrl={imageUrl} token={token} />;
     // Video poster without playable media: unchanged thumbnail behavior.
     return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
   }
