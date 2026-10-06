@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { fetchCreatorChat, sendCreatorChat, type CreatorChatMessage } from '../../api/creatorChat';
+import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
 import type { ChildScreenProps } from '../../navigation/types';
-import { ErrorState, LoadingState, Screen } from '../../ui/components';
+import { DisabledFeature, ErrorState, LoadingState, Screen } from '../../ui/components';
 import { colors } from '../../ui/tokens';
 
 export function CreatorChatScreen({ route, navigation }: ChildScreenProps<'CreatorChat'>) {
@@ -65,7 +66,7 @@ export function CreatorChatScreen({ route, navigation }: ChildScreenProps<'Creat
         <Feather name="book-open" size={20} color={colors.brand} />
       </View>
 
-      {loading ? <LoadingState message="Opening learning chat…" /> : error && messages.length === 0 ? <ErrorState message="Creator chat could not load." onRetry={() => void load()} /> : (
+      {loading ? <LoadingState message="Opening learning chat…" /> : error instanceof ApiError && error.code === 'disabled_by_parent' ? <DisabledFeature feature="Messages" /> : error && messages.length === 0 ? <ErrorState message="Creator chat could not load." onRetry={() => void load()} /> : (
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <FlatList
             data={messages}
