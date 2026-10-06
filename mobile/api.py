@@ -1778,6 +1778,107 @@ def register_mobile_api(bp):
                 pass
         return jsonify(ok=True, status=final_decision.action, message_id=int(row["child_message_id"]))
 
+    @bp.route("/api/mobile/v1/kids/creators/<int:creator_id>/chat", methods=["GET", "POST"])
+    @csrf.exempt
+    @limiter.limit("30 per minute")
+    @_require_mobile("CHILD")
+    def mobile_kids_creator_chat(creator_id):
+        gate = _child_gate("messaging")
+        if gate:
+            return gate
+        uid = int(g.mobile_user["user_id"])
+        creator = fetch_one(
+            """SELECT creator_id,display_name,username,interest_vertical,bio,avatar_reference
+               FROM curated_creators WHERE creator_id=%s AND active=TRUE""",
+            (creator_id,),
+        )
+        if not creator:
+            return jsonify(error="creator_not_found"), 404
+
+        def _payload():
+            rows = fetch_all(
+                """SELECT message_id,sender,message_text,created_at
+                   FROM creator_chat_messages
+                   WHERE child_id=%s AND creator_id=%s
+                   ORDER BY message_id ASC LIMIT 100""",
+                (uid, creator_id),
+            )
+            c = dict(creator)
+            c["avatar_url"] = _asset_url(c.pop("avatar_reference", None))
+            return jsonify(ok=True, creator=_clean(c), messages=_clean(rows))
+
+        if request.method == "GET":
+            return _payload()
+
+        data = _json_dict()
+        text = str(data.get("message_text") or "").strip()
+        if not text:
+            return jsonify(error="empty_message"), 400
+        if len(text) > 500:
+            return jsonify(error="message_too_long"), 400
+
+        pii = scan_pii(text)
+        if pii.get("detected") and pii.get("policy_action") == "BLOCK":
+            parent_notify(uid, "MESSAGE_BLOCKED", "Blocked attempt to share private contact information", "/parent/safety/")
+            return jsonify(error="contact_sharing_blocked", blocked=True), 400
+
+        signals, local_decision = evaluate(uid, "TEXT", text)
+        if local_decision.action != "ALLOW":
+            parent_notify(
+                uid,
+                "MESSAGE_BLOCKED" if local_decision.action == "BLOCK" else "REVIEW_REQUIRED",
+                "A creator-chat message needs a safety check",
+                "/parent/safety/",
+            )
+            return jsonify(error="creator_message_not_safe", status=local_decision.action), 400
+
+        history = fetch_all(
+            """SELECT sender,message_text FROM creator_chat_messages
+               WHERE child_id=%s AND creator_id=%s
+               ORDER BY message_id DESC LIMIT 10""",
+            (uid, creator_id),
+        )
+        from services.ai import get_ai_client
+        result = get_ai_client().generate_creator_reply(
+            creator_name=str(creator.get("display_name") or "LittleNet Creator"),
+            creator_username=str(creator.get("username") or "creator"),
+            niche=str(creator.get("interest_vertical") or "General Knowledge"),
+            bio=str(creator.get("bio") or ""),
+            child_message=text,
+            history=list(reversed(history or [])),
+        )
+        reply_text = str(result.reply or "").strip()
+        reply_pii = scan_pii(reply_text)
+        _, reply_decision = evaluate(uid, "TEXT", reply_text)
+        if (
+            not reply_text
+            or reply_decision.action != "ALLOW"
+            or (reply_pii.get("detected") and reply_pii.get("policy_action") == "BLOCK")
+        ):
+            niche = str(creator.get("interest_vertical") or "this topic")
+            reply_text = f"Let's keep this learning chat safe. Ask me another question about {niche}."
+
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO creator_chat_messages(child_id,creator_id,sender,message_text)
+                   VALUES(%s,%s,'CHILD',%s) RETURNING message_id""",
+                (uid, creator_id, text),
+            )
+            cur.execute(
+                """INSERT INTO creator_chat_messages(child_id,creator_id,sender,message_text)
+                   VALUES(%s,%s,'CREATOR',%s) RETURNING message_id""",
+                (uid, creator_id, reply_text),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return _payload()
+
     @bp.route("/api/mobile/v1/kids/chat/<int:peer_id>/messages/<int:message_id>/reaction", methods=["POST"])
     @csrf.exempt
     @limiter.limit("30 per minute")
