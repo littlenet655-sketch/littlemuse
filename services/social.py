@@ -102,7 +102,7 @@ def visible_posts(viewer_id, reels=False, limit=20, offset=0):
       LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
       LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
       WHERE p.is_story=FALSE AND p.is_reel=%s
-        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE)
+        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.processing_status='ALLOWED')
              OR (p.child_id=%s AND p.moderation_status='REVIEW'))
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
@@ -134,7 +134,7 @@ def discoverable_posts(viewer_id, reels=False, limit=30, offset=0):
       FROM posts p JOIN users u ON u.user_id=p.child_id
       LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
       LEFT JOIN parent_control_settings pcs ON pcs.child_id=p.child_id
-      WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE
+      WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.processing_status='ALLOWED'
         AND p.is_story=FALSE AND p.is_reel=%s
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
@@ -155,7 +155,7 @@ def active_stories(viewer_id):
         EXISTS(SELECT 1 FROM story_views sv WHERE sv.post_id=p.post_id AND sv.child_id=%s) AS viewed
         FROM posts p JOIN users u ON u.user_id=p.child_id
         LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
-        WHERE p.is_story=TRUE AND p.is_safe=TRUE AND p.moderation_status='ALLOWED'
+        WHERE p.is_story=TRUE AND p.is_safe=TRUE AND p.moderation_status='ALLOWED' AND p.processing_status='ALLOWED'
           AND p.created_at>NOW()-INTERVAL '24 hours'
           AND p.content_category = ANY(%s)
           AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
@@ -172,7 +172,7 @@ def story_visible_to(viewer_id,post_id):
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
     return fetch_one('''SELECT p.*,u.full_name,cp.profile_picture FROM posts p
         JOIN users u ON u.user_id=p.child_id LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
-        WHERE p.post_id=%s AND p.is_story=TRUE AND p.is_safe=TRUE AND p.moderation_status='ALLOWED'
+        WHERE p.post_id=%s AND p.is_story=TRUE AND p.is_safe=TRUE AND p.moderation_status='ALLOWED' AND p.processing_status='ALLOWED'
           AND p.created_at>NOW()-INTERVAL '24 hours' AND p.content_category = ANY(%s)
           AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
           AND NOT EXISTS(SELECT 1 FROM blocked_users b WHERE
@@ -187,10 +187,9 @@ def notify(user_id,kind,message,url=None,actor=None):
 
 
 def parent_notify(child_id,kind,message,url=None):
-    parents=fetch_all('''SELECT DISTINCT pcm.parent_id,u.email,u.full_name FROM parent_child_map pcm
-        JOIN users u ON u.user_id=pcm.parent_id
+    parents=fetch_all('''SELECT DISTINCT u.user_id AS parent_id,u.email,u.full_name FROM parent_child_map pcm
+        JOIN users u ON (u.user_id=pcm.parent_id OR u.user_id=pcm.verified_parent_id)
         WHERE pcm.child_id=%s
-          AND pcm.parent_id IS NOT NULL
           AND pcm.approved=TRUE
           AND pcm.approval_status='APPROVED'
           AND u.role='PARENT'
@@ -213,7 +212,7 @@ def post_visible_to(viewer_id,post_id):
     cats=effective_categories(viewer_id);age_group=_age_group(viewer_id)
     post=fetch_one("""SELECT p.* FROM posts p
       WHERE p.post_id=%s
-        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE)
+        AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.processing_status='ALLOWED')
              OR (p.child_id=%s AND p.moderation_status='REVIEW'))
         AND p.content_category = ANY(%s)
         AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
@@ -234,14 +233,14 @@ def visible_profile_posts(viewer_id,target_id,limit=60):
           EXISTS(SELECT 1 FROM saved_posts s WHERE s.post_id=p.post_id AND s.child_id=%s) AS viewer_saved,
           ARRAY(SELECT tag FROM post_tags t WHERE t.post_id=p.post_id ORDER BY tag_id) AS tags
           FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
-          AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE) OR p.moderation_status='REVIEW')
+          AND ((p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.processing_status='ALLOWED') OR p.moderation_status='REVIEW')
           ORDER BY p.created_at DESC LIMIT %s""",(viewer_id,viewer_id,target_id,limit))
     rows=fetch_all("""SELECT p.*,
       EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.post_id AND l.child_id=%s) AS viewer_liked,
       EXISTS(SELECT 1 FROM saved_posts s WHERE s.post_id=p.post_id AND s.child_id=%s) AS viewer_saved,
       ARRAY(SELECT tag FROM post_tags t WHERE t.post_id=p.post_id ORDER BY tag_id) AS tags
       FROM posts p WHERE p.child_id=%s AND p.is_story=FALSE
-      AND p.moderation_status='ALLOWED' AND p.is_safe=TRUE ORDER BY p.created_at DESC LIMIT %s""",(viewer_id,viewer_id,target_id,limit))
+      AND p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.processing_status='ALLOWED' ORDER BY p.created_at DESC LIMIT %s""",(viewer_id,viewer_id,target_id,limit))
     return [p for p in rows if post_visible_to(viewer_id,p['post_id'])]
 
 
@@ -249,7 +248,7 @@ def is_post_shareable_to(post_id, sender_id, receiver_id):
     if not can_interact(sender_id, receiver_id):return False, "Both parents must approve this friendship before sharing or messaging."
     p_sender = post_visible_to(sender_id, post_id)
     if not p_sender:return False, "Post unavailable"
-    if p_sender.get('moderation_status') != 'ALLOWED' or not p_sender.get('is_safe'):return False, "Post not approved for sharing"
+    if p_sender.get('moderation_status') != 'ALLOWED' or p_sender.get('processing_status') != 'ALLOWED' or not p_sender.get('is_safe'):return False, "Post not approved for sharing"
     cats = effective_categories(receiver_id)
     if p_sender.get('content_category') not in cats:return False, "Post category restricted by recipient's parent controls"
     recip_age = _age_group(receiver_id);post_age = p_sender.get('audience_age_group')

@@ -4036,6 +4036,59 @@ def register_mobile_api(bp):
         notify(child_id, "SCREEN_TIME_EXTENDED", f"Your parent added {extra} minutes of screen time!", "/child/dashboard/", pid)
         return jsonify(ok=True, message=f"Added {extra} minutes.", daily_limit_minutes=new_limit)
 
+    @bp.route("/api/mobile/v1/parent/children/<int:child_id>/posts")
+    @_require_mobile("PARENT")
+    def mobile_parent_child_posts(child_id):
+        """Bounded read-only history of one owned child's upload outcomes.
+
+        Parent review is the only way to reveal quarantined media. This
+        endpoint never returns a source/quarantine path or a preview URL
+        unless the post is fully published and safe.
+        """
+        pid = int(g.mobile_user["user_id"])
+        if not owns(pid, child_id):
+            return jsonify(error="child_not_found"), 404
+        try:
+            limit = max(1, min(25, int(request.args.get("limit", 12))))
+        except (ValueError, TypeError):
+            limit = 12
+        try:
+            before_id = int(request.args.get("before_id")) if request.args.get("before_id") else None
+        except (ValueError, TypeError):
+            return jsonify(error="invalid_cursor"), 400
+        if before_id is not None and before_id <= 0:
+            return jsonify(error="invalid_cursor"), 400
+
+        params = (child_id, before_id, before_id, limit + 1)
+        rows = fetch_all(
+            """SELECT post_id, caption, media_type, content_category, is_story, is_reel,
+                      moderation_status, processing_status, is_safe,
+                      media_path, poster_path, created_at
+               FROM posts
+               WHERE child_id=%s AND (%s::bigint IS NULL OR post_id < %s::bigint)
+               ORDER BY post_id DESC LIMIT %s""",
+            params,
+        ) or []
+        page = rows[:limit]
+        out = []
+        for post in page:
+            item = dict(post)
+            fully_published = (
+                str(item.get("moderation_status") or "") == "ALLOWED"
+                and str(item.get("processing_status") or "") == "ALLOWED"
+                and item.get("is_safe") is True
+            )
+            media_path = item.pop("media_path", None)
+            poster_path = item.pop("poster_path", None)
+            item["media_url"] = _asset_url(media_path) if fully_published and media_path else None
+            item["poster_url"] = _asset_url(poster_path) if fully_published and poster_path else None
+            item["needs_review"] = str(item.get("moderation_status") or "") == "REVIEW" or str(item.get("processing_status") or "") == "REVIEW"
+            out.append(_clean(item))
+        return jsonify(
+            ok=True, posts=out, has_more=len(rows)>limit,
+            next_cursor=int(page[-1]["post_id"]) if len(rows)>limit and page else None,
+        )
+
     @bp.route("/api/mobile/v1/parent/safety")
     @_require_mobile("PARENT")
     def mobile_parent_safety():

@@ -232,6 +232,33 @@ export function fetchParentActivity(token: string, childId: number, beforeId?: n
   return apiRequest(`${routes.parentActivity(childId)}${query ? `?${query}` : ''}`, {}, token);
 }
 
+/** Read-only child upload history; REVIEW bytes remain quarantined in Parent Safety. */
+export interface ParentChildPost {
+  post_id: number;
+  caption: string | null;
+  media_type: string;
+  content_category: string;
+  is_story: boolean;
+  is_reel: boolean;
+  moderation_status: string;
+  processing_status: string;
+  is_safe: boolean;
+  media_url: string | null;
+  poster_url: string | null;
+  needs_review: boolean;
+  created_at: string;
+}
+export interface ParentChildPostsResponse {
+  ok: boolean;
+  posts: ParentChildPost[];
+  has_more: boolean;
+  next_cursor: number | null;
+}
+export function fetchParentChildPosts(token: string, childId: number, beforeId?: number | null): Promise<ParentChildPostsResponse> {
+  const query = beforeId ? `?before_id=${encodeURIComponent(String(beforeId))}` : '';
+  return apiRequest<ParentChildPostsResponse>(`${routes.parentChildPosts(childId)}${query}`, {}, token);
+}
+
 /** Small parent supervision snapshot: the last five distinct Reels watched. */
 export interface ViewingInsights {
   success: boolean;

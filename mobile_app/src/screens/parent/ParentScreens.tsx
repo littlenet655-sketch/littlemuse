@@ -9,6 +9,7 @@ import {
   extendChildScreenTime,
   fetchFollowRequests,
   fetchParentActivity,
+  fetchParentChildPosts,
   fetchParentControls,
   fetchParentDashboard,
   fetchParentNotifications,
@@ -492,6 +493,78 @@ export function ParentHomeScreen({ navigation }: ParentScreenProps<'ParentHome'>
   );
 }
 
+/** Parent-only upload history. Quarantined and blocked media is never previewed here. */
+function ParentChildUploadsPanel({ token, childId, onReview }: { token?: string; childId: number; onReview: () => void }) {
+  const [cursor, setCursor] = useState<number | null>(null);
+  useEffect(() => { setCursor(null); }, [childId]);
+  const query = useQuery({
+    queryKey: ['parent', 'child-upload-history', childId, cursor],
+    queryFn: () => fetchParentChildPosts(token ?? '', childId, cursor),
+    enabled: Boolean(token && childId),
+    staleTime: 30_000,
+  });
+  const rows = query.data?.posts ?? [];
+  return (
+    <Card>
+      <Text style={styles.sectionHeaderLabelStandalone}>CHILD UPLOAD HISTORY</Text>
+      <Text style={styles.muted}>Posts, Stories and Reels uploaded by your child. Only approved media appears here; pending items stay private for review.</Text>
+      {query.isPending ? (
+        <ActivityIndicator size="small" color={colors.brand} style={{ marginVertical: 12 }} />
+      ) : query.isError ? (
+        <View style={{ paddingTop: 12 }}>
+          <Text style={styles.muted}>Upload history is unavailable.</Text>
+          <Button label="Retry" variant="secondary" onPress={() => void query.refetch()} />
+        </View>
+      ) : rows.length === 0 ? (
+        <Text style={[styles.muted, { marginTop: 12 }]}>No uploads on this page.</Text>
+      ) : (
+        rows.map((item) => {
+          const safe = item.moderation_status === 'ALLOWED' && item.processing_status === 'ALLOWED' && item.is_safe;
+          const label = item.is_story ? 'Story' : item.is_reel ? 'Reel' : 'Post';
+          const statusLabel = safe ? 'Approved & shared' : item.needs_review ? 'Waiting for parent review' :
+            item.processing_status === 'BLOCKED' || item.moderation_status === 'BLOCKED' ? 'Blocked by safety check' :
+            item.processing_status === 'FAILED' ? 'Upload failed' : 'Safety check in progress';
+          const preview = safe ? (item.poster_url || (item.media_type === 'IMAGE' ? item.media_url : null)) : null;
+          return (
+            <View key={item.post_id} style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 12, gap: 10 }}>
+              {preview ? (
+                <Image
+                  source={{ uri: preview, headers: { Authorization: `Bearer ${token ?? ''}` } }}
+                  style={{ width: 60, height: 60, borderRadius: 9, backgroundColor: '#F1F5F9' }}
+                />
+              ) : (
+                <View style={{ width: 60, height: 60, borderRadius: 9, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' }}>
+                  <Feather name={item.needs_review ? 'eye-off' : item.media_type === 'VIDEO' ? 'film' : 'image'} size={20} color={colors.muted} />
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle} numberOfLines={1}>{label} · {item.content_category}</Text>
+                <Text style={styles.muted} numberOfLines={1}>{statusLabel}</Text>
+                {item.caption ? <Text style={styles.muted} numberOfLines={1}>{item.caption}</Text> : null}
+              </View>
+              {item.needs_review ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Open parent safety review" onPress={onReview}>
+                  <Feather name="shield" color={colors.brand} size={22} />
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })
+      )}
+      {query.data?.has_more && query.data.next_cursor ? (
+        <View style={{ marginTop: 14 }}>
+          <Button label="Older uploads" variant="secondary" onPress={() => setCursor(query.data!.next_cursor)} />
+        </View>
+      ) : null}
+      {cursor !== null ? (
+        <View style={{ marginTop: 8 }}>
+          <Button label="Back to latest uploads" variant="secondary" onPress={() => setCursor(null)} />
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 /** Last five watched Reels for one child. */
 function ViewingInsightsCard({ token, child }: { token?: string; child: ParentChild }) {
   const insights = useQuery({
@@ -967,6 +1040,12 @@ export function ParentChildSummaryScreen({ navigation, route }: ParentScreenProp
           </View>
         </View>
 
+        <ParentChildUploadsPanel
+          token={session?.token}
+          childId={child.user_id}
+          onReview={() => navigation.navigate('ParentSafety')}
+        />
+
         {/* Quick Management Tiles */}
         <Text style={styles.sectionHeaderLabelStandalone}>MANAGE CHILD CONTROLS</Text>
         <View style={styles.actionTilesGroup}>
@@ -1389,8 +1468,9 @@ function ReviewMedia({ preview, token, riskScore }: { preview?: ReviewPreview | 
   }
   if (imageUrl) {
     if (mediaType === 'IMAGE') return <ReviewImage imageUrl={imageUrl} token={token} />;
-    // Video poster without playable media: unchanged thumbnail behavior.
-    return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
+    // A poster-only video is still quarantined review evidence; conceal it
+    // exactly like an image until the parent explicitly chooses Reveal.
+    return <ReviewImage imageUrl={imageUrl} token={token} />;
   }
   if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
   return null;

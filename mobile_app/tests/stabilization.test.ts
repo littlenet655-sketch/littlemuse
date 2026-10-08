@@ -61,3 +61,14 @@ test('terminal processing states never keep the waiting-for-safety-check copy', 
   assert.match(source, /subtitle=\{statusUi\.subtitle\}/);
   assert.match(source, /<Text style=\{styles\.previewTagText\}>\{statusUi\.label\}<\/Text>/);
 });
+
+
+test('quarantined parent review video posters stay concealed without playable media', () => {
+  const source = readFileSync('src/screens/parent/ParentScreens.tsx', 'utf8');
+  const reviewMedia = source.split('function ReviewMedia(')[1]?.split('export function ParentReviewScreen')[0] ?? '';
+  // Both normal review images AND video-poster-only fallbacks must require
+  // the explicit Reveal action. An unblurred <Image> here leaks the preview.
+  const concealed = reviewMedia.match(/return <ReviewImage imageUrl=\{imageUrl\} token=\{token\} \/>;/g) ?? [];
+  assert.equal(concealed.length, 2);
+  assert.doesNotMatch(reviewMedia, /return <Image source=/);
+});

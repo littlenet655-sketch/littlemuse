@@ -54,9 +54,8 @@ for weapon labels).
 - `LITTLENET_ENABLE_TRAINED_IMAGE_ENSEMBLE=1` (default on)
 - `LITTLENET_ENABLE_TRAINED_TEXT=1` (default on)
 - `LITTLENET_YOLO_WEIGHTS` (default: repo-root `yolov8n-oiv7.pt`, else `yolov8n.pt`)
-- `LITTLENET_ENABLE_OCR=1` for burned-in text screening (off by default)
-- `LITTLENET_USE_MODAL_IMAGE_CPU=1` to route image moderation to the
-  `littlenet-ai` CPU function (default 0; the media worker below is preferred)
+- `LITTLENET_ENABLE_OCR` defaults **on** for uploaded images (set `0` only to opt out); RapidOCR is pinned in `requirements-core.txt` and `modal_ai.py`
+- `LITTLENET_USE_MODAL_IMAGE_CPU=1` routes ordinary image inference through the `littlemuse-ai` CPU function where configured; media moderation remains asynchronous
 
 ## Upload-path coverage
 
@@ -84,9 +83,9 @@ for weapon labels).
    `trained_text_preflight` functions in `modal_ai.py`:
    `modal run modal_ai.py --trained-image-preflight-only` and
    `modal run modal_ai.py --trained-text-preflight-only`.
-2. Redeploy `littlenet-web` so the media workers pick up the volume mount
+2. Redeploy `littlemuse-web` so the media workers pick up the volume mount
    (prepared in `modal_web.py`; no code deploy performed here).
-3. Optional: set `LITTLENET_ENABLE_OCR=1` for burned-in text screening.
+3. Verify the default-on RapidOCR dependency and fail-closed OCR behavior in the actual Modal AI image (video-frame OCR remains opt-in).
 
 ## Tests
 

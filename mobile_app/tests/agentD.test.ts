@@ -10,6 +10,7 @@ import {
   fetchAdminReviews,
   fetchAdminUsers,
   fetchParentActivity,
+  fetchParentChildPosts,
   fetchParentControls,
   fetchParentDashboard,
   fetchParentNotifications,
@@ -70,6 +71,18 @@ describe('Agent D Parent contracts', () => {
       '/api/mobile/v1/parent/notifications',
     ]);
     assert.ok(seen.every((call) => new Headers(call.init.headers).get('Authorization') === 'Bearer tok'));
+  });
+
+  it('loads guardian-scoped child uploads and follows the bounded cursor', async () => {
+    stubFetch({ ok: true, posts: [], has_more: true, next_cursor: 92 });
+    await fetchParentChildPosts('tok', 22);
+    await fetchParentChildPosts('tok', 22, 92);
+    assert.deepEqual(seen.map((request) => new URL(request.url).pathname), [
+      '/api/mobile/v1/parent/children/22/posts',
+      '/api/mobile/v1/parent/children/22/posts',
+    ]);
+    assert.equal(new URL(seen[1]!.url).searchParams.get('before_id'), '92');
+    assert.ok(seen.every((request) => new Headers(request.init.headers).get('Authorization') === 'Bearer tok'));
   });
 
   it('updates exact feature/category and quiet-hour control names', async () => {

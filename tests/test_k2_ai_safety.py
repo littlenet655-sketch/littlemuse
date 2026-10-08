@@ -359,6 +359,7 @@ class TestSharedPostBypassPrevention:
                     "child_id": 10,
                     "is_safe": True,
                     "moderation_status": "ALLOWED",
+                    "processing_status": "ALLOWED",
                     "content_category": "Science",
                     "audience_age_group": "9-11"
                 }
