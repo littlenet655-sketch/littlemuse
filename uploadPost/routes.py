@@ -30,16 +30,21 @@ def _media_type(file):
     return None,ext
 
 def _merge(*signals):
-    out={'adult_score':0.0,'violence_score':0.0,'weapon_score':0.0,'toxicity_score':0.0,'general_score':0.0,'partial_safety_failure':False,'total_safety_failure':False,'sources':[]}
-    valid=[s for s in signals if s]
-    if not valid:out['total_safety_failure']=True;return out
-    for s in valid:
-        for k in ['adult_score','violence_score','weapon_score','toxicity_score','general_score']:out[k]=max(float(out.get(k,0)),float(s.get(k,0) or 0))
-        out['partial_safety_failure']=out['partial_safety_failure'] or bool(s.get('partial_safety_failure'))
-        out['sources'].append(s.get('category','UNKNOWN'))
-    out['total_safety_failure']=any(bool(s.get('total_safety_failure')) for s in valid)
-    out['category']='ADULT' if out['adult_score']>=Config.ADULT_HARD_BLOCK_THRESHOLD else ('WEAPON' if out['weapon_score']>=.45 else 'CONTENT')
-    return out
+    """Share the canonical text/media/OCR safety merger with v2 uploads.
+
+    The old numeric-only merger lost deterministic OCR contact-sharing,
+    grooming and sexual-content evidence. Do not recreate that unsafe
+    merger: every supported upload route must honor the same policy signals.
+    """
+    from services.media_processor import _merge_signals as merge_evidence
+
+    present = [signal for signal in signals if signal]
+    if not present:
+        return merge_evidence({"total_safety_failure": True}, {})
+    merged = present[0]
+    for signal in present[1:]:
+        merged = merge_evidence(merged, signal)
+    return merged
 
 def _create(content_type,payload,caption,category,is_story=False,is_reel=False,path=None,music_path=None,music_signals=None,audience_age_group='ALL'):
     from safety.pii_service import scan_pii
@@ -68,8 +73,8 @@ def _create(content_type,payload,caption,category,is_story=False,is_reel=False,p
             stored_path=persist_before_db(path,namespace,session['user_id']);persisted.append(stored_path)
         if music_path:
             stored_music=persist_before_db(music_path,'story-music',session['user_id']);persisted.append(stored_music)
-        row=execute('''INSERT INTO posts(child_id,media_type,media_path,story_music_path,caption,content_category,audience_age_group,is_story,is_reel,safety_score,adult_score,violence_score,weapon_score,toxicity_score,is_safe,moderation_status,moderation_reason) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING post_id''',(
-            session['user_id'],content_type,stored_path,stored_music,caption,category,audience_age_group,is_story,is_reel,d.risk,merged['adult_score']*100,merged['violence_score']*100,merged['weapon_score']*100,merged['toxicity_score']*100,d.action=='ALLOW','ALLOWED' if d.action=='ALLOW' else 'REVIEW',d.reason),returning=True)
+        row=execute('''INSERT INTO posts(child_id,media_type,media_path,story_music_path,caption,content_category,audience_age_group,is_story,is_reel,safety_score,adult_score,violence_score,weapon_score,toxicity_score,is_safe,moderation_status,processing_status,moderation_reason) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING post_id''',(
+            session['user_id'],content_type,stored_path,stored_music,caption,category,audience_age_group,is_story,is_reel,d.risk,merged['adult_score']*100,merged['violence_score']*100,merged['weapon_score']*100,merged['toxicity_score']*100,d.action=='ALLOW','ALLOWED' if d.action=='ALLOW' else 'REVIEW','ALLOWED' if d.action=='ALLOW' else 'REVIEW',d.reason),returning=True)
     except Exception:
         try:
             for ref in persisted:rollback_reference(ref)
