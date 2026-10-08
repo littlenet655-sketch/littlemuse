@@ -1276,6 +1276,27 @@ def reap_stale_media_jobs(stale_seconds: int = 300) -> dict[str, Any]:
             continue
 
         if not object_key:
+            # An orphaned, stale UPLOADED/PROCESSING post cannot be queued: the
+            # moderation worker has no quarantine bytes to inspect. Previously
+            # these rows were skipped on every 15-minute cron run forever.
+            # Re-check state, source and lease in SQL: an upload/worker racing
+            # with this sweep must never be marked FAILED.
+            transitioned = execute_count(
+                """UPDATE posts
+                   SET processing_status='FAILED',
+                       processing_error='missing_quarantine_source_stale_reap',
+                       processing_completed_at=NOW(),
+                       processing_lease_token=NULL,
+                       processing_lease_expires_at=NULL
+                   WHERE post_id=%s
+                     AND processing_status IN ('UPLOADED', 'PROCESSING')
+                     AND (source_media_path IS NULL OR BTRIM(source_media_path)='')
+                     AND (processing_lease_token IS NULL OR processing_lease_expires_at < NOW())
+                     AND (processing_started_at < %s OR (processing_started_at IS NULL AND created_at < %s))""",
+                (post_id, threshold, threshold),
+            )
+            if transitioned:
+                failed.append({"post_id": post_id, "error": "missing_quarantine_source"})
             continue
 
         acquired, lease_token, post_data = claim_media_job_lease(post_id, lease_seconds=300, is_reap=True)
