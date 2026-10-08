@@ -1389,8 +1389,9 @@ function ReviewMedia({ preview, token, riskScore }: { preview?: ReviewPreview | 
   }
   if (imageUrl) {
     if (mediaType === 'IMAGE') return <ReviewImage imageUrl={imageUrl} token={token} />;
-    // Video poster without playable media: unchanged thumbnail behavior.
-    return <Image source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }} resizeMode="cover" style={styles.reviewImage} />;
+    // A poster-only video is still quarantined review evidence; conceal it
+    // exactly like an image until the parent explicitly chooses Reveal.
+    return <ReviewImage imageUrl={imageUrl} token={token} />;
   }
   if (preview?.media_url) return <Notice tone="info" message="This video remains in the private review area. Use its moderation summary for this decision." />;
   return null;
