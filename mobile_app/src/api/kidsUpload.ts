@@ -22,6 +22,24 @@ export interface UploadSession {
   required_headers: Record<string, string>;
 }
 
+/** Never reuse a presigned PUT target near or past its server-side expiry. */
+export function uploadSessionHasExpired(
+  session: Pick<UploadSession, 'expires_at'> | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!session) return true;
+  const deadline = Date.parse(session.expires_at);
+  // Thirty seconds covers clock skew and the time to begin a native upload.
+  return !Number.isFinite(deadline) || deadline - nowMs <= 30_000;
+}
+
+/** Complete may have succeeded after a timeout; retry idempotently first.
+ * Only explicit expiry or a purged session permits a new upload session.
+ */
+export function uploadCompletionNeedsFreshSession(code: string): boolean {
+  return code === 'upload_session_expired' || code === 'upload_session_not_found';
+}
+
 export function requestUploadSession(token: string, input: { kind: string; filename: string; mediaType: string; sizeBytes: number; mimeType: string; contentCategory?: string }): Promise<UploadSession> {
   return postJson<UploadSession>(routes.uploadSession, {
     kind: input.kind,
@@ -116,10 +134,13 @@ export function fetchStoryViewers(token: string, storyId: number): Promise<{ ok:
 
 const MIME_EXTENSIONS: Record<string, readonly string[]> = {
   'image/jpeg': ['jpg', 'jpeg'],
+  'image/jpg': ['jpg', 'jpeg'],
   'image/png': ['png'],
   'image/webp': ['webp'],
-  'video/mp4': ['mp4', 'm4v'],
+  'video/mp4': ['mp4'],
   'video/quicktime': ['mov'],
+  'video/webm': ['webm'],
+  'video/x-matroska': ['mkv'],
 };
 
 function extOf(name: string, fallback: string): string {
