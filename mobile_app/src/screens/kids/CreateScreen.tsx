@@ -3,7 +3,8 @@ import { ActivityIndicator, BackHandler, Image, Pressable, ScrollView, StyleShee
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useVideoPlayer } from 'expo-video';
-import { completeUpload, fetchCuratedMusic, formatBytes, requestUploadSession, type CuratedMusicTrack, type UploadSession, type UploadStage } from '../../api/kidsUpload';
+import { completeUpload, fetchCuratedMusic, formatBytes, requestUploadSession, uploadCompletionNeedsFreshSession, uploadSessionHasExpired, type CuratedMusicTrack, type UploadSession, type UploadStage } from '../../api/kidsUpload';
+import { ApiError } from '../../api/client';
 import { fetchKidsHome } from '../../api/kidsFeed';
 import { useAuth } from '../../auth/AuthProvider';
 import { isUploadCancelled, putFileToSignedUrl } from '../../kids/directUpload';
@@ -400,6 +401,13 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
       const sizeBytes = localMediaSize(media.uri);
 
       let sess = sessionRef.current;
+      // A cancelled/interrupted PUT can be resumed only while its R2 URL
+      // remains valid. Starting a new session avoids an endless 403 retry.
+      if (stage === 'r2upload' && uploadSessionHasExpired(sess)) {
+        sess = null;
+        sessionRef.current = null;
+        stage = 'session';
+      }
       if (stage === 'session' || !sess) {
         stage = 'session';
         setStatus('Preparing safe upload…');
@@ -468,6 +476,12 @@ export function CreateScreen({ navigation, route }: ChildScreenProps<'KidsTabs'>
         // The presigned session survives a cancel: retry resumes the PUT.
         setFailedStage('r2upload');
         setStatus('Upload cancelled. Your file is still selected — tap Share Safely to resume.');
+      } else if (stage === 'complete' && err instanceof ApiError && uploadCompletionNeedsFreshSession(err.code)) {
+        // An ambiguous complete timeout is first retried against the original
+        // upload ID. Only the server's explicit expiry/404 allows re-upload.
+        sessionRef.current = null;
+        setFailedStage('session');
+        setStatus('Your upload session expired. Tap Share Safely to start the upload again.');
       } else {
         setError(err);
         setFailedStage(stage);
