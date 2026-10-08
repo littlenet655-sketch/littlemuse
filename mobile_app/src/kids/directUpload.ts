@@ -20,7 +20,7 @@ export class UploadCancelledError extends Error {
 
 export function isUploadCancelled(error: unknown): boolean {
   if (error instanceof UploadCancelledError) return true;
-  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError') return true;
   const err = error as { name?: string; code?: string } | null;
   return err?.name === 'AbortError' || err?.code === 'upload_cancelled';
 }

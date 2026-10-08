@@ -106,3 +106,15 @@ def test_v2_for_you_social_candidates_are_global_and_friends_mode_is_active_only
     filter_body = source.split('def _filter_feed_mode')[1].split('def _has_refill_candidates')[0]
     assert 'ranking_metadata' in filter_body
     assert 'is_following' in filter_body
+
+
+def test_legacy_recommendations_only_select_fully_published_social_posts():
+    """Older recommendation surfaces must not show REVIEW/UPLOADED rows.
+
+    Moderation ALLOWED + is_safe alone is insufficient: retained production
+    data can still have processing_status=REVIEW awaiting a parent decision.
+    """
+    source = (Path(__file__).parents[1] / "services" / "recommendation.py").read_text(encoding="utf-8")
+    body = source.split("def candidates(", 1)[1].split("def _text_for(", 1)[0]
+    assert body.count("p.processing_status='ALLOWED'") == 2
+    assert body.count("p.moderation_status='ALLOWED'") == 2

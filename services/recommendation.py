@@ -120,7 +120,7 @@ def candidates(cid: int, cap: int = 60, surface: str = "FEED") -> list[dict[str,
                 EXISTS(SELECT 1 FROM followers f WHERE f.approved=TRUE AND f.approval_stage='ACTIVE'
                   AND ((f.child_id=%s AND f.following_child_id=p.child_id) OR (f.child_id=p.child_id AND f.following_child_id=%s))) is_following
               FROM posts p JOIN users u ON u.user_id=p.child_id LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
-              WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=TRUE
+              WHERE p.moderation_status='ALLOWED' AND p.processing_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=TRUE
                 AND p.content_category=ANY(%s)
                 AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
                 AND p.child_id=ANY(%s) AND p.child_id<>%s
@@ -142,7 +142,7 @@ def candidates(cid: int, cap: int = 60, surface: str = "FEED") -> list[dict[str,
                     EXISTS(SELECT 1 FROM followers f WHERE f.approved=TRUE AND f.approval_stage='ACTIVE'
                       AND ((f.child_id=%s AND f.following_child_id=p.child_id) OR (f.child_id=p.child_id AND f.following_child_id=%s))) is_following
                   FROM posts p JOIN users u ON u.user_id=p.child_id LEFT JOIN child_profiles cp ON cp.child_id=p.child_id
-                  WHERE p.moderation_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=FALSE
+                  WHERE p.moderation_status='ALLOWED' AND p.processing_status='ALLOWED' AND p.is_safe=TRUE AND p.is_story=FALSE AND p.is_reel=FALSE
                     AND p.child_id=ANY(%s)
                     AND p.content_category=ANY(%s)
                     AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
