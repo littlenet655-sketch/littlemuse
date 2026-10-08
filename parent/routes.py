@@ -291,7 +291,7 @@ def review(event_id):
             else:
                 a,b=m['sender_child_id'],m['receiver_child_id']
                 cur.execute('SELECT 1 FROM blocked_users WHERE (blocker_id=%s AND blocked_id=%s) OR (blocker_id=%s AND blocked_id=%s)',(a,b,b,a));blocked=cur.fetchone()
-                cur.execute('SELECT 1 FROM followers WHERE approved=TRUE AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))',(a,b,b,a));connected=cur.fetchone()
+                cur.execute("SELECT 1 FROM followers WHERE approved=TRUE AND approval_stage='ACTIVE' AND ((child_id=%s AND following_child_id=%s) OR (child_id=%s AND following_child_id=%s))",(a,b,b,a));connected=cur.fetchone()
                 if blocked or not connected:effective='BLOCK'
         status='ALLOWED' if effective=='APPROVE' else 'BLOCKED'
         sanitize_failed=False
