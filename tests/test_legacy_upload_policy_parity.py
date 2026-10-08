@@ -83,3 +83,22 @@ def test_every_legacy_public_post_surface_rechecks_processing_state():
     assert "p_sender.get('processing_status') != 'ALLOWED'" in share
     # Do not change the owner's private REVIEW view into a public surface.
     assert "OR (p.child_id=%s AND p.moderation_status='REVIEW')" in source
+
+
+def test_secondary_verified_parent_receives_safety_notifications(monkeypatch):
+    import services.social as social
+
+    captured = []
+    query_seen = []
+    def fake_fetch(sql, params):
+        query_seen.append((sql, params))
+        return [
+            {"parent_id": 12, "email": "parent1@example.invalid"},
+            {"parent_id": 13, "email": "parent2@example.invalid"},
+        ]
+    monkeypatch.setattr(social, "fetch_all", fake_fetch)
+    monkeypatch.setattr(social, "execute", lambda sql, params: captured.append(params))
+    social.parent_notify(7, "PARENT_ALERT", "Review your child's post", "/parent/safety/")
+    assert "pcm.verified_parent_id" in query_seen[0][0]
+    assert query_seen[0][1] == (7,)
+    assert [row[0] for row in captured] == [12, 13]
