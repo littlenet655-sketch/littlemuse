@@ -23,6 +23,8 @@ import {
   mediaKindFromMimeType,
   redriveProcessing,
   requestUploadSession,
+  uploadCompletionNeedsFreshSession,
+  uploadSessionHasExpired,
   validateMediaIdentity,
   validateVideoDuration,
 } from '../src/api/kidsUpload';
@@ -251,14 +253,41 @@ describe('validateMediaIdentity', () => {
     validateMediaIdentity('photo.jpg', 'image/jpeg');
     validateMediaIdentity('PHOTO.PNG', 'image/png');
     validateMediaIdentity('clip.mov', 'video/quicktime');
-    validateMediaIdentity('clip.m4v', 'video/mp4');
+    validateMediaIdentity('photo.jpeg', 'image/jpg');
+    validateMediaIdentity('clip.webm', 'video/webm');
+    validateMediaIdentity('clip.mkv', 'video/x-matroska');
   });
 
   it('rejects mismatched or unknown pairs', () => {
     assert.throws(() => validateMediaIdentity('photo.png', 'image/jpeg'));
     assert.throws(() => validateMediaIdentity('clip.mp4', 'video/quicktime'));
+    // The server only accepts MP4 with .mp4, not .m4v. Reject before uploading.
+    assert.throws(() => validateMediaIdentity('clip.m4v', 'video/mp4'));
     assert.throws(() => validateMediaIdentity('notes.pdf', 'image/jpeg'));
     assert.throws(() => validateMediaIdentity('photo.jpg', 'application/octet-stream'));
+  });
+});
+
+describe('upload session recovery', () => {
+  const now = Date.parse('2026-10-08T12:00:00Z');
+
+  it('refreshes an expired, malformed or nearly expired R2 session', () => {
+    assert.equal(uploadSessionHasExpired({ expires_at: '2026-10-08T11:59:00Z' }, now), true);
+    assert.equal(uploadSessionHasExpired({ expires_at: '2026-10-08T12:00:25Z' }, now), true);
+    assert.equal(uploadSessionHasExpired({ expires_at: 'invalid' }, now), true);
+    assert.equal(uploadSessionHasExpired(null, now), true);
+  });
+
+  it('reuses a healthy session instead of creating duplicate uploads', () => {
+    assert.equal(uploadSessionHasExpired({ expires_at: '2026-10-08T12:01:00Z' }, now), false);
+  });
+
+  it('restarts only when completion explicitly reports an unusable session', () => {
+    assert.equal(uploadCompletionNeedsFreshSession('upload_session_expired'), true);
+    assert.equal(uploadCompletionNeedsFreshSession('upload_session_not_found'), true);
+    assert.equal(uploadCompletionNeedsFreshSession('request_timeout'), false);
+    assert.equal(uploadCompletionNeedsFreshSession('job_dispatch_failed'), false);
+    assert.equal(uploadCompletionNeedsFreshSession('upload_session_inconsistent'), false);
   });
 });
 
