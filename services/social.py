@@ -51,8 +51,8 @@ def _child_surface_open_uncached(viewer_id, feature=None):
     except ImportError:
         return True
 
-    user=fetch_one("SELECT account_status,role FROM users WHERE user_id=%s",(viewer_id,))
-    if not user or user.get('role')!='CHILD' or user.get('account_status')!='ACTIVE':return False
+    user=fetch_one("SELECT account_status,role,parent_paused FROM users WHERE user_id=%s",(viewer_id,))
+    if not user or user.get('role')!='CHILD' or user.get('account_status')!='ACTIVE' or bool(user.get('parent_paused')):return False
     if feature and not feature_allowed(viewer_id,feature):return False
     try:
         if quiet_hours_state(viewer_id).get('active'):return False
