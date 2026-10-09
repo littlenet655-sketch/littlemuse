@@ -211,7 +211,9 @@ def test_reaper_skips_quarantine_cleanup_when_row_not_transitioned(monkeypatch):
     )
     res = media_processor.reap_stale_media_jobs(stale_seconds=300)
     assert cleaned == []
-    assert "quarantine_cleaned" not in res["failed"][0]
+    # The guarded UPDATE lost the race: no terminal transition occurred, so
+    # nothing may be reported FAILED or cleaned by this stale sweep.
+    assert res["failed"] == []
 
 
 # ---------------------------------------------------------------------------

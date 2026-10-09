@@ -1108,17 +1108,24 @@ def claim_media_job_lease(
     max_attempts = int(post.get("max_processing_attempts") or 3)
 
     if attempts >= max_attempts and not force:
-        execute(
+        # Another worker may have renewed its lease after our SELECT.
+        # Terminalize only a genuinely unclaimed, exhausted attempt.
+        transitioned = execute_count(
             """UPDATE posts
                SET processing_status='FAILED', processing_error='max_attempts_exceeded',
                    processing_completed_at=NOW(), processing_lease_token=NULL,
                    processing_lease_expires_at=NULL
-               WHERE post_id=%s AND processing_status NOT IN ('ALLOWED', 'BLOCKED', 'FAILED')""",
+               WHERE post_id=%s AND processing_status IN ('UPLOADED', 'PROCESSING')
+                 AND processing_attempts >= max_processing_attempts
+                 AND (processing_lease_token IS NULL OR processing_lease_expires_at < NOW())""",
             (post_id,),
         )
-        post_dict = dict(post)
-        post_dict["processing_status"] = "FAILED"
-        return False, None, post_dict
+        latest = fetch_one("SELECT * FROM posts WHERE post_id=%s", (post_id,))
+        if not transitioned and latest and latest.get("processing_status") in ("ALLOWED", "BLOCKED"):
+            return False, None, dict(latest)
+        if not transitioned and latest and latest.get("processing_lease_token"):
+            return False, None, dict(latest)
+        return False, None, dict(latest) if latest else None
 
     last_att = post.get("last_attempt_at")
     if last_att and not force and not is_reap:
@@ -1198,6 +1205,17 @@ def redrive_media_job(post_id: int, force: bool = False) -> dict[str, Any]:
     kind = "reel" if post.get("is_reel") else ("story" if post.get("is_story") else "post")
     object_key = post.get("source_media_path")
     if not object_key:
+        # Releasing a just-acquired lease avoids leaving this post in PROCESSING
+        # until the next scheduled sweep. Do not clobber a newer worker.
+        execute_count(
+            """UPDATE posts SET processing_status='FAILED',
+                      processing_error='missing_source_media_path',
+                      processing_completed_at=NOW(),
+                      processing_lease_token=NULL, processing_lease_expires_at=NULL
+               WHERE post_id=%s AND processing_status='PROCESSING'
+                 AND processing_lease_token=%s""",
+            (post_id, lease_token),
+        )
         return {"ok": False, "error": "missing_source_media_path"}
 
     from services.job_queue import enqueue_media_job
@@ -1206,7 +1224,7 @@ def redrive_media_job(post_id: int, force: bool = False) -> dict[str, Any]:
         job_id = enqueue_media_job(
             post_id, int(post["child_id"]), object_key, kind, lease_token=lease_token
         )
-        execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+        execute("UPDATE posts SET job_id=%s WHERE post_id=%s AND processing_lease_token=%s AND processing_status='PROCESSING'", (job_id, post_id, lease_token))
         return {
             "ok": True,
             "post_id": post_id,
@@ -1221,8 +1239,9 @@ def redrive_media_job(post_id: int, force: bool = False) -> dict[str, Any]:
                    processing_lease_token=NULL,
                    processing_lease_expires_at=NULL,
                    processing_error=%s
-               WHERE post_id=%s""",
-            (f"redrive_dispatch_failed: {exc}", post_id),
+               WHERE post_id=%s AND processing_status='PROCESSING'
+                 AND processing_lease_token=%s""",
+            (f"redrive_dispatch_failed: {exc}", post_id, lease_token),
         )
         return {"ok": False, "error": "job_dispatch_failed", "detail": str(exc)}
 
@@ -1263,8 +1282,11 @@ def reap_stale_media_jobs(stale_seconds: int = 300) -> dict[str, Any]:
                    SET processing_status='FAILED', processing_error='max_attempts_exceeded_stale_reap',
                        processing_completed_at=NOW(), processing_lease_token=NULL,
                        processing_lease_expires_at=NULL
-                   WHERE post_id=%s AND processing_status NOT IN ('ALLOWED', 'BLOCKED', 'FAILED')""",
-                (post_id,),
+                   WHERE post_id=%s AND processing_status IN ('UPLOADED', 'PROCESSING')
+                     AND processing_attempts >= max_processing_attempts
+                     AND (processing_lease_token IS NULL OR processing_lease_expires_at < NOW())
+                     AND (processing_started_at < %s OR (processing_started_at IS NULL AND created_at < %s))""",
+                (post_id, threshold, threshold),
             )
             entry = {"post_id": post_id, "error": "max_attempts_exceeded"}
             if transitioned:
@@ -1272,7 +1294,7 @@ def reap_stale_media_jobs(stale_seconds: int = 300) -> dict[str, Any]:
                 # now, so delete it (outbox-backed on R2 failure). Skipped when
                 # another worker already transitioned the row.
                 entry["quarantine_cleaned"] = block_and_cleanup_quarantine(post_id, object_key)
-            failed.append(entry)
+                failed.append(entry)
             continue
 
         if not object_key:
@@ -1306,7 +1328,7 @@ def reap_stale_media_jobs(stale_seconds: int = 300) -> dict[str, Any]:
         kind = "reel" if p.get("is_reel") else ("story" if p.get("is_story") else "post")
         try:
             job_id = enqueue_media_job(post_id, child_id, object_key, kind, lease_token=lease_token)
-            execute("UPDATE posts SET job_id=%s WHERE post_id=%s", (job_id, post_id))
+            execute("UPDATE posts SET job_id=%s WHERE post_id=%s AND processing_lease_token=%s AND processing_status='PROCESSING'", (job_id, post_id, lease_token))
             redriven.append({"post_id": post_id, "job_id": job_id, "attempts": post_data.get("processing_attempts", attempts + 1)})
         except Exception as exc:
             execute(
@@ -1315,8 +1337,9 @@ def reap_stale_media_jobs(stale_seconds: int = 300) -> dict[str, Any]:
                        processing_lease_token=NULL,
                        processing_lease_expires_at=NULL,
                        processing_error=%s
-                   WHERE post_id=%s""",
-                (f"reap_dispatch_failed: {exc}", post_id),
+                   WHERE post_id=%s AND processing_status='PROCESSING'
+                     AND processing_lease_token=%s""",
+                (f"reap_dispatch_failed: {exc}", post_id, lease_token),
             )
             failed.append({"post_id": post_id, "error": str(exc)})
 
