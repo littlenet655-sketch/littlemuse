@@ -240,7 +240,7 @@ def get_random_children(cid):return discoverable_children(cid,None,30)
 def counts(cid):
     friends=(fetch_one("""SELECT COUNT(DISTINCT CASE WHEN child_id=%s THEN following_child_id ELSE child_id END) n
         FROM followers WHERE approved=TRUE AND approval_stage='ACTIVE' AND (child_id=%s OR following_child_id=%s)""",(cid,cid,cid)) or {'n':0})['n']
-    return {'posts':fetch_one("SELECT COUNT(*) n FROM posts WHERE child_id=%s AND is_story=FALSE AND moderation_status='ALLOWED' AND is_safe=TRUE",(cid,))['n'],'followers':friends,'following':friends}
+    return {'posts':fetch_one("SELECT COUNT(*) n FROM posts WHERE child_id=%s AND is_story=FALSE AND moderation_status='ALLOWED' AND processing_status='ALLOWED' AND is_safe=TRUE",(cid,))['n'],'followers':friends,'following':friends}
 
 def replace_profile_tags(cid,skills,interests,ambitions):
     # Keep SQL identifiers static. Values remain parameterized below.
