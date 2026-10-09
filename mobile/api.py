@@ -611,6 +611,13 @@ def _mobile_login_response(user, method="PASSWORD"):
     return jsonify(_clean(response))
 
 def _media_allowed(uid: int, role: str, ref: str) -> bool:
+    # Direct media URLs are independently accessible from the feed endpoints.
+    # Enforce parent pause, screen-time and quiet hours before minting or
+    # following any object reference, including curated/chat/avatar media.
+    if str(role).upper() == 'CHILD':
+        from services.social import child_surface_open
+        if not child_surface_open(uid):
+            return False
     cur = fetch_one(
         """SELECT cc.content_id, cc.min_age, cc.max_age, cc.publish_status, cat.display_name, cat.active,
                   cma.moderation_status, cma.is_safe
@@ -638,7 +645,7 @@ def _media_allowed(uid: int, role: str, ref: str) -> bool:
             return bool(cur["min_age"] <= child_age <= cur["max_age"])
 
     p = fetch_one(
-        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path, story_music_path
+        """SELECT post_id, child_id, moderation_status, processing_status, is_safe, source_media_path, media_path, poster_path, story_music_path
            FROM posts
            WHERE media_path=%s OR story_music_path=%s OR poster_path=%s OR source_media_path=%s""",
         (ref, ref, ref, ref),
@@ -704,6 +711,8 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
     if not clean:
         return decisions
     role_u = str(role or "").upper()
+    if role_u == "CHILD" and not child_surface_open(uid):
+        return decisions
 
     def _owns_cached(child_id):
         return _req_memo(("owns", uid, child_id), lambda: bool(owns(uid, child_id)))
@@ -728,7 +737,7 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
 
     post_by_ref = {}
     for row in fetch_all(
-        """SELECT post_id, child_id, moderation_status, is_safe, source_media_path, media_path, poster_path, story_music_path
+        """SELECT post_id, child_id, moderation_status, processing_status, is_safe, source_media_path, media_path, poster_path, story_music_path
            FROM posts
            WHERE media_path = ANY(%s) OR story_music_path = ANY(%s)
               OR poster_path = ANY(%s) OR source_media_path = ANY(%s)""",
@@ -777,7 +786,7 @@ def _media_allowed_many(uid: int, role: str, refs) -> dict:
         for vr in fetch_all(
             """SELECT p.post_id, p.is_reel, p.is_story FROM posts p
                WHERE p.post_id = ANY(%s)
-                 AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE
+                 AND (p.moderation_status='ALLOWED' OR (p.child_id=%s AND p.moderation_status='REVIEW')) AND p.is_safe=TRUE AND p.processing_status='ALLOWED'
                  AND p.content_category = ANY(%s) AND (%s IS NULL OR p.audience_age_group='ALL' OR p.audience_age_group=%s)
                  AND p.child_id NOT IN (
                    SELECT blocked_id FROM blocked_users WHERE blocker_id=%s
@@ -1432,6 +1441,10 @@ def register_mobile_api(bp):
         ref = str(request.args.get("ref") or "")
         uid = int(g.mobile_user["user_id"])
         role = str(g.mobile_user["role"])
+        if role.upper() == "CHILD":
+            gate = _child_gate(record_usage=False)
+            if gate:
+                return gate
         if not ref or not _media_allowed(uid, role, ref):
             return jsonify(error="media_unavailable"), 404
         if ref.startswith("uploads/r2/"):
