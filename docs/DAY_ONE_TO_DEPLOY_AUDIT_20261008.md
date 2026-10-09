@@ -61,3 +61,15 @@
 5. Physical device: OTP/login, child A post→AI safe allow→child B's public feed, explicit BLOCK & review queue, two parents approve friend request then DM; revoke friendship and ensure chat blocked; chat images/reactions/typing, random Reel quiz wrong/correct, parent upload-history thumbnails and blurred review, safe OCR contact test, push delivery, video render, screen-time/quiet-hour gates.
 6. Optional streaming benchmark/load and held-out classifier/OCR evaluation before any speed/accuracy claims.
 7. Only after the checks may project be labeled **fully deployed and end-to-end verified**. Source CI passing alone is **not** that claim.
+
+## October 9 follow-up audit: parent-lock and publication authorization
+
+**Trigger:** A fresh source read of current `main` exposed authorization drift that earlier passing suites missed. This section records corrective work proposed by PR #43. The PR must pass current-head CI and merge before the fixes are considered part of `main`.
+
+- **Child lock / R2 auth:** The direct `/api/mobile/v1/media` proxy and shared R2 media signer did not consistently re-evaluate parent pause, quiet hours and screen time for curated, avatars, or chat attachments. Canonical `services.social.child_surface_open` now includes the user's `parent_paused` database flag; `mobile.api._media_allowed` and `_media_allowed_many` fail closed before granting any CHILD media reference; the media proxy itself calls the child gate. Previously minted signed R2 URLs are not revocable immediately and naturally live until their short TTL.
+- **Legacy web child entry points:** `decorators.role_required('CHILD')` checked account activation but not time/quiet/pause or the chat messaging toggle, allowing a child to bypass rules via old browser routes while the mobile app was locked. Now it applies canonical child-surface checks to normal browser routes. The technical heartbeat, remaining-time info and locked/quiet-hours information pages remain accessible.
+- **Batched authorization parity:** The optimized `_media_allowed_many` child visibility SQL omitted final `p.processing_status='ALLOWED'`. It now requires both moderation and final publication state; this matches `post_visible_to`.
+- **Profile counts:** `child.service.counts` counted moderation-ALLOWED but processing-REVIEW posts. A read-only production query found two affected non-story posts. Counts now require final processing ALLOWED; the underlying rows remain untouched.
+- **Tests:** `tests/test_repeat_audit_media_gates.py` exercises paused parent, direct/batch media denial, locked legacy web read/write, preserved heartbeat/lock display, final processing-state checks and corrected counts. This is source/runtime test verification only, not a phone or live deployment test.
+
+**Release status:** No Modal deployment, APK build, production SQL update or media deletion was performed as part of this follow-up audit. Do not label the fix production-live until that exact merged SHA has been deployed and exercised through real child and parent accounts.
