@@ -243,7 +243,15 @@ def test_bounded_redrive_terminates_at_max_attempts(db):
         assert res["ok"] is True
         assert res["attempts"] == 3
 
-    # Attempt 4 (exceeds max_attempts of 3) -> terminates to FAILED
+    # A queued worker owns a 300-second processing lease. It must not be
+    # terminalized from a stale retry snapshot while that lease is active.
+    # The mocked dispatch does not actually run a worker, so expire its lease
+    # explicitly to model the legitimate abandoned/exhausted state.
+    cur.execute(
+        "UPDATE posts SET processing_lease_expires_at=NOW() - INTERVAL '1 second' WHERE post_id=%s",
+        (post_id,),
+    )
+    # Attempt 4 (all 3 attempts exhausted and no active lease) -> FAILED.
     res4 = media_processor.redrive_media_job(post_id)
     assert res4["ok"] is False
     assert res4["error"] == "max_attempts_exceeded"
