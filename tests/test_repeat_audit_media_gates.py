@@ -91,3 +91,73 @@ def test_direct_media_auth_checks_child_surface_even_on_valid_curated_assets():
     with patch("services.social.child_surface_open", return_value=False) as gate:
         assert _media_allowed(11, "CHILD", "uploads/r2/curated/valid.jpg") is False
         gate.assert_called_once_with(11)
+
+
+def test_legacy_browser_child_routes_fail_closed_when_locked(monkeypatch):
+    from decorators import child_required
+
+    app = Flask(__name__)
+    app.secret_key = "unit-test-secret"
+
+    @app.route("/messages/")
+    @child_required
+    def inbox():
+        return "inbox"
+
+    @app.route("/send-message/17/", methods=["POST"])
+    @child_required
+    def send_message():
+        return "sent"
+
+    @app.route("/time-limit-reached/")
+    @child_required
+    def locked_page():
+        return "locked page"
+
+    @app.route("/api/usage/heartbeat/", methods=["POST"])
+    @child_required
+    def technical_heartbeat():
+        return "heartbeat"
+
+    monkeypatch.setattr("decorators.fetch_one", lambda *_a, **_k: {"role": "CHILD", "account_status": "ACTIVE"})
+    seen = []
+    def deny_policy(uid, feature=None):
+        seen.append((uid, feature))
+        return False
+    monkeypatch.setattr("services.social.child_surface_open", deny_policy)
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["user_id"] = 11
+        session["role"] = "CHILD"
+    assert client.get("/messages/").status_code == 302
+    assert client.post("/send-message/17/").status_code == 423
+    assert client.get("/time-limit-reached/").status_code == 200
+    assert client.post("/api/usage/heartbeat/").status_code == 200
+    assert seen == [(11, "messaging"), (11, "messaging")]
+
+
+def test_legacy_browser_feed_and_upload_obey_global_lock(monkeypatch):
+    from decorators import child_required
+
+    app = Flask(__name__)
+    app.secret_key = "unit-test-secret"
+
+    @app.route("/feed/")
+    @child_required
+    def legacy_feed():
+        return "feed"
+
+    @app.route("/child/upload-post/", methods=["POST"])
+    @child_required
+    def legacy_upload():
+        return "uploaded"
+
+    monkeypatch.setattr("decorators.fetch_one", lambda *_a, **_k: {"role": "CHILD", "account_status": "ACTIVE"})
+    monkeypatch.setattr("services.social.child_surface_open", lambda *_a, **_k: False)
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["user_id"] = 11
+        session["role"] = "CHILD"
+    assert client.get("/feed/").status_code == 302
+    assert client.post("/child/upload-post/").status_code == 423
