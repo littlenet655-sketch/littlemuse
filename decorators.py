@@ -52,6 +52,30 @@ def role_required(role):
                     return _inactive(role)
 
             if role=='CHILD':
+                # Browser routes use the same authoritative parent pause,
+                # quiet-hour and screen-time rules as mobile routes. Previously
+                # the older /chat, /send-message, /feed and /upload paths only
+                # checked login status and could bypass the parent's lock.
+                # Keep the informational locked-screen routes and technical
+                # usage heartbeat available to an otherwise authenticated child.
+                unlocked_info_paths = {
+                    '/time-limit-reached/', '/quiet-hours/',
+                    '/api/time-remaining/', '/api/usage/heartbeat/',
+                }
+                child_path = request.path
+                if not technical_heartbeat and child_path not in unlocked_info_paths:
+                    from services.social import child_surface_open
+                    chat_paths = (
+                        '/messages/', '/chat/', '/send-message/',
+                        '/send-media/', '/share-post/', '/api/chat/',
+                        '/api/share-post/',
+                    )
+                    chat_feature = 'messaging' if child_path.startswith(chat_paths) else None
+                    if not child_surface_open(uid, chat_feature):
+                        if request.path.startswith('/api/') or request.is_json or request.method != 'GET':
+                            return jsonify(error='child_access_locked', gate='parent_controls'), 423
+                        return redirect('/time-limit-reached/')
+
                 discover_paths=(
                     '/discover/','/api/discover/','/api/search/suggestions/',
                     '/child/view-profile/','/follow/','/recommended/'
