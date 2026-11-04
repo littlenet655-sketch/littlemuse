@@ -176,3 +176,17 @@ def test_repeated_validation_failure_raises_pool_exhausted(monkeypatch):
 
     assert connect_calls == []
     assert pool.discarded == [broken1, broken2]
+
+
+def test_multiple_stale_connections_purged_and_healthy_returned(monkeypatch):
+    """When multiple idle pooled connections are closed/stale, they are discarded and a subsequent healthy connection is returned rather than aborting early."""
+    broken1 = FakeConnection(validation_error=OperationalError("server gone"))
+    broken2 = FakeConnection(validation_error=OperationalError("connection reset"))
+    healthy = FakeConnection()
+    pool = FakePool(broken1, broken2, healthy)
+    monkeypatch.setattr(connection, "_get_pool", lambda: pool)
+    connection.reset_pool_metrics()
+
+    wrapped = connection.get_db_connection()
+    assert wrapped._conn is healthy
+    assert pool.discarded == [broken1, broken2]

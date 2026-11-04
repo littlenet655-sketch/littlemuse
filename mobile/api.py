@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -1869,6 +1870,8 @@ def register_mobile_api(bp):
             history=list(reversed(history or [])),
         )
         reply_text = str(result.reply or "").strip()
+        reply_text = re.sub(r"\s*[—–]\s*", ", ", reply_text)
+        reply_text = re.sub(r",\s*,+", ", ", reply_text).strip()
         reply_pii = scan_pii(reply_text)
         _, reply_decision = evaluate(uid, "TEXT", reply_text)
         if (
