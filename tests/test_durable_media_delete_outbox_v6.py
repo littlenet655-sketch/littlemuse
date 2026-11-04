@@ -147,7 +147,10 @@ def test_durable_reconcile_retry_and_exhaustion(monkeypatch):
 
 def test_web_startup_non_blocking():
     from pathlib import Path
-    modal_code = Path(r"C:\LittleNet-FINAL-WORK\LittleNet\modal_web.py").read_text(encoding="utf-8")
+    modal_path = Path(__file__).resolve().parents[1] / "modal_web.py"
+    if not modal_path.exists():
+        modal_path = Path(r"C:\LittleNet-FINAL-WORK\LittleNet\modal_web.py")
+    modal_code = modal_path.read_text(encoding="utf-8")
     web_def = modal_code.split("def web():")[1].split("def persist_upload_changes")[0]
     assert "reconcile_pending_deletes" not in web_def
     assert "drain_media_delete_outbox" in modal_code
