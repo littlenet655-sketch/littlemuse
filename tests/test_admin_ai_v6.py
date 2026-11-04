@@ -5,7 +5,8 @@ Automated tests for Admin/Moderator AI Database Assistant (Phase 8).
 """
 
 import pytest
-from database.connection import execute, fetch_one, fetch_all
+import database.connection as db_conn
+import services.admin_ai as admin_ai_mod
 from services.admin_ai import (
     TOOL_REGISTRY,
     ask_admin_assistant,
@@ -13,13 +14,89 @@ from services.admin_ai import (
 )
 
 
+def _is_db_available():
+    try:
+        conn = db_conn.get_db_connection()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+DB_AVAILABLE = _is_db_available()
+
+
+@pytest.fixture(autouse=True)
+def admin_ai_db_env(monkeypatch):
+    if not DB_AVAILABLE:
+        audit_logs = []
+
+        def mock_execute(sql, params=(), returning=False):
+            sql_clean = " ".join(sql.split())
+            if "INSERT INTO admin_ai_audit_logs" in sql_clean:
+                admin_id, cat, tool, row_count = params
+                row = {
+                    "audit_id": len(audit_logs) + 1,
+                    "admin_id": admin_id,
+                    "question_category": cat,
+                    "tool_invoked": tool,
+                    "row_count": row_count,
+                    "created_at": "NOW",
+                }
+                audit_logs.append(row)
+                return row if returning else None
+            return None
+
+        def mock_fetch_one(sql, params=()):
+            sql_clean = " ".join(sql.split())
+            if "SELECT user_id FROM users WHERE role = 'ADMIN'" in sql_clean:
+                return {"user_id": 1}
+            elif "SELECT COUNT(*) AS count FROM users" in sql_clean:
+                return {"count": 42}
+            elif "SELECT COUNT(*) AS count FROM posts WHERE is_reel = TRUE" in sql_clean:
+                return {"count": 15}
+            elif "SELECT COUNT(*) AS count FROM moderation_events WHERE decision = 'REVIEW' AND status = 'OPEN'" in sql_clean:
+                return {"count": 3}
+            elif "SELECT * FROM admin_ai_audit_logs" in sql_clean:
+                admin_id = params[0]
+                for r in reversed(audit_logs):
+                    if r["admin_id"] == admin_id:
+                        return r
+                return None
+            elif "SELECT COUNT(*) AS count FROM admin_ai_audit_logs" in sql_clean:
+                return {"count": len(audit_logs)}
+            elif "SELECT COUNT(*) AS count FROM curated_creators" in sql_clean:
+                return {"count": 6}
+            return {"count": 10}
+
+        def mock_fetch_all(sql, params=()):
+            sql_clean = " ".join(sql.split())
+            if "GROUP BY role" in sql_clean:
+                return [{"role": "CHILD", "count": 25}, {"role": "PARENT", "count": 15}, {"role": "ADMIN", "count": 2}]
+            elif "GROUP BY moderation_status" in sql_clean:
+                return [{"moderation_status": "ALLOWED", "count": 35}, {"moderation_status": "REVIEW", "count": 3}]
+            return []
+
+        monkeypatch.setattr(admin_ai_mod, "execute", mock_execute)
+        monkeypatch.setattr(admin_ai_mod, "fetch_one", mock_fetch_one)
+        monkeypatch.setattr(admin_ai_mod, "fetch_all", mock_fetch_all)
+        monkeypatch.setattr(db_conn, "execute", mock_execute)
+        monkeypatch.setattr(db_conn, "fetch_one", mock_fetch_one)
+        monkeypatch.setattr(db_conn, "fetch_all", mock_fetch_all)
+        yield
+    else:
+        yield
+
+
 @pytest.fixture
 def test_admin():
     """Fetch or create an admin user."""
-    row = fetch_one("SELECT user_id FROM users WHERE role = 'ADMIN' LIMIT 1")
+    if not DB_AVAILABLE:
+        return 1
+    row = db_conn.fetch_one("SELECT user_id FROM users WHERE role = 'ADMIN' LIMIT 1")
     if row:
         return row["user_id"]
-    row = execute(
+    row = db_conn.execute(
         """
         INSERT INTO users (username, role, account_status, email, password_hash, full_name, created_at)
         VALUES ('test_ai_admin', 'ADMIN', 'ACTIVE', 'admin_ai@test.littlenet.local', 'hash', 'Test Admin', NOW())
@@ -109,7 +186,7 @@ class TestAdminAIAssistant:
         assert res["tool_invoked"] == "count_creators"
 
         # Verify audit log row
-        row = fetch_one(
+        row = db_conn.fetch_one(
             """
             SELECT * FROM admin_ai_audit_logs
             WHERE admin_id = %s AND tool_invoked = 'count_creators'

@@ -180,11 +180,27 @@ export function userMessageFor(status: number, code: string, body?: Record<strin
   }
 }
 
+function isQuizRequiredErrorLike(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  return error.status === 428 || error.code === 'quiz_required' || error.gate === 'quiz';
+}
+
 /** Retry/backoff is only ever applied to safe (idempotent GET) requests. */
 export function shouldRetryRequest(method: string, attempt: number, status: number): boolean {
   if (method.toUpperCase() !== 'GET') return false;
   if (attempt >= 2) return false;
+  if (status === 428) return false;
   return status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
+/**
+ * Generic TanStack Query retry predicate.
+ * HTTP 428 / quiz_required is an application gate, never a transient retry.
+ * Other failures keep the previous one-retry bound (failureCount 0 → retry once).
+ */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (isQuizRequiredErrorLike(error)) return false;
+  return failureCount < 1;
 }
 
 export function retryDelayMs(attempt: number): number {
