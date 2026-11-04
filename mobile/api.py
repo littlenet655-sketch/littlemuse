@@ -492,6 +492,48 @@ def _liked_saved_snapshot(child_id, limit=30, include_saved=True):
         })
     return out
 
+def _batch_enrich_posts(posts: list[dict], viewer_id: int | None):
+    """Pre-fetch likes, saved status, and post tags in bulk to eliminate N+1 queries."""
+    if not posts:
+        return
+    valid_posts = [p for p in posts if p and p.get("post_id")]
+    pids = [int(p["post_id"]) for p in valid_posts]
+    if not pids:
+        return
+
+    liked_ids = set()
+    saved_ids = set()
+    if viewer_id:
+        liked_rows = fetch_all(
+            "SELECT post_id FROM likes WHERE post_id = ANY(%s) AND child_id=%s",
+            (pids, viewer_id),
+        ) or []
+        liked_ids = {r["post_id"] for r in liked_rows}
+
+        saved_rows = fetch_all(
+            "SELECT post_id FROM saved_posts WHERE post_id = ANY(%s) AND child_id=%s",
+            (pids, viewer_id),
+        ) or []
+        saved_ids = {r["post_id"] for r in saved_rows}
+
+    tags_by_post = {pid: [] for pid in pids}
+    tag_rows = fetch_all(
+        "SELECT post_id, tag FROM post_tags WHERE post_id = ANY(%s) ORDER BY tag_id ASC",
+        (pids,),
+    ) or []
+    for r in tag_rows:
+        tags_by_post[r["post_id"]].append(r["tag"])
+
+    for p in valid_posts:
+        pid = int(p["post_id"])
+        if "viewer_liked" not in p and viewer_id:
+            p["viewer_liked"] = pid in liked_ids
+        if "viewer_saved" not in p and viewer_id:
+            p["viewer_saved"] = pid in saved_ids
+        if "tags" not in p:
+            p["tags"] = tags_by_post.get(pid, [])
+
+
 def _post_json(row, viewer_id=None, auth_decisions=None):
     if not row:
         return None
@@ -1482,6 +1524,7 @@ def register_mobile_api(bp):
         post_rows = visible_posts(uid, False, 20, 0)
         reel_rows = visible_posts(uid, True, 8, 0)
         suggested_rows = get_random_children(uid)[:8]
+        _batch_enrich_posts(story_rows + post_rows + reel_rows, uid)
         _refs = set()
         for _r in story_rows + post_rows + reel_rows:
             for _k in ("media_path", "poster_path", "profile_picture"):
@@ -1525,6 +1568,7 @@ def register_mobile_api(bp):
         if feed_quiz_state(uid).get("required"):
             return jsonify(ok=True, page=page, reels=[], quiz_required=True)
         rows = visible_posts(uid, True, 10, (page - 1) * 10)
+        _batch_enrich_posts(rows, uid)
         return jsonify(ok=True, page=page, reels=[_post_json(p, uid) for p in rows])
 
     @bp.route("/api/mobile/v1/kids/discover")
@@ -1552,6 +1596,7 @@ def register_mobile_api(bp):
         if q:
             needle = q.lstrip("#").casefold()
             posts = [p for p in posts if needle in str(p.get("caption") or "").casefold() or needle in str(p.get("content_category") or "").casefold() or needle in str(p.get("full_name") or "").casefold()]
+        _batch_enrich_posts(posts, uid)
         return jsonify(ok=True, pii_warning=False, children=out, posts=[_post_json(p, uid) for p in posts])
 
     @bp.route("/api/mobile/v1/kids/profile", methods=["GET", "PUT"])
@@ -4390,6 +4435,22 @@ def register_mobile_api(bp):
     def mobile_admin_reviews():
         rows = fetch_all("SELECT e.*,u.full_name,u.username FROM moderation_events e JOIN users u ON u.user_id=e.child_id WHERE e.decision='REVIEW' AND e.status='OPEN' ORDER BY e.created_at DESC LIMIT 100")
         return jsonify(ok=True, events=_clean(rows))
+
+    @bp.route("/api/mobile/v1/admin/ai/chat", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("30 per minute")
+    @_require_mobile("ADMIN", "MODERATOR")
+    def mobile_admin_ai_chat():
+        admin_id = int(g.mobile_user["user_id"])
+        role = str(g.mobile_user.get("role") or "")
+        data = _json_dict()
+        question = str(data.get("question") or "").strip()
+        if not question:
+            return jsonify(ok=False, error="empty_question", message="Please provide a question."), 400
+        from services.admin_ai import ask_admin_assistant
+        res = ask_admin_assistant(admin_id, role, question)
+        status_code = 200 if res.get("ok") else (403 if res.get("error") in ("unauthorized", "restricted_fields") else 400)
+        return jsonify(res), status_code
 
     @bp.route("/api/mobile/v2/kids/heartbeat", methods=["POST"])
     @csrf.exempt
