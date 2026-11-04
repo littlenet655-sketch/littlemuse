@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_child_creator_follows_creator
     ON child_creator_follows(creator_id) WHERE active = TRUE;
 
 ALTER TABLE parent_control_settings
-    ADD COLUMN IF NOT EXISTS allow_ai_creator_chat BOOLEAN NOT NULL DEFAULT TRUE;
+    ADD COLUMN IF NOT EXISTS allow_ai_creator_chat BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS admin_ai_audit_logs (
     audit_id BIGSERIAL PRIMARY KEY,

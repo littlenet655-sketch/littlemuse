@@ -1842,6 +1842,8 @@ def register_mobile_api(bp):
     @limiter.limit("30 per minute")
     @_require_mobile("CHILD")
     def mobile_kids_creator_chat(creator_id):
+        if not feature_allowed(int(g.mobile_user["user_id"]), "ai_creator_chat") and not g.mobile_user.get("demo_unlimited"):
+            return jsonify(error="disabled_by_parent", feature="ai_creator_chat"), 403
         gate = _child_gate("messaging")
         if gate:
             return gate
@@ -3853,7 +3855,7 @@ def register_mobile_api(bp):
         if request.method == "PUT":
             data = _json_dict()
             flags = {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat",
                 "quiet_hours_enabled", "educational_only_feed",
             }
             if any(key in data and not isinstance(data[key], bool) for key in flags):
@@ -3869,11 +3871,11 @@ def register_mobile_api(bp):
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat",
                 "quiet_hours_enabled", "quiet_start", "quiet_end", "educational_only_feed", "allowed_categories",
             }})
             form = MultiDict()
-            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "quiet_hours_enabled", "educational_only_feed"):
+            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat", "quiet_hours_enabled", "educational_only_feed"):
                 if bool(merged.get(flag)):
                     form.add(flag, "on")
             form.add("quiet_start", str(merged.get("quiet_start") or "21:00"))
