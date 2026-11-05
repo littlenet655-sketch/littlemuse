@@ -288,6 +288,40 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
 
           <Button label={busy ? 'Logging in…' : 'Log In'} onPress={submit} loading={busy} disabled={busy} />
 
+          <View style={styles.demoFillStrip}>
+            <Text style={styles.demoFillLabel}>Quick Demo Fill</Text>
+            <View style={styles.demoChipRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fill child demo account"
+                style={styles.demoChip}
+                onPress={() => {
+                  setMode('kids');
+                  setIdentifier('Akshu');
+                  setPassword('Password123!');
+                  setError('');
+                }}
+              >
+                <Feather name="smile" size={12} color={colors.brand} />
+                <Text style={styles.demoChipText}>Child: Akshu</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Fill parent demo account"
+                style={styles.demoChip}
+                onPress={() => {
+                  setMode('parent');
+                  setIdentifier('akshaykammar31@gmail.com');
+                  setPassword('Password123!');
+                  setError('');
+                }}
+              >
+                <Feather name="user-check" size={12} color="#059669" />
+                <Text style={styles.demoChipText}>Parent: Akshay</Text>
+              </Pressable>
+            </View>
+          </View>
+
           <View style={styles.authLinksContainer}>
             <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={12} style={styles.linkHit}>
               <Text style={styles.forgotPwdLink}>Forgot your password?</Text>
@@ -478,5 +512,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.brand,
+  },
+  demoFillStrip: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    alignItems: 'center',
+    gap: 6,
+  },
+  demoFillLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  demoChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  demoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+  },
+  demoChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.ink,
   },
 });

@@ -40,6 +40,8 @@ web_image = (
     .apt_install("ffmpeg", "curl", "ca-certificates")
     .run_commands(
         "curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.34.1/dbmate-linux-amd64",
+        # Same pinned digest the Dockerfiles verify (SECURITY_AUDIT_REPORT T1-002).
+        'echo "b002d5249d53d0c6c482ed761b5a806c6fb9a364fcc5f9db3e8763c1d9e40e1d  /usr/local/bin/dbmate" | sha256sum -c -',
         "chmod +x /usr/local/bin/dbmate",
         "dbmate --version",
     )
@@ -125,13 +127,8 @@ def web():
 
     flask_app = create_app()
 
-    try:
-        from services.media_outbox import reconcile_pending_deletes
-        cleanup = reconcile_pending_deletes(100)
-        if cleanup.get("failed"):
-            flask_app.logger.warning("Pending R2 delete reconciliation: %s", cleanup)
-    except Exception:
-        flask_app.logger.info("Media delete outbox is not ready during web startup", exc_info=True)
+    # Web startup is strictly non-blocking. Media delete outbox draining
+    # is executed by the process-independent scheduled worker drain_media_delete_outbox.
 
     @flask_app.after_request
     def persist_upload_changes(response):
@@ -392,6 +389,42 @@ def seed_quizzes():
     os.chdir("/root/littlenet")
     subprocess.run(["python", "tools/seed_quizzes.py"], check=True)
     return {"ok": True}
+
+
+@app.function(
+    image=web_image,
+    cpu=1.0,
+    memory=1024,
+    secrets=[web_secret, email_secret],
+    timeout=120,
+    schedule=modal.Cron("*/1 * * * *"),
+    min_containers=0,
+    max_containers=1,
+)
+def drain_password_reset_email_outbox(batch_size: int = 25):
+    # Process-independent durable scheduled worker for password reset email outbox.
+    os.chdir("/root/littlenet")
+    from auth.password_reset import process_password_reset_email_outbox
+    count = process_password_reset_email_outbox(batch_size=batch_size)
+    return {"ok": True, "sent_count": count}
+
+
+@app.function(
+    image=web_image,
+    cpu=1.0,
+    memory=1024,
+    secrets=[web_secret, r2_secret],
+    timeout=300,
+    schedule=modal.Cron("*/5 * * * *"),
+    min_containers=0,
+    max_containers=1,
+)
+def drain_media_delete_outbox(limit: int = 50):
+    # Process-independent durable scheduled worker for media delete outbox.
+    os.chdir("/root/littlenet")
+    from services.media_outbox import reconcile_pending_deletes
+    report = reconcile_pending_deletes(limit=limit)
+    return {"ok": True, "report": report}
 
 
 def _mail_healthcheck(strict_production: bool = False):

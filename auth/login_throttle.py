@@ -37,7 +37,7 @@ LOCKOUT = timedelta(minutes=15)
 
 # Advisory-lock namespace for the login throttle. Must not collide with the
 # OTP resend namespace (842101) in auth/parent_email_otp.py.
-_ADVISORY_LOCK_NAMESPACE = 842102
+_ADVISORY_LOCK_NAMESPACE = 842105
 
 
 def _now():

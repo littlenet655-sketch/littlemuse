@@ -365,6 +365,7 @@ def get_child_approval_details(approval_token, logged_in_parent_id):
                 pcm.parent_email,
                 pcm.approval_token,
                 pcm.approval_token_expires_at,
+                (pcm.approval_token_expires_at < NOW()) AS approval_token_expired,
                 pcm.approval_status,
                 pcm.approved,
                 pcm.is_token_used,
@@ -388,13 +389,11 @@ def get_child_approval_details(approval_token, logged_in_parent_id):
             return {"valid": False, "reason": "TOKEN_ALREADY_USED", "data": data}
 
         # Check expiration
-        if data.get("approval_token_expires_at"):
-            now_utc = datetime.now(timezone.utc)
-            expires_at = data["approval_token_expires_at"]
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if now_utc > expires_at:
-                return {"valid": False, "reason": "TOKEN_EXPIRED", "data": data}
+        # approval_token_expires_at is a naive TIMESTAMP in the DB session timezone;
+        # relabelling it as UTC in Python kept 48h tokens alive ~5.5h too long under
+        # Asia/Kolkata. Postgres compares it on the clock that stored it.
+        if data.get("approval_token_expires_at") and data.get("approval_token_expired"):
+            return {"valid": False, "reason": "TOKEN_EXPIRED", "data": data}
 
         # Authorization: Parent must be verified parent
         expected_parent_id = data.get("verified_parent_id") or data.get("parent_id")
@@ -643,7 +642,7 @@ def create_child_by_parent(parent_id, form):
         age = int(form.get('age') or 10)
     except (TypeError, ValueError):
         age = 10
-    if not 6 <= age <= 16:
+    if not 6 <= age <= 17:
         age = 10
     password = form.get('password', '')
     if len(password) < 8:

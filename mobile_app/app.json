@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/app_logo.png",
-    "splash": {
-      "image": "./assets/app_logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFF9F2"
-    },
     "android": {
       "package": "com.littlenet.app",
       "versionCode": 3,
@@ -20,7 +15,8 @@
         "backgroundColor": "#FFF9F2"
       },
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "usesCleartextTraffic": false
     },
@@ -56,7 +52,15 @@
         }
       ],
       "./plugins/parent-device-auth",
-      "expo-image"
+      "./plugins/withCleartextDisabled",
+      "expo-image",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/app_logo.png",
+          "color": "#FF8A00"
+        }
+      ]
     ],
     "owner": "akshu1245s-team",
     "extra": {

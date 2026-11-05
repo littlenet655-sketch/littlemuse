@@ -178,14 +178,21 @@ class PoolExhaustedError(RuntimeError):
 def get_db_connection():
     pool = _get_pool()
     maxconn = max(1, int(os.getenv("DB_POOL_MAX_CONNECTIONS", "20")))
+    minconn = max(1, int(os.getenv("DB_POOL_MIN_CONNECTIONS", "2")))
+    max_attempts = max(minconn + 2, 5)
     last_error: Exception | None = None
-    for _ in range(2):
+    for attempt in range(max_attempts):
         try:
             started = time.monotonic()
             raw_conn = pool.getconn()
         except Exception as exc:
-            last_error = exc
+            if last_error is None:
+                last_error = exc
             _metric("pool_checkout_failures")
+            from psycopg2 import OperationalError
+            if isinstance(exc, OperationalError) and attempt < max_attempts - 1:
+                time.sleep(min(0.2 * (attempt + 1), 0.5))
+                continue
             break
         _metric("pool_checkouts", time.monotonic() - started)
         if raw_conn.closed:
@@ -198,6 +205,8 @@ def get_db_connection():
             return PooledConnectionWrapper(pool, raw_conn)
         _discard_connection(pool, raw_conn)
         last_error = RuntimeError("pooled database connections failed validation")
+        if attempt < max_attempts - 1:
+            time.sleep(min(0.15 * (attempt + 1), 0.5))
     detail = f"{type(last_error).__name__}: {last_error}" if last_error else "no usable connection"
     raise PoolExhaustedError(
         f"database connection pool exhausted (DB_POOL_MAX_CONNECTIONS={maxconn}): {detail}"
