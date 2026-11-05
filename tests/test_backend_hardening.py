@@ -398,6 +398,8 @@ def _child_session(monkeypatch, cr):
     monkeypatch.setattr(cr, "fetch_one", fake_fetch_one)
     # The role decorator reads fetch_one from its own (decorators) namespace.
     monkeypatch.setattr("decorators.fetch_one", fake_fetch_one)
+    import services.social as soc
+    monkeypatch.setattr(soc, "child_surface_open", lambda *a, **k: True)
 
 
 def test_recommendation_action_records_hide_for_visible_post(monkeypatch):

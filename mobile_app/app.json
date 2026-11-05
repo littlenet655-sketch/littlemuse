@@ -17,7 +17,8 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS"
-      ]
+      ],
+      "usesCleartextTraffic": false
     },
     "ios": {
       "bundleIdentifier": "com.littlenet.app",
