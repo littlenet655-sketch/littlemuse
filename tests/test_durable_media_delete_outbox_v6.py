@@ -153,4 +153,7 @@ def test_web_startup_non_blocking():
     modal_code = modal_path.read_text(encoding="utf-8")
     web_def = modal_code.split("def web():")[1].split("def persist_upload_changes")[0]
     assert "reconcile_pending_deletes" not in web_def
-    assert "drain_media_delete_outbox" in modal_code
+    # The durable outbox is reconciled by the scheduled recovery sweep, not by a
+    # dedicated every-5-minutes cron that kept the database awake.
+    assert "reconcile_pending_deletes" in modal_code.split("def recovery_sweep")[1].split("@app.function")[0]
+    assert "drain_media_delete_outbox" not in modal_code

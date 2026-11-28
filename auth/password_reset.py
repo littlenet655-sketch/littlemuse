@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import logging
 import bcrypt
 from datetime import datetime, timezone
 from database.connection import get_db_connection, execute, fetch_one, fetch_all
@@ -15,6 +16,23 @@ RESET_RESEND_COOLDOWN_SECONDS = 60
 OTP_MAX_ATTEMPTS = 5
 MAX_RESET_ROWS_PER_IP_WINDOW = 5
 RESET_IP_WINDOW_SECONDS = 900  # 15 minutes
+
+
+def _dispatch_password_reset_email_async(reset_token: str) -> None:
+    """Spawn one background worker after the durable outbox transaction commits.
+
+    Keep the public response uniform; failures stay in the DB-backed outbox
+    for the low-frequency sweep instead of exposing account existence.
+    """
+    if os.getenv("LITTLENET_ENV", "development").strip().lower() not in {"production", "prod"}:
+        return
+    try:
+        import modal
+
+        app_name = os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web")
+        modal.Function.from_name(app_name, "dispatch_password_reset_email").spawn(reset_token)
+    except Exception:
+        logging.getLogger(__name__).exception("Password reset dispatch unavailable; email retained in outbox")
 
 import base64
 from cryptography.fernet import Fernet
@@ -61,6 +79,9 @@ def _mask_email(email: str) -> str:
 
 def _ensure_table():
     """Defensive fallback for local tests running without dbmate adoption."""
+    # Production migrations are a deployment gate; do not issue DDL on each reset.
+    if os.getenv("LITTLENET_ENV", "development").strip().lower() in {"production", "prod"}:
+        return
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -228,6 +249,7 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
             _tok = (_tx.get("reset_token") if _tx else None) or f"prt_{secrets.token_hex(24)}"
             if not _tx or not _tx.get("reset_token"):
                 execute("INSERT INTO password_reset_transactions (reset_token, user_id, code_hash, request_ip, attempts, max_attempts, expires_at, created_at, is_decoy, status) VALUES (%s, %s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW(), FALSE, 'ACTIVE')", (_tok, user["user_id"], recent_tx.get("code_hash", ""), ip, recent_tx.get("attempts", 0), OTP_MAX_ATTEMPTS))
+            _dispatch_password_reset_email_async(_tok)
             return True, UNIFORM_RESET_MESSAGE, {
                 "reset_token": _tok,
                 "user_id": user["user_id"],
@@ -307,6 +329,9 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
                     (reset_token, target_email, subject, encrypt_outbox_body(body), OTP_MAX_ATTEMPTS),
                 )
                 conn.commit()
+                # The OTP is durable before the remote worker starts. Never expose
+                # worker timing or errors in the account-enumeration-safe response.
+                _dispatch_password_reset_email_async(reset_token)
 
                 return True, UNIFORM_RESET_MESSAGE, {
                     "reset_token": reset_token,
@@ -328,6 +353,8 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
                     (reset_token, decoy_hash, ip, OTP_MAX_ATTEMPTS),
                 )
                 conn.commit()
+                # Spawn for unknown accounts too so public response timing does not reveal membership.
+                _dispatch_password_reset_email_async(reset_token)
 
                 return True, UNIFORM_RESET_MESSAGE, {
                     "reset_token": reset_token,
@@ -340,8 +367,14 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
         conn.close()
 
 
-def process_password_reset_email_outbox(batch_size: int = 10) -> int:
+def process_password_reset_email_outbox(
+    batch_size: int = 10, reset_token: str | None = None, raise_on_failure: bool = False
+) -> int:
     """Durable outbox dispatcher: sends queued password reset emails.
+
+    ``reset_token`` scopes one run to a single reset (event-driven delivery).
+    ``raise_on_failure`` makes retryable transport failures raise so the
+    caller (a Modal function with retries) can retry promptly.
 
     Requirements:
     - Bounded batches
@@ -353,21 +386,27 @@ def process_password_reset_email_outbox(batch_size: int = 10) -> int:
     """
     conn = get_db_connection()
     sent_count = 0
+    failed_count = 0
     try:
         with conn.cursor() as cur:
-            cur.execute(
+            token_filter = " AND o.reset_token = %s\n" if reset_token else ""
+            query = (
                 """
                 SELECT o.outbox_id, o.reset_token, o.recipient, o.subject, o.body_html,
                        t.expires_at, t.status AS tx_status
                 FROM password_reset_email_outbox o
                 LEFT JOIN password_reset_transactions t ON t.reset_token = o.reset_token
                 WHERE o.completed_at IS NULL AND o.attempts < o.max_attempts
+                """
+                + token_filter
+                + """
                 ORDER BY o.created_at
                 LIMIT %s
                 FOR UPDATE OF o SKIP LOCKED
-                """,
-                (batch_size,),
+                """
             )
+            params = (reset_token, batch_size) if reset_token else (batch_size,)
+            cur.execute(query, params)
             rows = cur.fetchall()
             now = datetime.now(timezone.utc)
             for row in rows:
@@ -408,11 +447,13 @@ def process_password_reset_email_outbox(batch_size: int = 10) -> int:
                         )
                         sent_count += 1
                     else:
+                        failed_count += 1
                         cur.execute(
                             "UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = 'mail transport rejected' WHERE outbox_id = %s",
                             (oid,),
                         )
                 except Exception as exc:
+                    failed_count += 1
                     cur.execute(
                         "UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = %s WHERE outbox_id = %s",
                         (str(exc)[:250], oid),
@@ -423,6 +464,8 @@ def process_password_reset_email_outbox(batch_size: int = 10) -> int:
         raise
     finally:
         conn.close()
+    if raise_on_failure and failed_count:
+        raise RuntimeError("Password-reset email dispatch failed; retryable delivery error")
     return sent_count
 
 

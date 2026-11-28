@@ -1,6 +1,6 @@
 """Scheduled recovery sweep: stale media jobs + abandoned upload sessions.
 
-Runs every 15 minutes from Modal (``modal_web.recovery_sweep``) and remains
+Runs every 30 minutes from Modal (``modal_web.recovery_sweep``) and remains
 available manually via ``POST /api/mobile/v2/maintenance/reap-stale-jobs``.
 
 Without a schedule, stuck PROCESSING media jobs and abandoned direct-to-R2
