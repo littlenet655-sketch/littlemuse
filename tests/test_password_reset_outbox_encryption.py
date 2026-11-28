@@ -81,6 +81,9 @@ def test_expired_reset_outbox_is_reaped_without_sending():
 
     assert sent == 0
     mock_send.assert_not_called()
-    assert fetch_one("SELECT 1 FROM password_reset_transactions WHERE reset_token=%s", (token,)) is None
-    assert fetch_one("SELECT 1 FROM password_reset_email_outbox WHERE reset_token=%s", (token,)) is None
+    assert fetch_one("SELECT 1 FROM password_reset_email_outbox WHERE reset_token=%s AND completed_at IS NULL", (token,)) is None
+    row = fetch_one("SELECT completed_at, last_error FROM password_reset_email_outbox WHERE reset_token=%s", (token,))
+    assert row is not None
+    assert row["completed_at"] is not None
+    assert "expired" in row["last_error"]
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -490,6 +491,48 @@ def _liked_saved_snapshot(child_id, limit=30, include_saved=True):
             "created_at": r["created_at"],
         })
     return out
+
+def _batch_enrich_posts(posts: list[dict], viewer_id: int | None):
+    """Pre-fetch likes, saved status, and post tags in bulk to eliminate N+1 queries."""
+    if not posts:
+        return
+    valid_posts = [p for p in posts if p and p.get("post_id")]
+    pids = [int(p["post_id"]) for p in valid_posts]
+    if not pids:
+        return
+
+    liked_ids = set()
+    saved_ids = set()
+    if viewer_id:
+        liked_rows = fetch_all(
+            "SELECT post_id FROM likes WHERE post_id = ANY(%s) AND child_id=%s",
+            (pids, viewer_id),
+        ) or []
+        liked_ids = {r["post_id"] for r in liked_rows}
+
+        saved_rows = fetch_all(
+            "SELECT post_id FROM saved_posts WHERE post_id = ANY(%s) AND child_id=%s",
+            (pids, viewer_id),
+        ) or []
+        saved_ids = {r["post_id"] for r in saved_rows}
+
+    tags_by_post = {pid: [] for pid in pids}
+    tag_rows = fetch_all(
+        "SELECT post_id, tag FROM post_tags WHERE post_id = ANY(%s) ORDER BY tag_id ASC",
+        (pids,),
+    ) or []
+    for r in tag_rows:
+        tags_by_post[r["post_id"]].append(r["tag"])
+
+    for p in valid_posts:
+        pid = int(p["post_id"])
+        if "viewer_liked" not in p and viewer_id:
+            p["viewer_liked"] = pid in liked_ids
+        if "viewer_saved" not in p and viewer_id:
+            p["viewer_saved"] = pid in saved_ids
+        if "tags" not in p:
+            p["tags"] = tags_by_post.get(pid, [])
+
 
 def _post_json(row, viewer_id=None, auth_decisions=None):
     if not row:
@@ -1481,6 +1524,7 @@ def register_mobile_api(bp):
         post_rows = visible_posts(uid, False, 20, 0)
         reel_rows = visible_posts(uid, True, 8, 0)
         suggested_rows = get_random_children(uid)[:8]
+        _batch_enrich_posts(story_rows + post_rows + reel_rows, uid)
         _refs = set()
         for _r in story_rows + post_rows + reel_rows:
             for _k in ("media_path", "poster_path", "profile_picture"):
@@ -1524,6 +1568,7 @@ def register_mobile_api(bp):
         if feed_quiz_state(uid).get("required"):
             return jsonify(ok=True, page=page, reels=[], quiz_required=True)
         rows = visible_posts(uid, True, 10, (page - 1) * 10)
+        _batch_enrich_posts(rows, uid)
         return jsonify(ok=True, page=page, reels=[_post_json(p, uid) for p in rows])
 
     @bp.route("/api/mobile/v1/kids/discover")
@@ -1551,6 +1596,7 @@ def register_mobile_api(bp):
         if q:
             needle = q.lstrip("#").casefold()
             posts = [p for p in posts if needle in str(p.get("caption") or "").casefold() or needle in str(p.get("content_category") or "").casefold() or needle in str(p.get("full_name") or "").casefold()]
+        _batch_enrich_posts(posts, uid)
         return jsonify(ok=True, pii_warning=False, children=out, posts=[_post_json(p, uid) for p in posts])
 
     @bp.route("/api/mobile/v1/kids/profile", methods=["GET", "PUT"])
@@ -1796,6 +1842,8 @@ def register_mobile_api(bp):
     @limiter.limit("30 per minute")
     @_require_mobile("CHILD")
     def mobile_kids_creator_chat(creator_id):
+        if not feature_allowed(int(g.mobile_user["user_id"]), "ai_creator_chat") and not g.mobile_user.get("demo_unlimited"):
+            return jsonify(error="disabled_by_parent", feature="ai_creator_chat"), 403
         gate = _child_gate("messaging")
         if gate:
             return gate
@@ -1869,6 +1917,8 @@ def register_mobile_api(bp):
             history=list(reversed(history or [])),
         )
         reply_text = str(result.reply or "").strip()
+        reply_text = re.sub(r"\s*[—–]\s*", ", ", reply_text)
+        reply_text = re.sub(r",\s*,+", ", ", reply_text).strip()
         reply_pii = scan_pii(reply_text)
         _, reply_decision = evaluate(uid, "TEXT", reply_text)
         if (
@@ -3805,7 +3855,7 @@ def register_mobile_api(bp):
         if request.method == "PUT":
             data = _json_dict()
             flags = {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat",
                 "quiet_hours_enabled", "educational_only_feed",
             }
             if any(key in data and not isinstance(data[key], bool) for key in flags):
@@ -3821,11 +3871,11 @@ def register_mobile_api(bp):
             current = controls_for_child(child_id)
             merged = dict(current)
             merged.update({k: data[k] for k in data if k in {
-                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments",
+                "allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat",
                 "quiet_hours_enabled", "quiet_start", "quiet_end", "educational_only_feed", "allowed_categories",
             }})
             form = MultiDict()
-            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "quiet_hours_enabled", "educational_only_feed"):
+            for flag in ("allow_reels", "allow_stories", "allow_messaging", "allow_posting", "allow_discover", "allow_comments", "allow_ai_creator_chat", "quiet_hours_enabled", "educational_only_feed"):
                 if bool(merged.get(flag)):
                     form.add(flag, "on")
             form.add("quiet_start", str(merged.get("quiet_start") or "21:00"))
@@ -4387,6 +4437,22 @@ def register_mobile_api(bp):
     def mobile_admin_reviews():
         rows = fetch_all("SELECT e.*,u.full_name,u.username FROM moderation_events e JOIN users u ON u.user_id=e.child_id WHERE e.decision='REVIEW' AND e.status='OPEN' ORDER BY e.created_at DESC LIMIT 100")
         return jsonify(ok=True, events=_clean(rows))
+
+    @bp.route("/api/mobile/v1/admin/ai/chat", methods=["POST"])
+    @csrf.exempt
+    @limiter.limit("30 per minute")
+    @_require_mobile("ADMIN", "MODERATOR")
+    def mobile_admin_ai_chat():
+        admin_id = int(g.mobile_user["user_id"])
+        role = str(g.mobile_user.get("role") or "")
+        data = _json_dict()
+        question = str(data.get("question") or "").strip()
+        if not question:
+            return jsonify(ok=False, error="empty_question", message="Please provide a question."), 400
+        from services.admin_ai import ask_admin_assistant
+        res = ask_admin_assistant(admin_id, role, question)
+        status_code = 200 if res.get("ok") else (403 if res.get("error") in ("unauthorized", "restricted_fields") else 400)
+        return jsonify(res), status_code
 
     @bp.route("/api/mobile/v2/kids/heartbeat", methods=["POST"])
     @csrf.exempt

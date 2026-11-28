@@ -40,6 +40,8 @@ web_image = (
     .apt_install("ffmpeg", "curl", "ca-certificates")
     .run_commands(
         "curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.34.1/dbmate-linux-amd64",
+        # Same pinned digest the Dockerfiles verify (SECURITY_AUDIT_REPORT T1-002).
+        'echo "b002d5249d53d0c6c482ed761b5a806c6fb9a364fcc5f9db3e8763c1d9e40e1d  /usr/local/bin/dbmate" | sha256sum -c -',
         "chmod +x /usr/local/bin/dbmate",
         "dbmate --version",
     )
@@ -75,6 +77,9 @@ web_image = (
             "DBMATE_MIGRATIONS_DIR": "/root/littlenet/db/migrations",
             "DBMATE_NO_DUMP_SCHEMA": "true",
             "DBMATE_STRICT": "true",
+            # Each Modal container keeps its own PostgreSQL pool; avoid 2-20 idle connections per container.
+            "DB_POOL_MIN_CONNECTIONS": os.getenv("DB_POOL_MIN_CONNECTIONS", "1"),
+            "DB_POOL_MAX_CONNECTIONS": os.getenv("DB_POOL_MAX_CONNECTIONS", "8"),
             "LITTLENET_DEPLOY_VERSION": "14",
             "LITTLENET_WEB_MODAL_APP": os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web"),
             "LITTLENET_AI_MODAL_APP": os.getenv("LITTLENET_AI_MODAL_APP", "littlemuse-ai"),
@@ -125,13 +130,8 @@ def web():
 
     flask_app = create_app()
 
-    try:
-        from services.media_outbox import reconcile_pending_deletes
-        cleanup = reconcile_pending_deletes(100)
-        if cleanup.get("failed"):
-            flask_app.logger.warning("Pending R2 delete reconciliation: %s", cleanup)
-    except Exception:
-        flask_app.logger.info("Media delete outbox is not ready during web startup", exc_info=True)
+    # Web startup is strictly non-blocking and never touches the database.
+    # The media delete outbox is reconciled by the scheduled recovery_sweep.
 
     @flask_app.after_request
     def persist_upload_changes(response):
@@ -232,13 +232,14 @@ def process_media_job_background(post_id: int, child_id: int, object_key: str, k
     cpu=0.25,
     memory=256,
     secrets=[web_secret, email_secret],
-    schedule=modal.Cron("* * * * *"),
+    # Safety-net sweep only. A real password reset dispatches immediately via Modal.spawn().
+    schedule=modal.Cron("0 * * * *"),
     timeout=120,
     min_containers=0,
     max_containers=1,
 )
 def password_reset_email_sweep():
-    """Deliver queued password-reset emails without exposing account timing."""
+    """Hourly fallback for still-live reset emails; immediate worker delivers normal requests."""
     os.chdir("/root/littlenet")
     from auth.password_reset import process_password_reset_email_outbox
 
@@ -247,20 +248,58 @@ def password_reset_email_sweep():
 
 @app.function(
     image=web_image,
+    cpu=0.25,
+    memory=256,
+    secrets=[web_secret, email_secret],
+    timeout=120,
+    retries=modal.Retries(max_retries=3, backoff_coefficient=2.0, initial_delay=5.0),
+    min_containers=0,
+    max_containers=1,
+)
+def dispatch_password_reset_email(reset_token: str):
+    """Event-driven, token-scoped OTP delivery, independent of the periodic sweep.
+
+    Modal retries transient DB or email transport failures promptly; failed or
+    expired OTPs never leak to the public response. No polling is needed for
+    normal password-reset requests.
+    """
+    os.chdir("/root/littlenet")
+    from auth.password_reset import process_password_reset_email_outbox
+
+    return {
+        "sent": process_password_reset_email_outbox(
+            batch_size=1, reset_token=reset_token, raise_on_failure=True
+        )
+    }
+
+
+@app.function(
+    image=web_image,
     cpu=0.5,
     memory=512,
     secrets=[web_secret, r2_secret],
-    schedule=modal.Cron("*/15 * * * *"),
+    # Batch orphaned uploads every 30m instead of waking the database every 15m.
+    schedule=modal.Cron("*/30 * * * *"),
     timeout=300,
     min_containers=0,
     max_containers=1,
 )
 def recovery_sweep():
-    """Reap stale media jobs and abandoned upload sessions every 15 minutes."""
+    """Reap stale media jobs and abandoned upload sessions every 30 minutes."""
     os.chdir("/root/littlenet")
     from services.recovery import run_recovery_sweep
 
-    return run_recovery_sweep()
+    # Reconcile durable R2 media deletions without a separate 5-minute cron.
+    # Keep the three existing recovery passes independent from R2 deletion.
+    result = run_recovery_sweep()
+    try:
+        from services.media_outbox import reconcile_pending_deletes
+        result["media_delete_outbox"] = reconcile_pending_deletes(limit=50)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("Media-delete outbox recovery failed")
+        result["media_delete_outbox"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return result
 
 
 @app.function(

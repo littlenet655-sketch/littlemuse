@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import logging
 import bcrypt
 from datetime import datetime, timezone
 from database.connection import get_db_connection, execute, fetch_one, fetch_all
@@ -15,6 +16,23 @@ RESET_RESEND_COOLDOWN_SECONDS = 60
 OTP_MAX_ATTEMPTS = 5
 MAX_RESET_ROWS_PER_IP_WINDOW = 5
 RESET_IP_WINDOW_SECONDS = 900  # 15 minutes
+
+
+def _dispatch_password_reset_email_async(reset_token: str) -> None:
+    """Spawn one background worker after the durable outbox transaction commits.
+
+    Keep the public response uniform; failures stay in the DB-backed outbox
+    for the low-frequency sweep instead of exposing account existence.
+    """
+    if os.getenv("LITTLENET_ENV", "development").strip().lower() not in {"production", "prod"}:
+        return
+    try:
+        import modal
+
+        app_name = os.getenv("LITTLENET_WEB_MODAL_APP", "littlemuse-web")
+        modal.Function.from_name(app_name, "dispatch_password_reset_email").spawn(reset_token)
+    except Exception:
+        logging.getLogger(__name__).exception("Password reset dispatch unavailable; email retained in outbox")
 
 import base64
 from cryptography.fernet import Fernet
@@ -61,6 +79,9 @@ def _mask_email(email: str) -> str:
 
 def _ensure_table():
     """Defensive fallback for local tests running without dbmate adoption."""
+    # Production migrations are a deployment gate; do not issue DDL on each reset.
+    if os.getenv("LITTLENET_ENV", "development").strip().lower() in {"production", "prod"}:
+        return
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -228,6 +249,7 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
             _tok = (_tx.get("reset_token") if _tx else None) or f"prt_{secrets.token_hex(24)}"
             if not _tx or not _tx.get("reset_token"):
                 execute("INSERT INTO password_reset_transactions (reset_token, user_id, code_hash, request_ip, attempts, max_attempts, expires_at, created_at, is_decoy, status) VALUES (%s, %s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW(), FALSE, 'ACTIVE')", (_tok, user["user_id"], recent_tx.get("code_hash", ""), ip, recent_tx.get("attempts", 0), OTP_MAX_ATTEMPTS))
+            _dispatch_password_reset_email_async(_tok)
             return True, UNIFORM_RESET_MESSAGE, {
                 "reset_token": _tok,
                 "user_id": user["user_id"],
@@ -307,6 +329,9 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
                     (reset_token, target_email, subject, encrypt_outbox_body(body), OTP_MAX_ATTEMPTS),
                 )
                 conn.commit()
+                # The OTP is durable before the remote worker starts. Never expose
+                # worker timing or errors in the account-enumeration-safe response.
+                _dispatch_password_reset_email_async(reset_token)
 
                 return True, UNIFORM_RESET_MESSAGE, {
                     "reset_token": reset_token,
@@ -328,6 +353,8 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
                     (reset_token, decoy_hash, ip, OTP_MAX_ATTEMPTS),
                 )
                 conn.commit()
+                # Spawn for unknown accounts too so public response timing does not reveal membership.
+                _dispatch_password_reset_email_async(reset_token)
 
                 return True, UNIFORM_RESET_MESSAGE, {
                     "reset_token": reset_token,
@@ -340,53 +367,105 @@ def request_password_reset(identifier: str, request_ip: str | None = None) -> tu
         conn.close()
 
 
-def process_password_reset_email_outbox(batch_size: int = 10) -> int:
-    """Durable outbox dispatcher: send only still-valid reset emails.
+def process_password_reset_email_outbox(
+    batch_size: int = 10, reset_token: str | None = None, raise_on_failure: bool = False
+) -> int:
+    """Durable outbox dispatcher: sends queued password reset emails.
 
-    Expired/revoked transactions are reaped before dispatch, and the SELECT
-    independently joins the parent transaction with an ACTIVE + future-expiry
-    guard. This prevents a delayed cron/deployment from emailing a stale OTP.
+    ``reset_token`` scopes one run to a single reset (event-driven delivery).
+    ``raise_on_failure`` makes retryable transport failures raise so the
+    caller (a Modal function with retries) can retry promptly.
+
+    Requirements:
+    - Bounded batches
+    - SKIP LOCKED concurrency safety
+    - Idempotent: attempts < max_attempts
+    - Expired reset transactions must not send stale reset codes; mark terminal
+    - Encrypted outbox body remains encrypted at rest, decrypted only in-memory
+    - No OTP or email body in logs
     """
-    reap_expired_reset_transactions()
     conn = get_db_connection()
     sent_count = 0
+    failed_count = 0
     try:
         with conn.cursor() as cur:
-            cur.execute(
+            token_filter = " AND o.reset_token = %s\n" if reset_token else ""
+            query = (
                 """
-                SELECT o.outbox_id, o.recipient, o.subject, o.body_html
+                SELECT o.outbox_id, o.reset_token, o.recipient, o.subject, o.body_html,
+                       t.expires_at, t.status AS tx_status
                 FROM password_reset_email_outbox o
-                JOIN password_reset_transactions t ON t.reset_token = o.reset_token
-                WHERE o.completed_at IS NULL
-                  AND o.attempts < o.max_attempts
-                  AND t.status = 'ACTIVE'
-                  AND t.expires_at > NOW()
+                LEFT JOIN password_reset_transactions t ON t.reset_token = o.reset_token
+                WHERE o.completed_at IS NULL AND o.attempts < o.max_attempts
+                """
+                + token_filter
+                + """
                 ORDER BY o.created_at
                 LIMIT %s
                 FOR UPDATE OF o SKIP LOCKED
-                """,
-                (batch_size,),
+                """
             )
+            params = (reset_token, batch_size) if reset_token else (batch_size,)
+            cur.execute(query, params)
             rows = cur.fetchall()
+            now = datetime.now(timezone.utc)
             for row in rows:
                 oid = row["outbox_id"]
+                tx_status = row.get("tx_status")
+                expires_at = row.get("expires_at")
+
+                # If transaction has expired, does not exist, or is not ACTIVE, do NOT send stale OTP
+                if not expires_at or expires_at <= now or tx_status != "ACTIVE":
+                    cur.execute(
+                        """
+                        UPDATE password_reset_email_outbox
+                        SET completed_at = NOW(),
+                            last_error = 'transaction_expired_or_inactive'
+                        WHERE outbox_id = %s
+                        """,
+                        (oid,),
+                    )
+                    continue
+
                 to_addr = row["recipient"]
                 subj = row["subject"]
-                html = decrypt_outbox_body(row["body_html"])
+                try:
+                    html = decrypt_outbox_body(row["body_html"])
+                except Exception as exc:
+                    cur.execute(
+                        "UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = %s WHERE outbox_id = %s",
+                        (f"decrypt_failed: {str(exc)[:200]}", oid),
+                    )
+                    continue
+
                 try:
                     sent = send_email(to_addr, subj, html)
                     if sent:
-                        cur.execute("UPDATE password_reset_email_outbox SET completed_at = NOW(), attempts = attempts + 1 WHERE outbox_id = %s", (oid,))
+                        cur.execute(
+                            "UPDATE password_reset_email_outbox SET completed_at = NOW(), attempts = attempts + 1 WHERE outbox_id = %s",
+                            (oid,),
+                        )
                         sent_count += 1
                     else:
-                        cur.execute("UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = 'mail transport rejected' WHERE outbox_id = %s", (oid,))
+                        failed_count += 1
+                        cur.execute(
+                            "UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = 'mail transport rejected' WHERE outbox_id = %s",
+                            (oid,),
+                        )
                 except Exception as exc:
-                    cur.execute("UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = %s WHERE outbox_id = %s", (str(exc)[:250], oid))
+                    failed_count += 1
+                    cur.execute(
+                        "UPDATE password_reset_email_outbox SET attempts = attempts + 1, last_error = %s WHERE outbox_id = %s",
+                        (str(exc)[:250], oid),
+                    )
         conn.commit()
     except Exception:
         conn.rollback()
+        raise
     finally:
         conn.close()
+    if raise_on_failure and failed_count:
+        raise RuntimeError("Password-reset email dispatch failed; retryable delivery error")
     return sent_count
 
 

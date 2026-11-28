@@ -22,7 +22,7 @@ FEATURE_COLUMNS = {
     'messaging':'allow_messaging',
     'posting':'allow_posting',
     'discover':'allow_discover',
-    'comments':'allow_comments',
+    'comments':'allow_comments', 'ai_creator_chat':'allow_ai_creator_chat',
 }
 
 
@@ -43,7 +43,7 @@ def _defaults(child_id=None):
         'allow_messaging':True,
         'allow_posting':True,
         'allow_discover':True,
-        'allow_comments':True,
+        'allow_comments':True, 'allow_ai_creator_chat':False,
         'quiet_hours_enabled':False,
         'quiet_start':'21:00',
         'quiet_end':'07:00',
@@ -195,5 +195,9 @@ def save_controls(parent_id,child_id,form):
       allowed_categories=EXCLUDED.allowed_categories,updated_at=NOW()''',(
         child_id,parent_id,values['allow_reels'],values['allow_stories'],values['allow_messaging'],values['allow_posting'],
         values['allow_discover'],values['allow_comments'],values['quiet_hours_enabled'],qstart,qend,values['educational_only_feed'],json.dumps(allowed)))
+    try:
+        execute('UPDATE parent_control_settings SET allow_ai_creator_chat=%s WHERE child_id=%s', ('allow_ai_creator_chat' in form, child_id))
+    except Exception:
+        pass
     _controls_cache.pop(child_id, None)
     return controls_for_child(child_id)

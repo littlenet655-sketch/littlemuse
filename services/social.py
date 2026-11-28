@@ -195,8 +195,20 @@ def parent_notify(child_id,kind,message,url=None):
           AND u.role='PARENT'
           AND u.account_status='ACTIVE' ''',(child_id,))
     for parent in parents:
+        pid = parent['parent_id']
         execute('''INSERT INTO parent_notifications(parent_id,child_id,notification_type,notification_message,target_url)
-          VALUES(%s,%s,%s,%s,%s)''',(parent['parent_id'],child_id,kind,message,url))
+          VALUES(%s,%s,%s,%s,%s)''',(pid,child_id,kind,message,url))
+        try:
+            from services.push_notifications import notify_user_event
+            notify_user_event(
+                pid,
+                event_type="FOLLOW_REQUEST" if "FOLLOW" in str(kind).upper() or "FRIEND" in str(kind).upper() else "PARENT_NOTIFICATION",
+                title="Friendship Request" if "FOLLOW" in str(kind).upper() or "FRIEND" in str(kind).upper() else "LittleNet Parent Notice",
+                message=message,
+                payload={"url": url or "/parent/follow-requests/", "child_id": child_id, "notification_type": str(kind)},
+            )
+        except Exception:
+            pass
     safety_kind=('BLOCK' in str(kind).upper()) or ('REVIEW' in str(kind).upper())
     if safety_kind and parents:
         try:

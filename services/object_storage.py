@@ -109,18 +109,25 @@ def is_reference(reference: str | None) -> bool:
     return bool(reference and str(reference).startswith(R2_REFERENCE_PREFIX))
 
 
+_CLIENT = None
+
+
 def _client():
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
     if not _enabled():
         raise RuntimeError("Cloudflare R2 is not configured")
     import boto3
 
-    return boto3.client(
+    _CLIENT = boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
         aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         region_name="auto",
     )
+    return _CLIENT
 
 
 def upload_file(local_path: str, key: str, content_type: Optional[str] = None, skip_audio_strip: bool = False) -> str:
